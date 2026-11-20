@@ -1,35 +1,53 @@
 <script lang="ts">
-	import tooltip from '$lib/actions/tooltip';
+	import { mediaGroupByDay } from '$lib/stores/mediaGroupByDay';
 	import { onDestroy } from 'svelte';
 	import { debounce } from '$lib/utils/time';
 	import { libraryStore } from '$lib/stores/library';
 	import { historyTileSize, type HistoryTileSize } from '$lib/stores/historyTileSize';
-	import { PageHeader, PageTitle, IconButton, Button } from '$lib/components/ui';
+	import { Menu } from '$lib/components/ui';
+	import {
+		ListPageHeader,
+		HeaderTitle,
+		HeaderSearch,
+		HeaderSegmented,
+		HeaderFilters,
+		HeaderSort,
+		HeaderViewOptions,
+		HeaderAction,
+		viewMenuItems,
+		handleViewMenu,
+		type HeaderStage,
+		type FilterChip
+	} from '$lib/components/page-header';
 	import Icon from '$lib/components/Icon.svelte';
 	import { hasConvertibleLibraryFilters, libraryFilterRule } from '$lib/organize/filterPrefill';
 	import { startRuleFrom } from '$lib/organize/handoff';
 	import CollectionSidebarSheet from '$lib/components/collections/CollectionSidebarSheet.svelte';
 	import LibrarySidebar from './LibrarySidebar.svelte';
-	import SubcollectionFilters from '$lib/components/collections/SubcollectionFilters.svelte';
+	import IncludeSubcollections from '$lib/components/collections/IncludeSubcollections.svelte';
+	import { excludesSubcollections, hasSubcollections } from '$lib/components/collections/subcollections';
 	import { libraryCollectionsStore } from '$lib/stores/collections';
+	import type { LibrarySortDir, LibrarySortField } from '$lib/library/libraryQuery';
 
-	// Self-contained: reads/writes libraryStore directly. Modal-opening
-	// callbacks stay as props since modal state lives on the page.
 	export let onOpenAddTag: () => void;
 	export let onPickFiles: () => void;
 	export let onOpenDeleteByCriteria: () => void;
 	export let sidebarOpen = true;
 	export let onOpenSidebar: () => void = () => {};
 
+	let stage: HeaderStage = 'full';
+	let filtersOpen = false;
+
 	$: state = $libraryStore;
+	$: counts = state.mediaTypeCounts;
+	$: collections = $libraryCollectionsStore.collections;
+	$: subcollectionsShown = hasSubcollections(collections, state.filters.collectionId);
+	$: excluding = excludesSubcollections(collections, state.filters.collectionId, !!state.filters.directOnly);
 
 	function setDirectOnly(value: boolean) {
 		libraryStore.setFilter('directOnly', value);
 		libraryStore.load();
 	}
-	$: counts = state.mediaTypeCounts;
-
-	let isMoreMenuOpen = false;
 
 	$: canMakeRule = hasConvertibleLibraryFilters(state.filters);
 
@@ -39,185 +57,225 @@
 		return startRuleFrom(libraryFilterRule(state.filters, { tagNames: names }));
 	}
 
-	const mediaTypes: Array<{ value: 'all' | 'image' | 'video' | 'audio'; label: string; icon?: string }> = [
-		{ value: 'all', label: 'All' },
-		{ value: 'image', label: 'Images', icon: 'image' },
-		{ value: 'video', label: 'Videos', icon: 'video' },
-		{ value: 'audio', label: 'Audio', icon: 'audio' }
+	const sortFields: Array<{ value: string; label: string }> = [
+		{ value: 'added', label: 'Added' },
+		{ value: 'name', label: 'Name' },
+		{ value: 'size', label: 'Size' }
+	];
+	const sortDefaultDir: Record<string, LibrarySortDir> = { added: 'desc', name: 'asc', size: 'desc' };
+
+	$: sortField = state.filters.sortBy ?? 'added';
+	$: sortDirection = state.filters.sortDir ?? sortDefaultDir[sortField];
+
+	function handleSortFieldChange(value: string) {
+		libraryStore.setFilter('sortBy', value as LibrarySortField);
+		libraryStore.setFilter('sortDir', sortDefaultDir[value]);
+		libraryStore.load();
+	}
+
+	function handleSortDirChange(dir: 'asc' | 'desc') {
+		libraryStore.setFilter('sortBy', sortField as LibrarySortField);
+		libraryStore.setFilter('sortDir', dir);
+		libraryStore.load();
+	}
+
+	const mediaTypeLabels: Record<string, string> = { image: 'Images', video: 'Videos', audio: 'Audio' };
+
+	$: mediaTypeItems = [
+		{ value: 'all', label: 'All', tooltip: 'All media' },
+		{ value: 'image', icon: 'image', tooltip: 'Images', count: counts.image || undefined },
+		{ value: 'video', icon: 'video', tooltip: 'Videos', count: counts.video || undefined },
+		{ value: 'audio', icon: 'audio', tooltip: 'Audio', count: counts.audio || undefined }
 	];
 
-	const tileSizes: Array<{ value: HistoryTileSize; label: string; title: string }> = [
-		{ value: 'small', label: 'S', title: 'Small tiles' },
-		{ value: 'medium', label: 'M', title: 'Medium tiles' },
-		{ value: 'large', label: 'L', title: 'Large tiles' }
-	];
-
-	async function handleMediaTypeChange(value: 'all' | 'image' | 'video' | 'audio') {
-		libraryStore.setFilter('mediaType', value);
+	async function handleMediaTypeChange(value: string) {
+		libraryStore.setFilter('mediaType', value as 'all' | 'image' | 'video' | 'audio');
 		await libraryStore.load();
 	}
 
-	// Search matches the item's original filename server-side, debounced.
+	function buildChips(mediaType: string, excludingSub: boolean): FilterChip[] {
+		const list: FilterChip[] = [];
+		if (mediaType !== 'all') {
+			list.push({ id: 'media', label: mediaTypeLabels[mediaType] ?? mediaType, onremove: () => handleMediaTypeChange('all') });
+		}
+		if (excludingSub) {
+			list.push({ id: 'subcollections', label: 'Without subcollections', onremove: () => setDirectOnly(false) });
+		}
+		return list;
+	}
+
+	$: chips = buildChips(state.filters.mediaType, excluding);
+
+	function clearAll() {
+		libraryStore.setFilter('mediaType', 'all');
+		libraryStore.setFilter('directOnly', false);
+		libraryStore.load();
+	}
+
 	const scheduleSearch = debounce(() => libraryStore.load(), 300);
-	function handleSearchInput(event: Event) {
-		const value = (event.currentTarget as HTMLInputElement).value;
+	function handleSearchInput(value: string) {
 		libraryStore.setFilter('search', value);
 		scheduleSearch();
 	}
 
 	onDestroy(scheduleSearch.cancel);
 
-	function handleWindowClick(event: MouseEvent) {
-		const target = event.target as HTMLElement;
-		if (!target.closest('.library-more-menu')) isMoreMenuOpen = false;
+	$: moreItems = [
+		...(stage === 'narrow'
+			? viewMenuItems({ size: $historyTileSize, grouped: $mediaGroupByDay, refresh: true })
+			: []),
+		{ id: 'tag', label: 'Add tag', icon: 'plus' },
+		{ id: 'delete-separator', label: '', separator: true },
+		{ id: 'delete', label: 'Delete by criteria', icon: 'trash', danger: true }
+	];
+
+	function handleMoreSelect(id: string) {
+		const handled = handleViewMenu(id, {
+			onsize: (size) => historyTileSize.set(size as HistoryTileSize),
+			ongroup: () => mediaGroupByDay.update((value) => !value),
+			onrefresh: () => libraryStore.load()
+		});
+		if (handled) return;
+		if (id === 'tag') onOpenAddTag();
+		else if (id === 'delete') onOpenDeleteByCriteria();
 	}
+
+	$: showFilters = subcollectionsShown || canMakeRule || stage === 'tight' || stage === 'narrow';
 </script>
 
-<svelte:window on:click={handleWindowClick} />
-
-<PageHeader wrap sticky={false}>
-	<div class="flex flex-wrap items-center gap-2 md:gap-4 w-full">
+<ListPageHeader bind:stage>
+	{#snippet leading()}
 		<CollectionSidebarSheet label="Library" collapsed={!sidebarOpen} onExpand={onOpenSidebar}>
 			<LibrarySidebar />
 		</CollectionSidebarSheet>
-		<PageTitle title="Library" count={state.totalCount} countLabel="items" countLabelOne="item" />
+	{/snippet}
 
-		<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>
-
-		<!-- Search -->
-		<div class="relative flex-1 min-w-[8rem] max-w-md">
-			<Icon
-				name="search"
-				className="w-3.5 h-3.5 text-fg-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
-			/>
-			<input
-				type="text"
-				class="input text-xs py-1.5 pl-8 pr-3 bg-surface-2/50 w-full"
-				placeholder="Search by file name..."
-				value={state.filters.search}
-				on:input={handleSearchInput}
-			/>
-		</div>
-
-		<!-- Media type -->
-		<div class="hidden md:flex items-center gap-0.5 bg-surface-2/50 rounded p-0.5 flex-shrink-0">
-			{#each mediaTypes as type}
-				<button
-					class="flex items-center gap-1.5 px-2 py-1 text-xs rounded-sm transition-colors duration-100 {state
-						.filters.mediaType === type.value
-						? 'bg-signal/10 text-signal'
-						: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-					use:tooltip={type.label}
-					aria-label={type.label}
-					aria-pressed={state.filters.mediaType === type.value}
-					on:click={() => handleMediaTypeChange(type.value)}
-				>
-					{#if type.icon}
-						<Icon name={type.icon} className="w-3.5 h-3.5" />
-					{:else}
-						{type.label}
-					{/if}
-					{#if type.value !== 'all' && counts[type.value]}
-						<span class="font-mono tabular-nums text-2xs">{counts[type.value]}</span>
-					{/if}
-				</button>
-			{/each}
-		</div>
-
-		<SubcollectionFilters
-			class="hidden md:block flex-shrink-0"
-			collections={$libraryCollectionsStore.collections}
-			activeId={state.filters.collectionId}
-			directOnly={!!state.filters.directOnly}
-			onDirectOnlyChange={setDirectOnly}
+	{#snippet title(s)}
+		<HeaderTitle
+			title="Library"
+			count={state.totalCount}
+			unit="items"
+			unitOne="item"
+			filterCount={showFilters ? chips.length : 0}
+			onOpenFilters={() => (filtersOpen = true)}
+			showUnit={s === 'full'}
+			narrow={s === 'narrow'}
 		/>
+	{/snippet}
 
-		{#if canMakeRule}
-			<button
-				type="button"
-				class="hidden md:flex flex-shrink-0 items-center gap-1 text-xs text-fg-muted hover:text-fg transition-colors"
-				on:click={handleMakeRule}
-			>
-				<Icon name="sparkles" className="w-3 h-3" />
-				Make a rule from this filter
-			</button>
+	{#snippet search(s)}
+		<HeaderSearch
+			value={state.filters.search}
+			placeholder="Search by file name..."
+			oninput={handleSearchInput}
+			narrow={s === 'narrow'}
+		/>
+	{/snippet}
+
+	{#snippet facets(s)}
+		{#if s !== 'tight' && s !== 'narrow'}
+			<HeaderSegmented
+				label="Media type"
+				items={mediaTypeItems}
+				value={state.filters.mediaType}
+				onchange={handleMediaTypeChange}
+			/>
 		{/if}
+	{/snippet}
 
-		<div class="flex-1 hidden md:block"></div>
-
-		<!-- Right: view controls + actions -->
-		<div class="flex items-center gap-2 ml-auto md:ml-0 flex-shrink-0">
-			<div
-				class="hidden md:flex items-center gap-0.5 bg-surface-2/50 rounded p-0.5"
-				role="radiogroup"
-				aria-label="Tile size"
+	{#snippet filters(s)}
+		{#if showFilters}
+			<HeaderFilters
+				bind:open={filtersOpen}
+				activeCount={chips.length}
+				{chips}
+				onClear={clearAll}
+				iconOnly={s === 'narrow'}
 			>
-				{#each tileSizes as size}
-					<button
-						role="radio"
-						aria-checked={$historyTileSize === size.value}
-						use:tooltip={size.title}
-						class="w-7 py-1 font-mono text-sm rounded-sm transition-colors duration-100 {$historyTileSize ===
-						size.value
-							? 'bg-signal/10 text-signal'
-							: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-						on:click={() => historyTileSize.set(size.value)}
-					>
-						{size.label}
-					</button>
-				{/each}
-			</div>
-
-			<LibrarySidebar part="actions" />
-			<IconButton icon="refresh" label="Refresh" onclick={() => libraryStore.load()} />
-
-			<Button
-				variant="primary"
-				size="sm"
-				icon="upload"
-				loading={state.uploading}
-				disabled={state.uploading}
-				onclick={onPickFiles}
-			>
-				Upload
-			</Button>
-
-			<div class="relative library-more-menu">
-				<IconButton
-					icon="more"
-					label="More actions"
-					active={isMoreMenuOpen}
-					onclick={() => (isMoreMenuOpen = !isMoreMenuOpen)}
-				/>
-				{#if isMoreMenuOpen}
-					<div
-						class="absolute right-0 top-full mt-1 min-w-[180px] bg-surface-2 rounded-xl border border-line-strong shadow-floating z-50 py-1"
-					>
+				{#snippet children()}
+					{#if s === 'narrow'}
+						<div class="col-span-2">
+							<span class="block text-sm uppercase tracking-[0.07em] text-fg-subtle mb-1">Sort</span>
+							<HeaderSort
+								options={sortFields}
+								value={sortField}
+								dir={sortDirection}
+								onchange={handleSortFieldChange}
+								ondir={handleSortDirChange}
+							/>
+						</div>
+					{/if}
+					{#if s === 'tight' || s === 'narrow'}
+						<div class="col-span-2">
+							<span class="block text-sm uppercase tracking-[0.07em] text-fg-subtle mb-1">Media type</span>
+							<HeaderSegmented
+								label="Media type"
+								items={mediaTypeItems}
+								value={state.filters.mediaType}
+								onchange={handleMediaTypeChange}
+							/>
+						</div>
+					{/if}
+					<IncludeSubcollections
+						{collections}
+						activeId={state.filters.collectionId}
+						directOnly={!!state.filters.directOnly}
+						onDirectOnlyChange={setDirectOnly}
+					/>
+				{/snippet}
+				{#snippet footerAction(close)}
+					{#if canMakeRule}
 						<button
-							class="w-full px-3 py-2 text-left text-xs hover:bg-surface-3/50 transition-colors flex items-center gap-2 text-fg-muted hover:text-fg"
+							type="button"
+							class="flex items-center gap-1 text-sm text-fg-muted hover:text-fg transition-colors"
 							on:click={() => {
-								isMoreMenuOpen = false;
-								onOpenAddTag();
+								close();
+								handleMakeRule();
 							}}
 						>
-							<Icon name="plus" className="w-3.5 h-3.5" />
-							Add tag
+							<Icon name="sparkles" className="w-3 h-3" />
+							Make a rule from this filter
 						</button>
-						<div class="my-1 h-px bg-line"></div>
-						<button
-							class="w-full px-3 py-2 text-left text-xs hover:bg-danger/10 transition-colors flex items-center gap-2 text-danger"
-							role="menuitem"
-							on:click={() => {
-								isMoreMenuOpen = false;
-								onOpenDeleteByCriteria();
-							}}
-						>
-							<Icon name="trash" className="w-3.5 h-3.5" />
-							Delete by criteria
-						</button>
-					</div>
-				{/if}
-			</div>
-		</div>
-	</div>
-</PageHeader>
+					{/if}
+				{/snippet}
+			</HeaderFilters>
+		{/if}
+	{/snippet}
+
+	{#snippet sort()}
+		<HeaderSort
+			options={sortFields}
+			value={sortField}
+			dir={sortDirection}
+			onchange={handleSortFieldChange}
+			ondir={handleSortDirChange}
+		/>
+	{/snippet}
+
+	{#snippet view()}
+		<HeaderViewOptions
+			size={$historyTileSize}
+			onsize={(size) => historyTileSize.set(size as HistoryTileSize)}
+			grouped={$mediaGroupByDay}
+			ongroup={() => mediaGroupByDay.update((value) => !value)}
+		/>
+		<LibrarySidebar part="actions" />
+		<HeaderViewOptions onrefresh={() => libraryStore.load()} />
+	{/snippet}
+
+	{#snippet primary(s)}
+		<HeaderAction
+			primary
+			icon="upload"
+			label="Upload"
+			compact={s === 'narrow'}
+			loading={state.uploading}
+			disabled={state.uploading}
+			onclick={onPickFiles}
+		/>
+	{/snippet}
+
+	{#snippet more()}
+		<Menu label="More actions" tooltip="More actions" items={moreItems} onselect={handleMoreSelect} width={200} />
+	{/snippet}
+</ListPageHeader>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/ui';
+	import { Button, EmptyState } from '$lib/components/ui';
 	import { DetailBody, DetailHeader, DetailSection } from '$lib/components/detail';
 	import { isMobile } from '$lib/stores/viewport';
 	import PathText from './PathText.svelte';
@@ -25,6 +25,6 @@
 				<Button variant="secondary" size="sm" onclick={() => ctrl.openAdd(u.dir)}>Add as folder</Button>
 			</div>
 		{/each}
-		{#if unplaced.length === 0}<p class="px-5 py-6 text-center text-sm text-fg-subtle">Nothing found outside your folders.</p>{/if}
+		{#if unplaced.length === 0}<EmptyState compact icon="folder" title="Nothing found" description="Nothing found outside your folders." />{/if}
 	</DetailSection>
 </DetailBody>

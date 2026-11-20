@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, beginEdit, createStack } from '$lib/tool-tabs/frame/editStack';
 import { emptyImageState, writeImageState } from '$lib/tool-tabs/image/state';
 import { cropDraft, lookDraft } from '$lib/tool-tabs/image/steps';
@@ -75,7 +75,7 @@ async function settle() {
 }
 
 function rows(all: (selector: string) => HTMLElement[]) {
-	return all('[data-edit-stack] [data-stack-row]').map((row) => `${row.dataset.status}${row.hasAttribute('data-hidden') ? ':hidden' : ''}`);
+	return all('[data-edit-stack] [data-stack-row]').sort((a, b) => Number(a.dataset.stackIndex) - Number(b.dataset.stackIndex)).map((row) => `${row.dataset.status}${row.hasAttribute('data-hidden') ? ':hidden' : ''}`);
 }
 
 describe('ImageEditorTab', () => {
@@ -87,15 +87,15 @@ describe('ImageEditorTab', () => {
 		vi.useRealTimers();
 	});
 
-	it('shows the empty state with the rail greyed and nothing to save', () => {
-		const { q, all, lastActions, calls } = render();
+	it('shows only the start screen with nothing to save', () => {
+		const { q, lastActions, calls } = render();
 		expect(q('[data-testid="tool-tab-empty"]')?.textContent).toContain('Open a picture to edit');
-		expect(q('[data-frame-file]')?.textContent).toBe('No picture');
-		expect(all('[data-tool-rail] button[data-tool]').every((button) => button.getAttribute('aria-disabled') === 'true')).toBe(true);
-		expect(q<HTMLButtonElement>('[data-frame-save]')?.disabled).toBe(true);
-		expect(lastActions()?.save?.disabled).toBe(true);
-		expect(lastActions()?.undo?.disabled).toBe(true);
-		expect(lastActions()?.undo?.label).toBe('Undo');
+		expect(q('[data-tool-rail]')).toBeNull();
+		expect(q('[data-editor-toolbar]')).toBeNull();
+		expect(q('[data-editor-menubar]')).toBeNull();
+		expect(q('[data-frame-file]')).toBeNull();
+		expect(q('[data-frame-save]')).toBeNull();
+		expect(lastActions()).toEqual({ hidden: true });
 		expect(calls.dirty).toEqual([]);
 		expect(calls.state).toEqual([]);
 	});
@@ -104,9 +104,11 @@ describe('ImageEditorTab', () => {
 		const { q, all, calls } = render({ source: HISTORY_SOURCE, state: twoSteps(), activeTool: 'effects' });
 		expect(rows(all)).toEqual(['original', 'applied', 'current']);
 		expect(q('[data-image-editor]')?.dataset.tool).toBe('effects');
-		expect(q('[data-options-panel] h2')?.firstChild?.textContent).toBe('Looks');
-		expect(q('[data-options-subtitle]')?.textContent).toBe('Properties');
-		expect(q('[data-tray]')).not.toBeNull();
+		expect(q('[data-title-name]')?.textContent).toBe('Looks');
+		expect(q('[data-options-panel] h2')).toBeNull();
+		expect(q('[data-options-subtitle]')).toBeNull();
+		expect(q('[data-options-panel] [data-look-list]')).not.toBeNull();
+		expect(q('[data-tray]')).toBeNull();
 		expect(calls.title).toContain('observatory-dusk');
 		expect(calls.dirty).toEqual([2]);
 	});
@@ -154,7 +156,8 @@ describe('ImageEditorTab', () => {
 		expect(q('[data-editor-frame="phone"]')).not.toBeNull();
 		expect(q('[data-tool-rail="strip"]')).not.toBeNull();
 		expect(q('[data-options-bar="phone"]')).not.toBeNull();
-		expect(q('[data-tray]')).not.toBeNull();
+		expect(q('[data-look-list-phone]')).not.toBeNull();
+		expect(q('[data-tray]')).toBeNull();
 		expect(q('[data-editor-toolbar]')).toBeNull();
 		expect(q('[data-frame-edits]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('2 edits');
 		expect(lastActions()?.undo?.label).toBe('Undo Reel');
@@ -173,6 +176,6 @@ describe('ImageEditorTab', () => {
 		expect(q('[data-image-editor]')?.dataset.tool).toBe('resize');
 		expect(calls.tool).toContain('resize');
 		expect(rows(all)).toEqual(['original', 'applied', 'applied', 'current']);
-		expect(all('[data-stack-row]').at(-1)?.textContent).toContain('Noir');
+		expect(all('[data-stack-section="edits"] [data-stack-row]').at(0)?.textContent).toContain('Noir');
 	});
 });

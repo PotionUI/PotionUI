@@ -1,16 +1,41 @@
 import { goto } from '$app/navigation';
 import { get } from 'svelte/store';
 import { activeTab, tabsStore } from '$lib/stores/tabs';
+import { toasts } from '$lib/stores/toast';
 import type { MediaRef } from '$lib/types/tabs';
+import { CONTINUE_ACTION, continuableLink } from './continueTarget';
+import { continueEditInNewTab } from './continueEdit';
 import { lastToolFor, rememberTool } from './lastTool';
-import { mediaRefForItem, planShortcut, type ShortcutItem } from './shortcuts';
+import { EDIT_ACTION, mediaRefForItem, planShortcut, type ShortcutItem } from './shortcuts';
 
 function goToGenerate(): void {
 	if (typeof window === 'undefined' || window.location.pathname.startsWith('/generate')) return;
 	setTimeout(() => void goto('/generate'), 0);
 }
 
+const FALLBACK_COPY = {
+	missing: 'That edit is no longer there. The picture opened as it is.',
+	'source-missing': 'The picture that edit started from is no longer there. The picture opened as it is.',
+	failed: 'The edit could not be opened. The picture opened as it is.'
+} as const;
+
+function openContinue(items: readonly ShortcutItem[]): boolean {
+	const link = continuableLink(items);
+	if (!link) return openToolShortcut(EDIT_ACTION, items);
+	const picture = items[0];
+	void continueEditInNewTab(link.editId, picture.itemId ?? picture.id).then((outcome) => {
+		if (outcome.kind === 'opened' || outcome.kind === 'focused') {
+			goToGenerate();
+			return;
+		}
+		toasts.show('info', FALLBACK_COPY[outcome.kind], { title: 'Continue this edit' });
+		openToolShortcut(EDIT_ACTION, items);
+	});
+	return true;
+}
+
 export function openToolShortcut(actionId: string, items: readonly ShortcutItem[]): boolean {
+	if (actionId === CONTINUE_ACTION) return openContinue(items);
 	const plan = planShortcut(actionId, items);
 	if (!plan) return false;
 	const ids: string[] = [];

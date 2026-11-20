@@ -1,5 +1,7 @@
 import json
 
+from src.platform.database import get_cursor
+
 
 
 def detail_error(response):
@@ -282,10 +284,12 @@ class TestAdminRoutes:
         world.mint(world.alice, name="Raycast")
         world.mint(world.bob, name="Nightly backup")
         key, _ = world.mint(world.bob, name="Raycast two")
+        with get_cursor() as cursor:
+            cursor.execute("UPDATE users SET username = ? WHERE id = ?", ("bob.owner", world.bob.id))
         headers = world.session("root")
 
         by_name = client.get("/api/admin/keys?q=RAYCAST&page_size=1&page=2", headers=headers).json()["data"]
-        by_owner = client.get("/api/admin/keys?q=Bob", headers=headers).json()["data"]
+        by_owner = client.get("/api/admin/keys?q=Bob.Owner", headers=headers).json()["data"]
         by_prefix = client.get(f"/api/admin/keys?q={key.display_prefix[:9].upper()}", headers=headers).json()["data"]
 
         assert by_name["total"] == 2 and len(by_name["items"]) == 1

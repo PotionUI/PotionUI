@@ -23,6 +23,12 @@ export type GenerationLayoutMode = 'two' | 'three';
 // exists (`tabs.ts`'s `createTabsStore`), so a tab with a `selectedSessionId`
 // still gets overwritten by the server's copy once `restoreTabSessions` runs
 // — these fields are only load-bearing for the unsaved-tab path.
+export interface TabOpenedFrom {
+	generationId: string;
+	kind: 'mcp' | 'editor' | 'chat' | null;
+	label: string | null;
+}
+
 export interface PersistedGenerationTab {
 	kind?: 'generation';
 	id: string;
@@ -32,6 +38,7 @@ export interface PersistedGenerationTab {
 	selectedVariant?: string | null;
 	selectedSessionId: string | null;
 	activeGenerationId: string | null;
+	openedFrom?: TabOpenedFrom | null;
 	/** Ids of generations this tab has enqueued (pending or running) — used to
 	 *  rehydrate the queue via GET /api/generations/queue?tab_id= on reload. */
 	queuedGenerationIds?: string[];
@@ -350,6 +357,7 @@ export interface MediaRef {
 	relative_path?: string;
 	url?: string;
 	name?: string;
+	title?: string;
 	type?: string;
 	/** User-set handle for a multi-item media field's entry (MediaLoaderField
 	 *  `multi: true`) - other systems (e.g. a `<Picture N>` prompt binding)
@@ -519,6 +527,7 @@ export interface GenerationTab extends TabBase {
 	modeStateByMode?: Record<string, ModeState>;
 	seed?: number;
 	activeGenerationId?: string | null;
+	openedFrom?: TabOpenedFrom | null;
 	embedded?: EmbeddedTabRef;
 	/** Library prompt (src/features/prompt_database) applied to this tab from the
 	 *  Prompt Library's "Generate with this" — rides onto GenerationRequest.source_prompt_id.

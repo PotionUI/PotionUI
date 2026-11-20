@@ -1,47 +1,83 @@
 <script lang="ts">
-	import ImageSourceMenu from '$lib/components/imageEditor/ImageSourceMenu.svelte';
-	import LayersPanel from '$lib/components/imageEditor/LayersPanel.svelte';
-	import ToolButton from '$lib/components/imageEditor/ToolButton.svelte';
-	import ToolPanel from '$lib/components/imageEditor/ToolPanel.svelte';
-	import type { PaintSession, SessionSnapshot } from '$lib/components/imageEditor/session';
-	import { PAINT_TOOL_IDS } from './PaintStage.svelte';
+	import { Button } from '$lib/components/ui';
+	import FrameSheet from '$lib/components/tool-tabs/frame/FrameSheet.svelte';
+	import PaintLayers from '$lib/components/paint/PaintLayers.svelte';
+	import PaintPanel from '$lib/components/paint/PaintPanel.svelte';
+	import PaintToolPanel from '$lib/components/paint/PaintToolPanel.svelte';
+	import type { LayerAction } from '$lib/paint/layerActions';
+	import type { PaintSession, SessionSnapshot } from '$lib/paint/session';
 
 	let {
 		session,
 		state: snapshot,
-		phone = false
+		phone = false,
+		layerActions = [],
+		layers = true,
+		target = null,
+		onSaveFilter = () => {}
 	}: {
 		session: PaintSession;
 		state: SessionSnapshot;
 		phone?: boolean;
+		layerActions?: LayerAction[];
+		layers?: boolean;
+		target?: { name: string | null; thumb: string | null } | null;
+		onSaveFilter?: () => void;
 	} = $props();
 
-	let adding = $state(false);
-	let tools = $derived(snapshot.tools.filter((tool) => PAINT_TOOL_IDS.includes(tool.id)));
+	let layersOpen = $state(false);
 </script>
 
-<div class="flex flex-wrap gap-1" role="toolbar" aria-label="Paint tools" data-paint-tools>
-	{#each tools as tool (tool.id)}
-		<ToolButton
-			icon={tool.icon}
-			label={tool.label}
-			kbd={tool.key}
-			compact
-			position="bottom"
-			pressed={tool.id === snapshot.toolId}
-			onClick={() => session.setTool(tool.id)}
-		/>
-	{/each}
-</div>
-<div class="-mx-4 {phone ? 'max-h-40 overflow-y-auto' : ''}">
-	<ToolPanel {session} state={snapshot} {phone} />
-</div>
-{#if !phone}
-	<div class="relative -mx-4 border-t border-line">
-		<LayersPanel {session} state={snapshot} onAddImage={() => (adding = !adding)} />
-		{#if adding}
-			<ImageSourceMenu mode="layer" onPick={(image) => session.addImage(image.canvas, image.name)} onClose={() => (adding = false)} />
+{#snippet targetCard()}
+	{#if target}
+		<div class="flex items-center gap-2.5 rounded-lg border border-line bg-surface-1 p-2" data-paint-target={target.name ? 'layer' : 'new'}>
+			<span class="alpha-checker flex h-8 w-8 flex-none items-center justify-center overflow-hidden rounded">
+				{#if target.thumb}<img src={target.thumb} alt="" class="h-full w-full object-contain" />{/if}
+			</span>
+			<span class="flex min-w-0 flex-col">
+				<span class="truncate text-base font-medium text-fg">{target.name ? `Painting on ${target.name}` : 'Painting on a new layer'}</span>
+				<span class="truncate text-sm text-fg-muted">Strokes go to this layer only</span>
+			</span>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet floatingCard()}
+	{#if !layers && snapshot.floatingId !== null}
+		<div class="flex items-center gap-2 rounded-lg border border-dashed border-signal bg-signal/10 p-2" data-floating-row>
+			<span class="flex min-w-0 flex-1 flex-col">
+				<span class="truncate text-base font-medium text-fg">Floating piece</span>
+				<span class="truncate text-sm text-signal">Press Enter to place</span>
+			</span>
+			<Button variant="secondary" size="xs" onclick={() => session.placeFloating()} attrs={{ 'data-floating-place': '' }}>Place</Button>
+			<Button size="xs" onclick={() => session.keepFloatingAsLayer()} attrs={{ 'data-floating-keep': '' }}>Keep as layer</Button>
+		</div>
+	{/if}
+{/snippet}
+
+{#if phone}
+	<div class="flex flex-col gap-3" data-paint-options="phone">
+		{@render targetCard()}
+		{@render floatingCard()}
+		<PaintToolPanel {session} state={snapshot} {phone} {onSaveFilter} />
+		{#if layers}
+		<Button variant="secondary" size="sm" icon="layers" class="w-full" ariaHaspopup="dialog" onclick={() => (layersOpen = true)} attrs={{ 'data-paint-layers-button': '' }}>
+			Layers
+			<span class="font-mono tabular-nums text-fg-subtle">{snapshot.layers.length}</span>
+		</Button>
 		{/if}
 	</div>
-	<p class="text-sm text-fg-muted">Strokes undo one by one while Paint is open. Leaving Paint lands them as one step.</p>
+	{#if layersOpen}
+		<FrameSheet label="Layers" onclose={() => (layersOpen = false)}>
+			<div class="px-2 pb-2" data-paint-layers-sheet>
+				<PaintLayers {session} state={snapshot} phone actions={layerActions} />
+			</div>
+		</FrameSheet>
+	{/if}
+{:else}
+	<div class="flex flex-col gap-3" data-paint-options="desktop">
+		{@render targetCard()}
+		{@render floatingCard()}
+		<PaintPanel {session} state={snapshot} {layerActions} withLayers={layers} {onSaveFilter} />
+	</div>
 {/if}

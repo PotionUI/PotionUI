@@ -186,12 +186,14 @@ class DepthDecoderModule(nn.Module):
             for _ in range(NUM_RESIDUAL_CODEBOOKS)
         ])
 
-    def _allocate_cache(self, cache: DepthKVCache, like: torch.Tensor) -> None:
+    def allocate_cache(self, cache: DepthKVCache, like: torch.Tensor) -> None:
         shape = (like.shape[0], self.cfg.decoder_num_heads, MAX_DEPTH_TOKENS, self.cfg.decoder_head_dim)
         cache.keys = [
             torch.zeros(shape, device=like.device, dtype=like.dtype) for _ in range(len(self.layers))
         ]
         cache.values = [torch.zeros_like(k) for k in cache.keys]
+        for buffer in (*cache.keys, *cache.values):
+            torch._dynamo.mark_static_address(buffer)
 
     def _embed(self, token_embeds: torch.Tensor, start: int) -> torch.Tensor:
         positions = torch.arange(start, start + token_embeds.shape[1], device=token_embeds.device)
@@ -230,7 +232,7 @@ class DepthDecoderModule(nn.Module):
                 f"exceeds {MAX_DEPTH_TOKENS} positions"
             )
         if not cache.keys:
-            self._allocate_cache(cache, token_embeds)
+            self.allocate_cache(cache, token_embeds)
         x = self._embed(token_embeds, start)
         for i, layer in enumerate(self.layers):
             if start == 0:
@@ -277,13 +279,16 @@ def generate_depth_codes(
     tokens = decoder.projection(torch.stack([hidden, embed_c0], dim=1))  # [2, 2, hidden]
     if cache is not None:
         cache.reset()
+        if not cache.keys:
+            decoder.allocate_cache(cache, tokens)
+    torch.compiler.cudagraph_mark_step_begin()
 
     codes = torch.empty(NUM_RESIDUAL_CODEBOOKS, dtype=torch.long, device=hidden.device)
     depth_hiddens: list[torch.Tensor] = []
     for i in range(1, NUM_RESIDUAL_CODEBOOKS + 1):
         out = decoder(tokens) if cache is None else decoder(tokens, cache)  # [2, T, hidden]
         last = out[:, -1, :]  # [2, hidden]
-        depth_hiddens.append(last[0:1])  # conditional row only
+        depth_hiddens.append(last[0:1].clone())  # conditional row only; detached from the graph-owned output
         logits = decoder.audio_heads[i - 1](last)  # [2, audio_vocab_size]
         code_i = guided_top_k_sample_id(logits[0], logits[1], cfg_scale, top_k, generator, mask_fn=None)  # 0-dim, no sync
         codes[i - 1] = code_i  # GPU-side write into the preallocated tensor, no sync

@@ -36,7 +36,7 @@
 	} from './trimPoints';
 	import { formatClipLength, formatPreciseTime, formatTimecode } from './timecode';
 	import { commitTrimIn, commitTrimOut } from './trimTimeEntry';
-	import { describeRejection } from './editOperations';
+	import { describeRejection } from '$lib/media/editOperations';
 	import type { EditorCommitFn, MediaEditorSource } from './types';
 
 	export let source: MediaEditorSource;

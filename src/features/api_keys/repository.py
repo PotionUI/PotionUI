@@ -42,6 +42,15 @@ class ApiKeyRepository:
             row = cursor.fetchone()
             return ApiKey.from_row(row) if row else None
 
+    def names_for_user(self, user_id: str, key_ids: Iterable[str]) -> Dict[str, str]:
+        ids = list(key_ids)
+        if not ids:
+            return {}
+        marks = ", ".join("?" for _ in ids)
+        with get_cursor() as cursor:
+            cursor.execute(f"SELECT id, name FROM api_keys WHERE user_id = ? AND id IN ({marks})", (user_id, *ids))
+            return {row["id"]: row["name"] for row in cursor.fetchall()}
+
     def list_for_user(self, user_id: str) -> List[ApiKey]:
         with get_cursor() as cursor:
             cursor.execute(

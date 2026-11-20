@@ -178,3 +178,13 @@ export async function uploadedStats(field: Locator) {
 		return { width: c.width, height: c.height, white, dark, transparent };
 	});
 }
+
+export function footerSave(dialog: Locator): Locator {
+	return dialog.locator('[data-tool-footer]').getByRole('button', { name: 'Save', exact: true });
+}
+
+export function panelApply(dialog: Locator): Locator {
+	return dialog
+		.getByRole('button', { name: 'Apply', exact: true })
+		.and(dialog.locator(':not([data-tool-footer] *)'));
+}

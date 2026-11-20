@@ -1,6 +1,10 @@
 <script lang="ts">
 	import tooltip from '$lib/actions/tooltip';
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+	import PreviewClipPlayer from '$lib/components/workbench/PreviewClipPlayer.svelte';
+	import LiveElapsed from '$lib/components/LiveElapsed.svelte';
+	import { liveWatcher } from '$lib/generation/live/liveDefault';
+	import { percentOf, tileStepLabel } from '$lib/generation/live/liveView';
 	import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 	import MediaPreview from './MediaPreview.svelte';
 	import ContentPolicyTile from '$lib/components/ContentPolicyTile.svelte';
@@ -20,6 +24,8 @@
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { isStackEntry, isLooseCell, stackBadge, stackInfo, cellChip, gridIdOf } from '$lib/generation/compare/view/historyGrid';
 	import { getIconPath } from '$lib/utils/IconLibrary';
+	import GenerationOriginChip from '$lib/components/GenerationOriginChip.svelte';
+	import { describeOrigin } from '$lib/generation/origin';
 	import EntryActions from '$lib/components/tools/EntryActions.svelte';
 	import ToolRunBand from '$lib/components/tools/ToolRunBand.svelte';
 	import { mediaToolRuns } from '$lib/media-tools/runs';
@@ -69,6 +75,49 @@
 	 * history modal).
 	 */
 	export let tile: { width: number; height: number } | null = null;
+	export let live: boolean = false;
+
+	const liveStates = liveWatcher.states;
+	let rootEl: HTMLElement | undefined;
+	let visible = false;
+	let releaseTile: (() => void) | null = null;
+	let watchedTileId = '';
+
+	$: isLiveTile = live && (generation.status === 'pending' || generation.status === 'running');
+	$: liveTile = isLiveTile ? ($liveStates[generation.id] ?? null) : null;
+	$: syncTileWatch(isLiveTile && visible, generation.id, $liveStates);
+
+	function syncTileWatch(want: boolean, id: string, _snapshot: unknown) {
+		if (releaseTile && (!want || watchedTileId !== id)) {
+			releaseTile();
+			releaseTile = null;
+			watchedTileId = '';
+		}
+		if (want && !releaseTile) {
+			releaseTile = liveWatcher.watch(id, 'tile', generation.status === 'pending' ? 'pending' : 'running');
+			watchedTileId = releaseTile ? id : '';
+		}
+	}
+
+	onMount(() => {
+		if (typeof IntersectionObserver === 'undefined' || !rootEl) {
+			visible = true;
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				visible = entries.some((entry) => entry.isIntersecting);
+			},
+			{ rootMargin: '160px' }
+		);
+		observer.observe(rootEl);
+		return () => observer.disconnect();
+	});
+
+	onDestroy(() => {
+		releaseTile?.();
+		releaseTile = null;
+	});
 
 	let currentImageIndex = 0;
 	let previousGenerationId = generation.id;
@@ -98,6 +147,12 @@
 		nsfwMode
 	);
 	$: mediaFiles = [...imageFiles, ...videoFiles, ...audioFiles, ...meshFiles];
+	$: liveSeen = liveTile && !liveTile.previewSuppressed ? liveTile : null;
+	$: liveShowsPicture = !!liveSeen && (!!liveSeen.clip || !!liveSeen.preview) && mediaFiles.length === 0;
+	$: liveProgress = liveTile?.progress ?? generation.progress;
+	$: livePercent = percentOf(liveProgress);
+	$: liveLabel = liveTile && generation.status === 'running' ? tileStepLabel(liveTile) : '';
+	$: liveWide = !!tile && tile.width >= 180;
 	$: currentMediaFile = mediaFiles[currentImageIndex];
 
 	// Reset index if generation changes
@@ -157,6 +212,13 @@
 	// fixed-aspect card).
 	$: chromeBucket = tile ? bucketForCardWidth(tile.width) : null;
 	$: toolRun = runForGeneration($mediaToolRuns, generation);
+	$: originInfo = describeOrigin(generation.origin);
+	$: showOriginChip = !!originInfo && (generation.status === 'completed' || originInfo.kind !== 'editor');
+	$: mediaChipShown =
+		!!tile &&
+		!!chromeBucket?.showMediaChip &&
+		generation.status === 'completed' &&
+		(mediaFiles.length > 1 || isCurrentMediaVideo);
 	$: menuEnabled = !!(tile && chromeBucket && entryMenu);
 	$: barRunLabel = chromeBucket?.showBarDuration ? generationRunLabel(generation) : null;
 	$: durationReplacesResolution = !!(barRunLabel && chromeBucket?.durationReplacesResolution);
@@ -213,7 +275,7 @@
 			selectable || !!(event && (event.shiftKey || event.ctrlKey || event.metaKey));
 		if (wantsSelection && onSelect && !disabled) {
 			onSelect(generation, currentMediaFile ?? null, event);
-		} else if (mediaFiles.length > 0 || stackEntry) {
+		} else if (mediaFiles.length > 0 || stackEntry || isLiveTile) {
 			dispatch('imageClick', { files: generation.files, generationId: generation.id });
 		}
 	}
@@ -313,6 +375,7 @@
 	style={tile ? `width: ${tile.width}px` : undefined}
 	data-generation-card
 	data-generation-id={generation.id}
+	bind:this={rootEl}
 	role="presentation"
 	on:contextmenu={handleContextMenu}
 >
@@ -434,7 +497,13 @@
 					class="w-full h-full min-h-[8rem] flex items-center justify-center bg-surface-2"
 					style={generation.status === 'completed' ? placeholderTint(generation.id) : undefined}
 				>
-					{#if generation.status === 'pending' || generation.status === 'running'}
+					{#if liveShowsPicture && liveSeen}
+						{#if liveSeen.clip}
+							<PreviewClipPlayer clip={liveSeen.clip} progress={liveProgress ?? 0} chip={false} controls={false} ruler={false} />
+						{:else if liveSeen.preview}
+							<img src={liveSeen.preview} alt="" class="absolute inset-0 h-full w-full object-contain" data-live-tile-preview />
+						{/if}
+					{:else if generation.status === 'pending' || generation.status === 'running'}
 						<div class="flex flex-col items-center gap-2 py-6">
 							<span
 								class="font-mono text-2xs uppercase tracking-[0.07em] {generation.status === 'running'
@@ -532,6 +601,12 @@
 				</div>
 			{/if}
 
+			{#if tile && showOriginChip}
+				<div class="absolute left-1.5 z-30 flex max-w-[calc(100%-12px)] {mediaChipShown ? 'bottom-8' : 'bottom-1.5'}" data-editor-origin-host>
+					<GenerationOriginChip {generation} iconOnly={tile.width < 200} />
+				</div>
+			{/if}
+
 			<!-- Justified tile: duration/fps/size, bottom-right, on hover only (resolution
 			     already has its own lane in the bar below, so it never repeats here). -->
 			{#if tile && chromeBucket?.showHoverMeta && generation.status === 'completed' && barHoverMetaParts.length > 0}
@@ -585,14 +660,23 @@
 			{/if}
 
 			<!-- Tick-ruler progress for running generations with media -->
-			{#if generation.status === 'running' && generation.progress > 0 && mediaFiles.length > 0}
+			{#if generation.status === 'running' && (liveProgress ?? 0) > 0 && (mediaFiles.length > 0 || liveShowsPicture)}
 				<div class="absolute bottom-0 left-0 right-0 z-30">
 					<div class="tick-track">
 						<div
 							class="tick-fill bg-signal-solid transition-all duration-300"
-							style="width: {Math.round(generation.progress * 100)}%"
+							style="width: {livePercent ?? 0}%"
 						></div>
 					</div>
+				</div>
+			{/if}
+			{#if liveShowsPicture && liveTile}
+				<div
+					class="pointer-events-none absolute top-2 z-30 inline-flex max-w-[calc(100%-1rem)] items-center gap-1.5 rounded bg-black/70 px-1.5 py-0.5 font-mono text-xs tabular-nums text-white {showCheckbox ? 'left-9' : 'left-2'}"
+					data-live-tile-chip
+				>
+					<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-signal-solid"></span>
+					<span class="truncate">{liveWide ? liveLabel : livePercent !== null ? `${livePercent}%` : ''}</span>
 				</div>
 			{/if}
 		</div>
@@ -671,6 +755,9 @@
 					{/if}
 				</div>
 				<div class="flex items-center gap-1.5 ml-auto shrink-0 font-mono tabular-nums text-2xs tracking-[0.07em]">
+					{#if isLiveTile && generation.status === 'running'}
+						<LiveElapsed {generation} class="text-fg-muted" />
+					{/if}
 					{#if barResolutionText && !durationReplacesResolution}
 						<span class="text-fg-muted whitespace-nowrap" use:tooltip={fullResolutionTitle}>{barResolutionText}</span>
 					{/if}
@@ -688,6 +775,12 @@
 					{/if}
 				</div>
 				{/if}
+			</div>
+		{/if}
+
+		{#if !tile && showOriginChip}
+			<div class="flex items-center border-t border-line bg-surface-1 px-2 py-1.5" data-editor-origin-host>
+				<GenerationOriginChip {generation} />
 			</div>
 		{/if}
 

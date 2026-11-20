@@ -1,0 +1,7 @@
+schema_version: 1
+task: replace_background
+from: inpaint
+region: mask
+inputs:
+  source: source_image
+  mask: source_image_inpaint_mask

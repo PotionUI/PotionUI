@@ -335,6 +335,7 @@ def render_check(paths: List[str], presets_root: Optional[Path] = None) -> List[
         build_processor,
         load_all_presets,
     )
+    from src.features.presets.templates import find_mode
     from src.platform.templating.errors import TemplateEvaluationError
 
     issues: List[LintIssue] = []
@@ -346,13 +347,17 @@ def render_check(paths: List[str], presets_root: Optional[Path] = None) -> List[
     for preset in sorted(presets, key=lambda p: p.id):
         if not _in_scope(preset.path, scoped_roots):
             continue
-        for mode in sorted(preset.modes.keys()):
+        for mode in [*sorted(preset.modes.keys()), *(f"editor:{name}" for name in sorted(preset.editor_modes))]:
             try:
                 form_data = build_fixture_form_data(preset, mode)
-                generation_data = build_generation_data(mode, form_data, preset.modes.get(mode))
+                generation_data = build_generation_data(mode, form_data, find_mode(preset, mode))
                 processor.process(preset, generation_data)
             except TemplateEvaluationError as e:
-                preset_str = f"{preset.path}/modes/{mode}/pipeline.yml"
+                preset_str = (
+                    f"{preset.path}/editor_modes/{mode.split(':', 1)[1]}"
+                    if mode.startswith("editor:")
+                    else f"{preset.path}/modes/{mode}/pipeline.yml"
+                )
                 issues.append(
                     LintIssue(
                         "error",

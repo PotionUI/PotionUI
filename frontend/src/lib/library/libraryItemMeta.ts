@@ -108,3 +108,28 @@ export function sliceOrigin(provenance: unknown): SliceOrigin | null {
 export function sliceOriginLabel(origin: SliceOrigin): string {
 	return `From ${origin.sourceName} · cell ${origin.index + 1} of ${origin.count}`;
 }
+
+export interface MadeInEditor {
+	editId: string;
+	tool: string;
+	revision: number;
+	available: boolean;
+	continuable: boolean;
+}
+
+export function madeInEditor(raw: unknown): MadeInEditor | null {
+	if (!raw || typeof raw !== 'object') return null;
+	const record = raw as Record<string, unknown>;
+	if (typeof record.edit_id !== 'string' || !record.edit_id) return null;
+	return {
+		editId: record.edit_id,
+		tool: typeof record.tool === 'string' && record.tool ? record.tool : 'image',
+		revision: typeof record.revision === 'number' ? record.revision : 0,
+		available: record.available === true,
+		continuable: record.continuable === true
+	};
+}
+
+export function canContinueEdit(link: MadeInEditor | null | undefined): link is MadeInEditor {
+	return !!link && link.available && link.continuable;
+}

@@ -1,5 +1,4 @@
 import { apply, discardPending, type EditStackState, type EditStep, type StepDraft } from '$lib/tool-tabs/frame/editStack';
-import type { RailGroup } from '$lib/tool-tabs/frame/types';
 import type { MediaToolInputRef, MediaToolStep } from '$lib/media-tools/types';
 import {
 	FULL_CROP,
@@ -10,10 +9,11 @@ import {
 	type CropRect,
 	type PixelSize,
 	type Rotation
-} from '$lib/media/editors/cropGeometry';
-import { evenRound } from '$lib/media/editors/mediaSizeOptions';
+} from '$lib/media/cropGeometry';
+import { evenRound } from '$lib/media/mediaSizeOptions';
 import { humanize, normalizeOptions } from '$lib/media-tools/params';
 import { effectDefaults, effectParams, type EffectTool } from '$lib/effects/catalog';
+import { editorToolIcons } from '$lib/utils/iconGlyphs';
 import { outputDuration, safeSpeed, sourceToOutput, type TimeOp } from './timeMap';
 
 export type BuiltinOp = 'trim' | 'split' | 'crop' | 'resize' | 'speed' | 'mute' | 'volume' | 'replace_audio';
@@ -23,8 +23,6 @@ export type VideoOp = BuiltinOp | (string & {});
 export type EffectLookup = ReadonlyMap<string, EffectTool>;
 
 const NO_EFFECTS: EffectLookup = new Map();
-
-export type RailToolId = 'trim' | 'split' | 'crop' | 'resize' | 'speed' | 'mute' | 'volume' | 'replace' | 'effects' | 'frame';
 
 export interface TrimParams {
 	start: number;
@@ -91,14 +89,24 @@ export const OP_LABELS: Record<BuiltinOp, string> = {
 };
 
 export const OP_ICONS: Record<BuiltinOp, string> = {
-	trim: 'editor-trim',
-	split: 'editor-split',
-	crop: 'editor-crop',
-	resize: 'editor-resize',
-	speed: 'editor-speed',
-	mute: 'editor-mute',
-	volume: 'editor-volume',
-	replace_audio: 'editor-music'
+	trim: editorToolIcons.trim,
+	split: editorToolIcons.split,
+	crop: editorToolIcons.crop,
+	resize: editorToolIcons.resize,
+	speed: editorToolIcons.speed,
+	mute: editorToolIcons.mute,
+	volume: editorToolIcons.volume,
+	replace_audio: editorToolIcons.audio
+};
+
+export const EFFECT_ICONS: Record<string, string> = {
+	look: editorToolIcons.looks,
+	lut: editorToolIcons.lut,
+	fix_colors: editorToolIcons.fix,
+	film_grain: editorToolIcons.film_grain,
+	vignette: editorToolIcons.vignette,
+	ken_burns: editorToolIcons.kenburns,
+	fade: editorToolIcons.fade
 };
 
 const COMPILED_BUILTINS = new Set(['trim', 'split', 'rotate', 'flip', 'crop', 'resize', 'speed', 'mute', 'volume', 'replace_audio']);
@@ -111,35 +119,13 @@ export const OP_LANES: Partial<Record<BuiltinOp, string>> = {
 	resize: 'geometry'
 };
 
-export const RAIL_GROUPS: RailGroup[] = [
-	{
-		id: 'shape',
-		label: 'Shape',
-		tools: [
-			{ id: 'trim', label: 'Trim', icon: 'editor-trim' },
-			{ id: 'split', label: 'Split', icon: 'editor-split' },
-			{ id: 'crop', label: 'Crop', icon: 'editor-crop' },
-			{ id: 'resize', label: 'Resize', icon: 'editor-resize' },
-			{ id: 'speed', label: 'Speed', icon: 'editor-speed' }
-		]
-	},
-	{
-		id: 'audio',
-		label: 'Audio',
-		tools: [
-			{ id: 'mute', label: 'Mute', icon: 'editor-mute' },
-			{ id: 'volume', label: 'Volume', icon: 'editor-volume' },
-			{ id: 'replace', label: 'Replace', icon: 'editor-music' }
-		]
-	},
-	{ id: 'look', label: 'Look', tools: [{ id: 'effects', label: 'Effects', icon: 'editor-effects' }] },
-	{ id: 'frame', label: 'Frame', tools: [{ id: 'frame', label: 'Frame', icon: 'editor-camera' }] }
-];
+export const LEGACY_TOOLS: Readonly<Record<string, string>> = { effects: 'look', replace: 'replace_audio' };
 
-export const RAIL_TOOL_IDS: RailToolId[] = RAIL_GROUPS.flatMap((group) => group.tools.map((tool) => tool.id as RailToolId));
+const NON_STEP_TOOLS: readonly string[] = ['effects', 'replace', 'frame', 'generate'];
 
-export function isRailToolId(value: unknown): value is RailToolId {
-	return typeof value === 'string' && (RAIL_TOOL_IDS as string[]).includes(value);
+export function normalizeTool(value: unknown): string | null {
+	if (typeof value !== 'string' || !value) return null;
+	return LEGACY_TOOLS[value] ?? value;
 }
 
 export function isBuiltinOp(value: unknown): value is BuiltinOp {
@@ -147,13 +133,11 @@ export function isBuiltinOp(value: unknown): value is BuiltinOp {
 }
 
 export function isEffectOp(value: unknown): value is string {
-	return typeof value === 'string' && value.length > 0 && !isBuiltinOp(value) && !isRailToolId(value) && !COMPILED_BUILTINS.has(value);
+	return typeof value === 'string' && value.length > 0 && !isBuiltinOp(value) && !NON_STEP_TOOLS.includes(value) && !COMPILED_BUILTINS.has(value);
 }
 
-export function railToolOf(op: string): RailToolId | null {
-	if (op === 'replace_audio') return 'replace';
-	if (isRailToolId(op)) return op;
-	return isEffectOp(op) ? 'effects' : null;
+export function railToolOf(op: string): string | null {
+	return isBuiltinOp(op) || isEffectOp(op) ? op : null;
 }
 
 export function isVideoOp(value: unknown): value is VideoOp {
@@ -165,7 +149,7 @@ export function opLabel(op: VideoOp, effects: EffectLookup = NO_EFFECTS): string
 }
 
 export function opIcon(op: VideoOp, effects: EffectLookup = NO_EFFECTS): string {
-	return isBuiltinOp(op) ? OP_ICONS[op] : (effects.get(op)?.icon ?? 'editor-effects');
+	return isBuiltinOp(op) ? OP_ICONS[op] : (EFFECT_ICONS[op] ?? effects.get(op)?.icon ?? 'editor-effects');
 }
 
 function num(value: unknown, fallback: number): number {

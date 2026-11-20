@@ -141,9 +141,9 @@ The 22 model types a `model`/`lora_picker` field's `configuration.model_type` ma
 
 ## Built-in field types
 
-The 41 core field type names registered by `src/features/fields/builtin.py` (the live, authoritative list is served at `GET /api/fields/types`; a plugin can add more via its manifest's `field_types:` section):
+The 42 core field type names registered by `src/features/fields/builtin.py` (the live, authoritative list is served at `GET /api/fields/types`; a plugin can add more via its manifest's `field_types:` section):
 
-`accordion`, `alert`, `anchor`, `audio`, `boolean`, `camera_shot`, `carousel`, `checkbox`, `checkbox_group`, `cloud_options`, `color`, `file`, `gate`, `group`, `header`, `image`, `integer`, `llm`, `lora_picker`, `markdown`, `media`, `model`, `models`, `number`, `prompt_timeline`, `resolution`, `row`, `sampler`, `schedule`, `section`, `seed`, `segmented`, `select`, `slider`, `stepper`, `string`, `tab`, `tabs`, `tags`, `textbox`, `video`
+`accordion`, `alert`, `anchor`, `audio`, `boolean`, `camera_shot`, `carousel`, `checkbox`, `checkbox_group`, `cloud_options`, `color`, `file`, `gate`, `group`, `header`, `image`, `integer`, `llm`, `lora_picker`, `markdown`, `media`, `model`, `models`, `number`, `number_box`, `prompt_timeline`, `resolution`, `row`, `sampler`, `schedule`, `section`, `seed`, `segmented`, `select`, `slider`, `stepper`, `string`, `tab`, `tabs`, `tags`, `textbox`, `video`
 
 ## `content/presets/_shared/**` option files
 

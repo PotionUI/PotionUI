@@ -25,7 +25,8 @@
 		onSelect,
 		ariaLabel = 'View switcher',
 		variant = 'nav',
-		fullWidth = false
+		fullWidth = false,
+		size = 'md'
 	}: {
 		items: Item[];
 		selected: string;
@@ -33,6 +34,7 @@
 		ariaLabel?: string;
 		variant?: 'nav' | 'toggle';
 		fullWidth?: boolean;
+		size?: 'md' | 'sm';
 	} = $props();
 </script>
 
@@ -41,7 +43,7 @@
 		{#each items as item (item.id)}
 			<button
 				type="button"
-				class="rounded px-2.5 py-1 text-sm font-medium transition-colors {fullWidth ? 'min-w-0 flex-1 truncate' : ''} disabled:cursor-not-allowed disabled:opacity-50 {item.id ===
+				class="rounded px-2.5 text-sm font-medium transition-colors {size === 'sm' ? 'h-[18px] py-0 leading-[18px]' : 'py-1'} {fullWidth ? 'min-w-0 flex-1 truncate' : ''} disabled:cursor-not-allowed disabled:opacity-50 {item.id ===
 				selected
 					? 'bg-surface-3 text-fg'
 					: 'text-fg-muted hover:text-fg'}"

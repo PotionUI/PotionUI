@@ -10,7 +10,7 @@ import { createRegistry, CORE_OWNER, pluginOwner } from '$lib/registries/registr
 import { resolveLazyEntry } from '$lib/registries/lazyResolve';
 
 export type FieldComponentEntry =
-	| { kind: 'static'; component: any; ownsErrors?: boolean }
+	| { kind: 'static'; component: any; ownsErrors?: boolean; commits?: boolean }
 	| { kind: 'lazy'; pluginId: string; asset: string };
 
 const registry = createRegistry<FieldComponentEntry>('field-component');
@@ -20,10 +20,14 @@ const resolvedCache = new Map<string, any | null>();
 
 export function registerFieldComponent(
 	type: string,
-	entry: { component: any; ownsErrors?: boolean } | { pluginId: string; asset: string }
+	entry: { component: any; ownsErrors?: boolean; commits?: boolean } | { pluginId: string; asset: string }
 ): void {
 	if ('component' in entry) {
-		registry.register(type, { kind: 'static', component: entry.component, ownsErrors: entry.ownsErrors }, CORE_OWNER);
+		registry.register(
+			type,
+			{ kind: 'static', component: entry.component, ownsErrors: entry.ownsErrors, commits: entry.commits },
+			CORE_OWNER
+		);
 	} else {
 		registry.register(type, { kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset }, pluginOwner(entry.pluginId));
 		resolvedCache.delete(type);
@@ -49,6 +53,11 @@ export function resolveFieldComponent(type: string): Promise<any | null> {
 export function fieldOwnsErrors(type: string): boolean {
 	const entry = registry.get(type);
 	return entry?.kind === 'static' && entry.ownsErrors === true;
+}
+
+export function fieldCommits(type: string): boolean {
+	const entry = registry.get(type);
+	return entry?.kind === 'static' && entry.commits === true;
 }
 
 export function hasFieldComponent(type: string): boolean {

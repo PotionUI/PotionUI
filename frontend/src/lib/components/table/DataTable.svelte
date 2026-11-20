@@ -216,7 +216,7 @@
 				{/each}
 			{/if}
 		{:else if rows.length === 0}
-			<div class="flex flex-col items-center gap-2.5 px-5 py-11 text-center">
+			<div class="px-3 py-4 text-center">
 				{#if isFiltered && filteredEmptyState}
 					{@render filteredEmptyState()}
 				{:else if emptyState}

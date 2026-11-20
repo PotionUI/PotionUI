@@ -1,18 +1,23 @@
 <script lang="ts">
-	import { onDestroy, onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button } from '$lib/components/ui';
+	import { editCloseLoss } from '$lib/tool-tabs/closeGuard';
+	import EditorMenuSheet from '$lib/components/tool-tabs/frame/EditorMenuSheet.svelte';
+	import { ensureCoreEditorMenu } from '$lib/editors/coreMenu';
+	import type { EditorMenuCommands, EditorMenuContext } from '$lib/editors/menuItems';
+	import { editorsRevision } from '$lib/editors/registry';
+	import { railFor, railTools } from '$lib/editors/railTools';
+	import type { StepRowInfo } from '$lib/editors/stepKinds';
+	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import {
-		BarActions,
 		CanvasChip,
 		EditStack,
 		EditorCanvas,
 		EditorFrame,
 		EditorToolbar,
 		FrameSheet,
-		LookTray,
 		OptionsPanel,
 		ToolRail
 	} from '$lib/components/tool-tabs/frame';
@@ -33,6 +38,7 @@
 		beginEdit,
 		canRedo,
 		canUndo,
+		clearAll,
 		commitLive,
 		discardPending,
 		effectiveSteps,
@@ -50,14 +56,17 @@
 		undo,
 		undoLabel,
 		updatePending,
-		type EditStackState
+		type EditStackState,
+		type EditStep
 	} from '$lib/tool-tabs/frame/editStack';
 	import type { SaveAction } from '$lib/tool-tabs/frame/types';
 	import type { ToolTabHost } from '$lib/tool-tabs/types';
-	import { mediaFileStem } from '$lib/tool-tabs/sources';
-	import { CROP_ASPECTS, FULL_CROP, fitAspect, type CropRect } from '$lib/media/editors/cropGeometry';
-	import { ASSUMED_FPS, safeFps } from '$lib/media/editors/frameTiming';
-	import { resolveEditableResource } from '$lib/media/editors/editorSource';
+	import { loopStep } from '$lib/tool-tabs/video/playbackLoop';
+	import { promptExcerptOf } from '$lib/components/modals/mediaPickerSelection';
+	import { saveNameFor } from '$lib/tool-tabs/saveName';
+	import { CROP_ASPECTS, FULL_CROP, cropOutputSize, fitAspect, type CropRect } from '$lib/media/cropGeometry';
+	import { ASSUMED_FPS, safeFps } from '$lib/media/frameTiming';
+	import { resolveEditableResource } from '$lib/media/editorSource';
 	import { getCachedSchema } from '$lib/form/schemaCache';
 	import { api } from '$lib/services/api/index';
 	import {
@@ -72,6 +81,7 @@
 		startMediaToolRun,
 		uploadMediaToolArtifact
 	} from '$lib/services/api/mediaTools';
+	import { describeMediaToolFailure } from '$lib/media-tools/errors';
 	import { isTerminalStatus, type MediaToolInputRef, type MediaToolRun, type MediaToolSaveMode } from '$lib/media-tools/types';
 	import type { UploadFileInfo } from '$lib/services/api/media';
 	import { toasts } from '$lib/stores/toast';
@@ -88,27 +98,41 @@
 		settlePending,
 		isEffectOp,
 		isNoop,
-		isRailToolId,
 		isVideoOp,
+		normalizeTool,
 		playbackPreview,
-		RAIL_GROUPS,
 		railToolOf,
 		readCrop,
 		readSpeed,
+		readVolume,
 		stepsSignature,
 		type ClipInfo,
-		type RailToolId,
 		type VideoOp,
 		type VideoParams
 	} from '$lib/tool-tabs/video/videoSteps';
 	import { keptRange } from '$lib/tool-tabs/video/timeMap';
 	import { loadMediaToolCatalog, mediaToolCatalog } from '$lib/media-tools/catalog';
-	import { effectGroups, effectTools, sameValues, type EffectTool } from '$lib/effects/catalog';
+	import { effectTools, sameValues, type EffectTool } from '$lib/effects/catalog';
 	import { planChain, type AnalysisNeed, type ChainPlan } from '$lib/effects/plan';
 	import { liveState } from '$lib/effects/liveMode';
 	import { PREVIEW_CAPS } from '$lib/effects/budget';
 	import { supportsWebGL2 } from '$lib/effects/ShaderChain';
 	import LivePreview from './LivePreview.svelte';
+	import FloatingPrompt from '$lib/components/tool-tabs/generate/FloatingPrompt.svelte';
+	import CandidateStrip from '$lib/components/tool-tabs/generate/CandidateStrip.svelte';
+	import DockStaleNotice from '$lib/components/tool-tabs/generate/DockStaleNotice.svelte';
+	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
+	import RangeOptions from '$lib/components/tool-tabs/video/options/RangeOptions.svelte';
+	import { createTabGenerate } from '$lib/tool-tabs/image/generate/wiring';
+	import { provideGenerateController } from '$lib/tool-tabs/image/generate/context';
+	import { settingsOf } from '$lib/tool-tabs/image/generate/register';
+	import { generateSteps, leftOutCount, leftOutNotice, rangeText, readGenerateParams } from '$lib/tool-tabs/image/generate/generateStep';
+	import { runViews } from '$lib/tool-tabs/image/generate/runEngine';
+	import { basisBeneath, outOfDateNotice, rebase, refKey } from '$lib/tool-tabs/video/generateChain';
+	import { generateRowInfo } from '$lib/tool-tabs/video/generateRows';
+	import { capRange, defaultRange, formatCap, rangeBlockReason, toRunRange, withEnd, withStart, type AiRange } from '$lib/tool-tabs/video/aiRange';
+	import { entryKey } from '$lib/editors/registry';
+	import { tasks } from '$lib/editors/tasks';
 	import {
 		EMPTY_SIGNATURE,
 		directInputRef,
@@ -120,21 +144,31 @@
 		type LoadedVideoState,
 		type SavedCopy
 	} from '$lib/tool-tabs/video/videoState';
-	import { loadPeaks, runStrip, stripTimes } from '$lib/tool-tabs/video/stripScheduler';
-	import { createFrameGrabber, type FrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
-	import { drawSource } from '$lib/filters/thumbPainter';
-	import { EffectThumbPainter, frameSource } from '$lib/tool-tabs/video/effectThumbs';
+	import { loadPeaks, runStrip } from '$lib/tool-tabs/video/stripScheduler';
+	import { createFrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
+	import { frameCache, settleWidth, tileLayout, tileTimes } from '$lib/tool-tabs/video/stripTiles';
 	import { effectTiles, tileById, tileMatches, type EffectTile } from '$lib/tool-tabs/video/effectTiles';
-	import { StillShader } from '$lib/tool-tabs/image/shaderEffect';
 	import { abortableWait, findRun, percentOf, secondsLeft, trackRun, type RenderRunApi } from '$lib/tool-tabs/video/renderRun';
 	import { detachRender, followRender, isFollowing, settleRender, stopRender, type RenderListener } from '$lib/tool-tabs/video/renderFollow';
 	import { requestFrame } from '$lib/tool-tabs/video/frameRequest';
 	import { resizeOptions } from '$lib/tool-tabs/video/params';
 	import { buildSendTargets, videoFieldsOf, withFieldValue, type VideoField, type VideoSendTarget } from '$lib/tool-tabs/video/sendTargets';
+	import { ACTION_ENTRIES, APPLY_LABELS, CHOICE_ENTRIES, ensureCoreVideoEditor } from '$lib/tool-tabs/video/entries';
+	import { createVideoToolHost, type VideoView } from '$lib/tool-tabs/video/toolHost';
+	import { ensureVideoMenu } from '$lib/tool-tabs/video/videoMenu';
+	import { createEditAutosave, type AutosaveStatus } from '$lib/tool-tabs/image/editAutosave';
+	import { editAutosaveOutbox } from '$lib/tool-tabs/image/editAutosaveOutbox';
+	import { editSourceOf, readEditLink, withEditLink, type EditLink } from '$lib/tool-tabs/image/editLink';
+	import { editLinkForSave } from '$lib/tool-tabs/image/saveLink';
+	import { createMenuRecents, openRecentEdit } from '$lib/tool-tabs/image/menuEdits';
+	import { clipFacts, videoContentKey, videoEditDoc } from '$lib/tool-tabs/video/videoEdit';
+	import EditConflictNotice from '$lib/components/tool-tabs/frame/EditConflictNotice.svelte';
+	import EditSaveIndicator from '$lib/components/tool-tabs/frame/EditSaveIndicator.svelte';
+	import RecentEditsDialog from '$lib/components/tool-tabs/image/RecentEditsDialog.svelte';
+	import VideoStartScreen from './VideoStartScreen.svelte';
 	import ScrubBar from './ScrubBar.svelte';
 	import RenderCard from './RenderCard.svelte';
-	import VideoBar from './VideoBar.svelte';
-	import VideoToolOptions from './VideoToolOptions.svelte';
+	import VideoEntryPanel from './VideoEntryPanel.svelte';
 	import CropOverlay from './CropOverlay.svelte';
 
 	type OpenHint = { effect?: string; sendTo?: { tabId: string; field: string } } | null | undefined;
@@ -158,31 +192,20 @@
 	const tabId = hostApi.tabId;
 	const initial = readVideoState(untrack(() => host.state));
 	const runApi: RenderRunApi = { get: getMediaToolRun, list: listMediaToolRuns };
-	const toolLabels: Record<RailToolId, string> = {
-		trim: 'Trim',
-		split: 'Split',
-		crop: 'Crop',
-		resize: 'Resize',
-		speed: 'Speed',
-		mute: 'Mute',
-		volume: 'Volume',
-		replace: 'Replace audio',
-		effects: 'Effects',
-		frame: 'Frame'
-	};
-	const toolIcons: Record<RailToolId, string> = Object.fromEntries(
-		RAIL_GROUPS.flatMap((group) => group.tools.map((entry) => [entry.id, entry.icon]))
-	) as Record<RailToolId, string>;
+	ensureCoreVideoEditor();
+	ensureVideoMenu();
+
+	function knownTool(value: unknown): string | null {
+		const id = normalizeTool(value);
+		return id && railTools.get('video', id) ? id : null;
+	}
 
 	let edits = $state.raw<EditStackState<VideoParams>>(initial.stack);
-	let tool = $state<RailToolId>(isRailToolId(untrack(() => host.activeTool)) ? (untrack(() => host.activeTool) as RailToolId) : (initial.tool ?? 'trim'));
-	let activeEffect = $state<string | null>(null);
+	let tool = $state<string>(knownTool(untrack(() => host.activeTool)) ?? knownTool(initial.tool) ?? 'trim');
 	let hoverTile = $state<string | null>(null);
-	let tileSource = $state.raw<ImageData | null>(null);
+	let applyOverride = $state<{ label: string; enabled: boolean } | null>(null);
 	let liveTimer: ReturnType<typeof setTimeout> | null = null;
-	let tileGrabber: { href: string; grabber: FrameGrabber } | null = null;
 	const LIVE_COMMIT_MS = 600;
-	const thumbs = new EffectThumbPainter(new StillShader());
 	let split = $state(0.5);
 	let webgl2 = $state(false);
 	let contextLosses = $state(0);
@@ -208,12 +231,16 @@
 	let stackOpen = $state(false);
 	let saveMenuOpen = $state(false);
 	let saveSheetOpen = $state(false);
-	let optionsCollapsed = $state(false);
+	let editsHidden = $state(false);
+	let phoneMenuOpen = $state(false);
+	let canvasApi = $state<ReturnType<typeof EditorCanvas> | undefined>();
 	let playing = $state(false);
 	let video = $state<HTMLVideoElement | null>(null);
 	let meta = $state<{ width: number; height: number; duration: number } | null>(null);
 	let videoError = $state(false);
-	let inputRef = $state.raw<MediaToolInputRef | null>(null);
+	let originalRef = $state.raw<MediaToolInputRef | null>(null);
+	let aiRange = $state.raw<AiRange | null>(null);
+	let settingsFor = $state<string | null>(null);
 	let origin = $state<'library' | 'history' | null>(null);
 	let refReason = $state<string | null>(null);
 	let frames = $state<(string | null)[]>([]);
@@ -235,8 +262,16 @@
 
 	let phone = $derived(host.phone);
 	let source = $derived(host.source as RefWithMeta | null);
-	let url = $derived(source?.url ?? null);
-	let stem = $derived(mediaFileStem(source));
+	let chain = $derived.by(() => {
+		void $runViews;
+		return rebase(effectiveSteps(edits), originalRef);
+	});
+	let inputRef = $derived(chain.input ?? originalRef);
+	let url = $derived(chain.url ?? source?.url ?? null);
+	let stem = $derived.by(() => {
+		void $tabsStore;
+		return saveNameFor(tabId, source);
+	});
 	let fps = $derived(safeFps(source?.metadata?.fps ?? ASSUMED_FPS));
 	let ready = $derived(!!meta && meta.duration > 0);
 	let clip = $derived<ClipInfo>(meta ?? { width: 1280, height: 720, duration: 0 });
@@ -244,30 +279,26 @@
 
 	let effectList = $derived<EffectTool[]>(effectTools($mediaToolCatalog));
 	let effectMap = $derived(new Map(effectList.map((entry) => [entry.id, entry])));
-	let groups = $derived(effectGroups(effectList));
 	let pending = $derived(edits.pending);
 	let preview = $derived(previewSteps(edits));
 	let effective = $derived(effectiveSteps(edits));
-	let stackEffect = $derived(effective.findLast((entry) => effectMap.has(entry.tool))?.tool ?? null);
-	let currentEffect = $derived(activeEffect && (effectMap.has(activeEffect) || !effectList.length) ? activeEffect : (stackEffect ?? groups[0]?.effects[0]?.id ?? null));
-	let saveCompiled = $derived(compileSteps(effective, clip, { effects: effectMap }));
-	let signature = $derived(ready ? stepsSignature(saveCompiled.steps) : savedSignature);
-	let previewCompiled = $derived(compileSteps(preview, clip, { skipSplit: true, effects: effectMap }));
-	let beforeCompiled = $derived(compileSteps(beforeSteps(edits), clip, { skipSplit: true, effects: effectMap }));
-	let effectivePlayback = $derived(playbackPreview(effective, clip));
+	let saveCompiled = $derived(compileSteps(chain.tail, clip, { effects: effectMap }));
+	let saveSteps = $derived(chain.base && saveCompiled.steps.length === 0 ? [{ tool: 'trim', params: { start: 0, end: Math.round(clip.duration * 1000) / 1000 } }] : saveCompiled.steps);
+	let signature = $derived(ready ? (chain.base ? JSON.stringify({ input: refKey(chain.input), steps: saveSteps }) : stepsSignature(saveSteps)) : savedSignature);
+	let previewCompiled = $derived(compileSteps(tailOf(preview), clip, { skipSplit: true, effects: effectMap }));
+	let beforeCompiled = $derived(compileSteps(tailOf(beforeSteps(edits)), clip, { skipSplit: true, effects: effectMap }));
+	let effectivePlayback = $derived(playbackPreview(chain.tail, clip));
+	let aiCompiled = $derived(compileSteps(chain.tail, clip, { skipSplit: true, effects: effectMap }));
 	let base = $derived(keptRange(duration, effectivePlayback.ops));
 
-	let panelOp = $derived<VideoOp | null>(tool === 'effects' ? currentEffect : tool === 'replace' ? 'replace_audio' : tool === 'frame' ? null : tool);
-	let tiles = $derived(effectTiles(effectList));
-	let effectStep = $derived(tool === 'effects' && panelOp ? (effective.findLast((step) => step.tool === panelOp) ?? null) : null);
-	let panelParams = $derived.by<VideoParams>(() => {
-		if (!panelOp) return {};
-		if (pending && pending.tool === panelOp) return pending.params;
-		if (effectStep) return effectStep.params;
-		return defaultsFor(panelOp);
-	});
+	let effectsTool = $derived(isEffectOp(tool) && !railTools.get('video', tool)?.task);
+	let pluginEntry = $derived(!!railTools.get('video', tool)?.pluginId);
+	let panelOp = $derived<VideoOp | null>(tool === 'frame' || railTools.get('video', tool)?.task ? null : tool);
+	let tiles = $derived(effectTiles(effectList).filter((tile) => tile.lookParam !== null));
+	let effectStep = $derived(effectsTool && panelOp ? (effective.findLast((step) => step.tool === panelOp) ?? null) : null);
+	let panelParams = $derived.by<VideoParams>(() => (panelOp ? paramsFor(panelOp) : {}));
 	let editingCrop = $derived(tool === 'crop' && ready && (pending?.tool === 'crop' || !effective.some((step) => step.tool === 'crop')));
-	let hoverTileItem = $derived<EffectTile | null>(tool === 'effects' ? tileById(tiles, hoverTile) : null);
+	let hoverTileItem = $derived<EffectTile | null>(tool === 'look' ? tileById(tiles, hoverTile) : null);
 	let hoverSteps = $derived.by(() => {
 		const item = hoverTileItem;
 		if (!item || !webgl2 || tileMatches(item, pending?.tool, pending?.params)) return null;
@@ -278,9 +309,11 @@
 		return previewWith(edits, draft);
 	});
 	let playbackSteps = $derived(
-		editingCrop
-			? [...beforeSteps(edits), { ...draftFor('crop', { ...panelParams, rect: FULL_CROP }), id: 'crop-edit', hidden: false }]
-			: (hoverSteps ?? preview)
+		tailOf(
+			editingCrop
+				? [...beforeSteps(edits), { ...draftFor('crop', { ...panelParams, rect: FULL_CROP }), id: 'crop-edit', hidden: false }]
+				: (hoverSteps ?? preview)
+		)
 	);
 	let playback = $derived(playbackPreview(playbackSteps, clip));
 	let liveCompiled = $derived(compileSteps(playbackSteps, clip, { skipSplit: true, effects: effectMap }));
@@ -290,13 +323,12 @@
 	let range = $derived(keptRange(duration, playback.ops));
 	let scrubIn = $derived(tool === 'trim' && panelOp === 'trim' ? Number(panelParams.start ?? range.start) : range.start);
 	let scrubOut = $derived(tool === 'trim' && panelOp === 'trim' ? Number(panelParams.end ?? range.end) : range.end);
-	let outputLength = $derived(playbackPreview(preview, clip).duration);
+	let outputLength = $derived(playbackPreview(tailOf(preview), clip).duration);
 	let displaySize = $derived(playback.size);
 	let crop = $derived(playback.crop);
 	let cropRect = $derived<CropRect>(editingCrop ? readCrop(panelParams).rect : FULL_CROP);
 	let keepPitch = $derived(effective.concat(pending ? [{ ...pending, id: 'p', hidden: false }] : []).filter((step) => step.tool === 'speed').every((step) => readSpeed(step.params as VideoParams).keep_pitch));
 	let splitting = $derived(hasSplit(saveCompiled.steps));
-	let effectsTool = $derived(tool === 'effects');
 	let effectUpdating = $derived(effectsTool && !!pending?.target && pending.tool === panelOp);
 	let effectOriginal = $derived(effectUpdating ? (edits.steps.find((step) => step.id === pending?.target)?.params as VideoParams | undefined) : undefined);
 	let pendingEffect = $derived(effectsTool && !!pending && pending.tool === panelOp);
@@ -306,21 +338,24 @@
 		const source = pending && isEffectOp(pending.tool) ? [{ tool: pending.tool, params: pending.params }] : effective.filter((step) => isEffectOp(step.tool)).map((step) => ({ tool: step.tool, params: step.params as VideoParams }));
 		return new Set(tiles.filter((tile) => source.some((entry) => tileMatches(tile, entry.tool, entry.params))).map((tile) => tile.id));
 	});
-	let trayItems = $derived(tiles.map((tile) => ({ id: tile.id, label: tile.label, group: tile.group, selected: pickedTiles.has(tile.id) })));
-	let showTray = $derived(effectsTool && ready && tiles.length > 0);
-	let phoneBarred = $derived(phone && ready && (tool === 'trim' || tool === 'effects'));
 	let pendingMeaningful = $derived(!!pending && isVideoOp(pending.tool) && ready && (!!pending.target || !isNoop(pending.tool, pending.params, clip, base)));
-	let hasEdits = $derived(saveCompiled.steps.length > 0 || pendingMeaningful);
+	let hasEdits = $derived(saveCompiled.steps.length > 0 || pendingMeaningful || !!chain.base);
 	let visibleCount = $derived(effective.length);
 	let dirty = $derived(ready ? dirtyCount(signature, savedSignature, visibleCount) : 0);
 	let canSave = $derived(ready && !!inputRef && hasEdits);
-	let canApply = $derived(effectsTool ? canApplyEffect : !!panelOp && ready && (tool === 'mute' || !!pending?.target || !isNoop(panelOp, panelParams, clip, base)));
+	let canApply = $derived(
+		pluginEntry && applyOverride
+			? applyOverride.enabled
+			: effectsTool
+				? canApplyEffect
+				: !!panelOp && ready && (tool === 'mute' || !!pending?.target || !isNoop(panelOp, panelParams, clip, base))
+	);
 	let wantFrame = $derived(ready && !!inputRef && !playing && tool !== 'crop' && !clipPreview && live.serverPaused && hasPixelEffects(previewCompiled.steps));
 	let frameKey = $derived(wantFrame ? JSON.stringify([previewCompiled.steps, Math.round(playhead * 1000)]) : null);
 	let beforeKey = $derived(compare && ready && !!inputRef && !playing && !clipPreview && !live.canvas ? JSON.stringify([beforeCompiled.steps, Math.round(playhead * 1000)]) : null);
 	let showAfterFrame = $derived(!!afterFrame && afterFrame.key === frameKey);
 	let previewSignature = $derived(JSON.stringify(previewCompiled.steps));
-	let sizeOptions = $derived(resizeOptions(compileSteps(beforeSteps(edits), clip).chain.size));
+	let sizeOptions = $derived(resizeOptions(compileSteps(tailOf(beforeSteps(edits)), clip).chain.size));
 	let replaceOption = $derived(
 		origin !== 'library'
 			? { allowed: false, reason: 'Files from History stay as generated' }
@@ -336,7 +371,128 @@
 		return first > 0 ? [list[first], ...list.slice(0, first), ...list.slice(first + 1)] : list;
 	});
 	let renderLeft = $derived(render ? secondsLeft(render.percent / 100, Date.now() - render.startedAt) : null);
-	let sourceInfo = $derived(origin === 'library' ? { icon: 'library', label: 'Library' } : origin === 'history' ? { icon: 'clock', label: 'History' } : null);
+	let currentStep = $derived.by(() => {
+		const list = appliedSteps(edits);
+		return list.length && !edits.pending ? list[list.length - 1] : null;
+	});
+	let footerActions = $derived(ready && tool !== 'frame');
+	let applyText = $derived(pluginEntry && applyOverride ? applyOverride.label : (APPLY_LABELS[tool] ?? 'Apply'));
+	let resetEnabled = $derived(effectsTool ? canResetEffect : !!pending);
+	let railGroups = $derived.by(() => {
+		void $editorsRevision;
+		return railFor('video', { editor: 'video', hasSource: !!source });
+	});
+	let registeredTool = $derived.by(() => {
+		void $editorsRevision;
+		return railTools.get('video', tool);
+	});
+	let toolLabel = $derived(registeredTool?.label ?? tool);
+	let toolIcon = $derived(registeredTool?.icon ?? 'editor-effects');
+	let appliedTools = $derived([...new Set(appliedSteps(edits).filter((step) => !step.hidden).map((step) => (step.tool === 'generate' ? (readGenerateParams(step.params)?.task ?? step.tool) : step.tool)))]);
+	let markers = $derived.by(() => {
+		const list = appliedSteps(edits).map((step, index) => ({ step, label: String(index + 1).padStart(2, '0') }));
+		if (pending) list.push({ step: { ...pending, id: 'pending', hidden: false }, label: String(list.length + 1).padStart(2, '0') });
+		return list.filter((entry) => entry.step.tool === 'split' && !entry.step.hidden).map((entry) => ({ at: Number((entry.step.params as VideoParams).at ?? 0), label: entry.label }));
+	});
+	let volumeFade = $derived.by(() => {
+		const held = pending && pending.tool === 'volume' ? pending.params : effective.findLast((step) => step.tool === 'volume')?.params;
+		if (!held) return { fadeIn: 0, fadeOut: 0 };
+		const volume = readVolume(held as VideoParams);
+		return { fadeIn: volume.fade_in * playback.rate, fadeOut: volume.fade_out * playback.rate };
+	});
+	let replacement = $derived.by(() => {
+		const held = pending && pending.tool === 'replace_audio' ? pending.params : effective.findLast((step) => step.tool === 'replace_audio')?.params;
+		return held && (held as VideoParams).audio ? { name: String((held as VideoParams).name || 'Audio') } : null;
+	});
+	let pendingTools = $derived(pending ? [pending.tool] : []);
+	let outputSize = $derived(editingCrop ? cropOutputSize(cropRect, displaySize) : displaySize);
+	let statusExtra = $derived(
+		ready ? [`${fixed2(outputLength)} s`, `${Math.round(fps * 100) / 100} fps`, ...(tool === 'crop' || tool === 'resize' ? [`Output ${outputSize.width}×${outputSize.height}`] : [])].join(' · ') : null
+	);
+	let formatLabel = $derived.by(() => {
+		const ext = (source?.name ?? source?.path ?? '').split('.').pop() ?? '';
+		return /^[a-z0-9]{2,4}$/i.test(ext) ? ext.toUpperCase() : '';
+	});
+
+	ensureCoreEditorMenu();
+	const menuRecents = createMenuRecents(api, 'video');
+	let recentDialog = $state(false);
+	const menuCommands: EditorMenuCommands = {
+		save: (action) => onSave(action),
+		closeEditor: () => requestCloseTab(host.tabId),
+		replaceWith: (id) => openReplacePicker(id as SourceEntryId),
+		openRecent: (id) => void openRecentEdit(id, 'clip'),
+		openAllEdits: () => (recentDialog = true),
+		undo: () => doUndo(),
+		redo: () => doRedo(),
+		apply: () => applyCurrent(),
+		reset: () => (effectsTool ? resetEffect() : resetCurrent()),
+		toggleStepHidden: () => {
+			const step = currentStep;
+			if (step) edits = toggleHidden(edits, step.id);
+		},
+		removeStep: () => {
+			const step = currentStep;
+			if (step) removeStep(step.id);
+		},
+		removeAll: () => {
+			settleLive();
+			generate.allRemoved(edits as EditStackState<unknown>);
+			edits = clearAll(commitLive(edits));
+		},
+		toggleCompare: () => (compare = !compare),
+		zoomIn: () => canvasApi?.zoomIn(),
+		zoomOut: () => canvasApi?.zoomOut(),
+		fit: () => canvasApi?.showFit(),
+		actualSize: () => canvasApi?.showActualSize(),
+		toggleEdits: () => (editsHidden = !editsHidden),
+		selectTool: (id) => selectTool(id),
+		frame: { save: () => void frameAction('save'), open: () => void frameAction('open') }
+	};
+	let menuCtx = $derived<EditorMenuContext>({
+		editor: 'video',
+		hasSource: !!source,
+		phone,
+		busy: !!render || starting,
+		tool,
+		rail: railGroups,
+		groupedTools: true,
+		appliedTools,
+		saved: !!saved && !splitting,
+		canSave,
+		replace: replaceOption,
+		sendTargets,
+		newGeneration: false,
+		downloadFormat: 'MP4',
+		copyLabel: 'Copy link',
+		sources: sourceEntries('video').map((entry) => ({ id: entry.id, label: entry.label, icon: entry.icon })),
+		currentSource: currentSourceOf(source),
+		replaceLabel: 'Replace clip',
+		replaceBlocked: !!render || starting,
+		recentEdits: $menuRecents,
+		canUndo: canUndo(edits),
+		undoLabel: undoLabel(edits),
+		canRedo: canRedo(edits),
+		redoLabel: redoLabel(edits),
+		apply: panelOp ? { label: applyText, enabled: canApply, reason: 'Nothing to apply yet' } : null,
+		reset: { label: 'Reset', icon: 'rotate', enabled: resetEnabled, reason: 'Nothing to reset yet' },
+		step: currentStep ? { id: currentStep.id, label: currentStep.label, hidden: currentStep.hidden } : null,
+		editCount: appliedSteps(edits).length,
+		compare,
+		canCompare: ready,
+		zoom: canvasApi ? canvasApi.zoomState() : null,
+		editsShown: !editsHidden,
+		commands: menuCommands
+	});
+
+	function paramsFor(op: string): VideoParams {
+		if (pending && pending.tool === op) return pending.params;
+		if (isEffectOp(op)) {
+			const step = effective.findLast((entry) => entry.tool === op);
+			if (step) return step.params as VideoParams;
+		}
+		return defaultsFor(op);
+	}
 
 	function defaultsFor(op: VideoOp): VideoParams {
 		if (op === 'trim') return { start: base.start, end: base.end };
@@ -378,6 +534,10 @@
 			.finally(() => analysisLoading.delete(need.key));
 	}
 
+	function tailOf(steps: readonly EditStep<unknown>[]): EditStep<unknown>[] {
+		return rebase(steps, originalRef).tail;
+	}
+
 	function foldPending(state: EditStackState<VideoParams>): EditStackState<VideoParams> {
 		return settlePending(state, ready, clip, base);
 	}
@@ -404,28 +564,29 @@
 
 	function setParams(op: VideoOp, params: VideoParams) {
 		const draft = draftFor(op, params, effectMap);
-		if (tool === 'effects' && isEffectOp(op)) {
+		if (isEffectOp(op)) {
 			writeEffect(op, draft);
 			return;
 		}
 		edits = pending && pending.tool === op ? updatePending(edits, draft) : beginEdit(foldPending(edits), draft);
 	}
 
-	function selectTool(id: string) {
-		if (!isRailToolId(id) || id === tool) return;
+	function selectTool(requested: string) {
+		const id = knownTool(requested);
+		if (!id || id === tool) return;
 		settleLive();
 		edits = foldPending(edits);
 		tool = id;
 		hoverTile = null;
 		compare = false;
 		closeClipPreview();
+		beginEffect(id);
 	}
 
-	function selectEffect(next: string) {
-		if (next === currentEffect) return;
-		settleLive();
-		edits = foldPending(edits);
-		activeEffect = next;
+	function beginEffect(id: string) {
+		if (!ready || !isEffectOp(id) || CHOICE_ENTRIES.includes(id) || !effectMap.has(id)) return;
+		if (effective.some((step) => step.tool === id) || edits.pending) return;
+		edits = beginEdit(edits, draftFor(id, defaultsFor(id), effectMap));
 	}
 
 	function pickTile(id: string | null) {
@@ -438,7 +599,6 @@
 		const tile = tileById(tiles, id);
 		if (!tile) return;
 		const op = tile.effect.id;
-		activeEffect = op;
 		const existing = effective.findLast((step) => step.tool === op);
 		if (existing && tileMatches(tile, op, existing.params as VideoParams)) {
 			if (pending && isEffectOp(pending.tool)) edits = discardPending(edits);
@@ -485,11 +645,22 @@
 	function reopenStep(id: string) {
 		const step = edits.steps.find((entry) => entry.id === id);
 		if (!step) return;
+		if (step.tool === 'generate') {
+			const task = readGenerateParams(step.params)?.task;
+			if (task && knownTool(task)) {
+				selectTool(task);
+				void tick().then(() => generate.activate(id));
+			}
+			return;
+		}
 		const rail = railToolOf(step.tool);
+		const entry = rail ? knownTool(rail) : null;
 		settleLive();
-		if (rail !== 'effects') edits = reopen(edits, id);
-		if (rail) tool = rail;
-		if (rail === 'effects') activeEffect = step.tool;
+		if (!isEffectOp(step.tool)) edits = reopen(edits, id);
+		if (entry) {
+			if (entry !== tool) edits = foldPending(edits);
+			tool = entry;
+		}
 	}
 
 	function doUndo() {
@@ -545,15 +716,20 @@
 		void video.play().catch(() => undefined);
 	}
 
+	function wrapLoop() {
+		if (!video) return;
+		video.currentTime = range.start;
+		playhead = range.start;
+		if (video.paused) void video.play().catch(() => undefined);
+	}
+
 	function frameLoop() {
 		if (!video) return;
-		const t = video.currentTime;
-		if (t >= range.end - 0.005) {
-			if (loop) video.currentTime = range.start;
-			else {
-				video.pause();
-				video.currentTime = range.end;
-			}
+		const step = loopStep({ time: video.currentTime, rangeEnd: range.end, loop, ended: video.ended });
+		if (step === 'wrap') wrapLoop();
+		else if (step === 'stop') {
+			video.pause();
+			video.currentTime = range.end;
 		}
 		playhead = video.currentTime;
 		if (playing) raf = requestAnimationFrame(frameLoop);
@@ -566,10 +742,19 @@
 	}
 
 	function onPause() {
+		if (video?.ended && loop) return;
 		playing = false;
 		cancelAnimationFrame(raf);
 		if (video) playhead = video.currentTime;
 		storedPlayhead = playhead;
+	}
+
+	function onEnded() {
+		if (!loop) return;
+		wrapLoop();
+		playing = true;
+		cancelAnimationFrame(raf);
+		raf = requestAnimationFrame(frameLoop);
 	}
 
 	function onMetadata() {
@@ -625,7 +810,7 @@
 		} catch (error) {
 			if (controller.signal.aborted) return;
 			clipPreview = null;
-			toasts.show('error', error instanceof Error ? error.message : 'The preview could not be rendered', { title: 'Preview failed' });
+			toasts.show('error', describeMediaToolFailure(error, 'The preview could not be rendered'), { title: 'Preview failed' });
 		}
 	}
 
@@ -641,6 +826,56 @@
 			renderMode: render?.mode ?? null,
 			renderStartedAt: render?.startedAt ?? null
 		};
+	}
+
+	let editLink = $state<EditLink | null>(readEditLink(untrack(() => host.state)));
+	let autosaveStatus = $state<AutosaveStatus>('idle');
+	let autosaveBusy = $state(false);
+	let clipNow = $derived(clipFacts(ready ? outputLength : source?.metadata?.duration_seconds, clip.width, clip.height));
+
+	const autosave = createEditAutosave({
+		tabId,
+		tool: 'video',
+		contentKey: videoContentKey,
+		edits: {
+			create: (body) => api.createEdit(body),
+			get: (id) => api.getEdit(id),
+			save: (id, body) => api.saveEdit(id, body)
+		},
+		outbox: editAutosaveOutbox,
+		initialState: videoEditDoc(initial, null),
+		readLink: () => readEditLink(host.state),
+		source: () => editSourceOf(host.source),
+		onLink: (link) => (editLink = link),
+		onStatus: (next) => (autosaveStatus = next),
+		onRestore: applyServerState
+	});
+
+	function applyServerState(raw: Record<string, unknown>): Record<string, unknown> {
+		const next = readVideoState(raw);
+		edits = next.stack;
+		saved = next.saved;
+		savedSignature = next.savedSignature;
+		return videoEditDoc(stateSnapshot(), clipNow);
+	}
+
+	async function loadNewerEdit() {
+		autosaveBusy = true;
+		const ok = await autosave.loadNewer();
+		autosaveBusy = false;
+		if (!ok) toasts.error('Could not load the newer version. Try again.');
+	}
+
+	async function keepMineAsCopy() {
+		autosaveBusy = true;
+		const ok = await autosave.keepMine();
+		autosaveBusy = false;
+		if (ok) toasts.success('Your version is saved as a copy.');
+		else toasts.error('Could not save your version as a copy. Try again.');
+	}
+
+	function onMenuOpened(id: string) {
+		if (id === 'file') void menuRecents.load();
 	}
 
 	function announce(run: MediaToolRun, mode: string | null) {
@@ -679,7 +914,6 @@
 		done(run) {
 			const snap = render;
 			render = null;
-			optionsCollapsed = false;
 			hostApi.setRun(null);
 			const settled = settleState({ ...stateSnapshot(), renderSignature: snap?.signature ?? null, renderMode: snap?.mode ?? null }, run);
 			savedSignature = settled.savedSignature;
@@ -702,10 +936,14 @@
 	async function startRender(mode: MediaToolSaveMode, then?: (run: MediaToolRun) => void) {
 		if (!inputRef || !ready || render || starting) return;
 		edits = foldPending(edits);
-		const compiled = compileSteps(effectiveSteps(edits), clip, { effects: effectMap });
+		const found = rebase(effectiveSteps(edits), originalRef);
+		const compiled = compileSteps(found.tail, clip, { effects: effectMap });
+		if (found.base && compiled.steps.length === 0) compiled.steps = [{ tool: 'trim', params: { start: 0, end: Math.round(clip.duration * 1000) / 1000 } }];
 		if (compiled.steps.length === 0) return;
 		const finalMode: MediaToolSaveMode = mode === 'update' && (!saved || hasSplit(compiled.steps)) ? 'new' : mode;
-		const output: { mode: MediaToolSaveMode; target_item_id?: string } = { mode: finalMode };
+		const output: { mode: MediaToolSaveMode; target_item_id?: string; name?: string } = { mode: finalMode };
+		const outputName = saveNameFor(tabId, source);
+		if (outputName) output.name = outputName.slice(0, 200);
 		if (finalMode === 'update' && saved) output.target_item_id = saved.itemId;
 		starting = true;
 		try {
@@ -714,19 +952,18 @@
 				runId,
 				percent: 0,
 				mode: finalMode,
-				signature: stepsSignature(compiled.steps),
+				signature: found.base ? JSON.stringify({ input: refKey(found.input), steps: compiled.steps }) : stepsSignature(compiled.steps),
 				startedAt: Date.now(),
 				total: compiled.chain.duration,
 				output: `MP4 · ${compiled.chain.size.width}×${compiled.chain.size.height}`,
 				cancelling: false
 			};
 			afterRender = then ?? null;
-			if (!phone) optionsCollapsed = true;
 			hostApi.setRun({ runId, progress: 0 });
 			follow(runId);
 		} catch (error) {
 			logger.error('The video render could not start:', error);
-			toasts.show('error', error instanceof Error ? error.message : 'The render could not start', { title: 'Save failed' });
+			toasts.show('error', describeMediaToolFailure(error, 'The render could not start'), { title: 'Save failed' });
 		} finally {
 			starting = false;
 		}
@@ -759,7 +996,6 @@
 				output: `MP4 · ${saveCompiled.chain.size.width}×${saveCompiled.chain.size.height}`,
 				cancelling: false
 			};
-			if (!phone) optionsCollapsed = true;
 		};
 		if (isFollowing(tabId, runId)) {
 			restore(Number(untrack(() => host.run?.progress) ?? 0));
@@ -874,7 +1110,7 @@
 			}
 		} catch (error) {
 			logger.error('Frame action failed:', error);
-			toasts.show('error', error instanceof Error ? error.message : 'The frame could not be read', { title: 'Frame failed' });
+			toasts.show('error', describeMediaToolFailure(error, 'The frame could not be read'), { title: 'Frame failed' });
 		} finally {
 			busy = null;
 		}
@@ -899,7 +1135,7 @@
 			const artifact = await uploadMediaToolArtifact(file);
 			useAudio({ item_id: artifact.id }, file.name);
 		} catch (error) {
-			toasts.show('error', error instanceof Error ? error.message : 'The file could not be uploaded', { title: 'Upload failed' });
+			toasts.show('error', describeMediaToolFailure(error, 'The file could not be uploaded'), { title: 'Upload failed' });
 		} finally {
 			busy = null;
 		}
@@ -918,16 +1154,18 @@
 
 	function pickedMedia(media: PickedMedia) {
 		routePicked(media, {
-			history: (_generation, file) => pickHistory(_generation, file as never),
+			history: (generation, file) => pickHistory(generation, file as never),
 			library: (item) => pickLibrary(item as never)
 		});
 	}
 
-	function pickHistory(_generation: unknown, file: { id?: string | number; file_path: string } & Record<string, unknown>) {
+	function pickHistory(generation: { form_data?: Record<string, unknown> } | null, file: { id?: string | number; file_path: string } & Record<string, unknown>) {
 		pickers = null;
 		if (!file) return;
 		const item = pickFromGeneration(file as never).item as Record<string, unknown>;
 		const ref = { ...item, type: 'video' } as MediaRef & Record<string, unknown>;
+		const title = promptExcerptOf(generation?.form_data);
+		if (title) ref.title = title;
 		if (file.id !== undefined && file.id !== null) ref.generation_file_id = String(file.id);
 		void changeSource(ref as MediaRef);
 	}
@@ -965,15 +1203,227 @@
 
 	let inner = $derived(videoInnerStyle());
 
+	const view: VideoView = {
+		get ready() {
+			return ready;
+		},
+		get url() {
+			return url;
+		},
+		get playing() {
+			return playing;
+		},
+		get clip() {
+			return clip;
+		},
+		get fps() {
+			return fps;
+		},
+		get base() {
+			return base;
+		},
+		get playhead() {
+			return playhead;
+		},
+		get outputLength() {
+			return outputLength;
+		},
+		get displaySize() {
+			return displaySize;
+		},
+		get aspect() {
+			return aspect;
+		},
+		get sizeOptions() {
+			return sizeOptions;
+		},
+		get busy() {
+			return busy;
+		},
+		get tiles() {
+			return tiles;
+		},
+		get pickedTiles() {
+			return pickedTiles;
+		},
+		get previewState() {
+			return clipPreview?.state ?? 'idle';
+		},
+		get showClip() {
+			return live.showClip;
+		},
+		get effects() {
+			return effectMap;
+		},
+		get aiRange() {
+			return aiRange;
+		},
+		panelParams: (op) => paramsFor(op),
+		setParams: (op, params) => setParams(op, params),
+		setAspect: (key) => setAspect(key),
+		setIn: (seconds) => setIn(seconds),
+		setOut: (seconds) => setOut(seconds),
+		setAiRange: (range) => markRange(range),
+		previewClip: () => void previewClip(),
+		cancelPreview: () => closeClipPreview(),
+		frameAction: (action) => void frameAction(action),
+		pickAudio: (from) => pickAudio(from),
+		pickTile: (id) => pickTile(id),
+		hoverTile: (id) => (hoverTile = id)
+	};
+
+	async function renderFrame(): Promise<HTMLCanvasElement> {
+		if (!video) throw new Error('No clip is loaded');
+		const canvas = document.createElement('canvas');
+		canvas.width = clip.width;
+		canvas.height = clip.height;
+		canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
+		return canvas;
+	}
+
+	const toolHost = createVideoToolHost({
+		getStack: () => edits,
+		setStack: (next) => (edits = next),
+		fold: (state) => foldPending(state),
+		applyPending: () => {
+			edits = apply(edits);
+		},
+		writeEffect: (op, params) => setParams(op, params),
+		getSource: () => ({ size: { width: clip.width, height: clip.height }, ref: inputRef }),
+		render: renderFrame,
+		setApply: (state) => (applyOverride = state),
+		view
+	});
+
+	$effect(() => toolHost.syncPending(pending));
+	$effect(() => toolHost.syncStack(edits));
+
+	const generate = createTabGenerate(
+		{
+			getStack: () => foldPending(edits) as EditStackState<unknown>,
+			setStack: (next) => (edits = next as EditStackState<VideoParams>),
+			source: () => ({ ref: originalRef }),
+			editLink: () => editLinkForSave(() => autosave.ensure()),
+			landRegion: async () => null,
+			areaSize: () => null,
+			stepsBeneath: async (id) => compileSteps(basisBeneath(effectiveSteps(edits), originalRef, id).tail, clip, { skipSplit: true, effects: effectMap }).steps,
+			range: () => toRunRange(aiRange, duration, aiCompiled.chain.ops),
+			inputFor: (id) => basisBeneath(effectiveSteps(edits), originalRef, id).input,
+			basisOf: (id) => basisBeneath(effectiveSteps(edits), originalRef, id).basis
+		},
+		'video'
+	);
+	provideGenerateController(generate);
+	const generateUi = generate.ui;
+	$effect(() => generate.use(registeredTool?.task ?? null));
+	$effect(() => {
+		const current = edits;
+		untrack(() => generate.resume(current as EditStackState<unknown>));
+	});
+	let loadedUrl: string | null = untrack(() => url);
+	$effect(() => {
+		const next = url;
+		untrack(() => {
+			if (next === loadedUrl) return;
+			loadedUrl = next;
+			meta = null;
+			videoError = false;
+		});
+	});
+	let taskTool = $derived(!!registeredTool?.task);
+	let settingsRef = $derived(settingsOf(registeredTool));
+	let settingsOpen = $derived(!!settingsRef && settingsFor !== null && settingsFor === tool);
+	let promptSettings = $derived(settingsRef ? { open: settingsOpen, toggle: () => (settingsFor = settingsOpen ? null : tool) } : undefined);
+	$effect(() => {
+		const current = tool;
+		untrack(() => {
+			if (settingsFor && settingsFor !== current) settingsFor = null;
+		});
+	});
+	let extendTask = $derived.by(() => {
+		void $editorsRevision;
+		return !!registeredTool?.task && tasks.get('video', registeredTool.task)?.result === 'append';
+	});
+	let extendSeconds = $derived.by(() => {
+		const task = registeredTool?.task;
+		const tweak = task ? $generateUi.tweaks[task] : null;
+		const value = tweak?.values.duration ?? tweak?.defaults.duration;
+		return typeof value === 'number' ? value : null;
+	});
+	let rangeMarker = $derived(taskTool && extendTask && ready ? { at: aiRange?.end ?? duration, label: extendSeconds === null ? 'Added here' : `+${fixed2(extendSeconds)} s` } : null);
+	let rangeCap = $derived.by(() => {
+		void $generateUi;
+		const task = registeredTool?.task;
+		return task && taskTool ? generate.capFor(task) : null;
+	});
+	let rangeRequired = $derived.by(() => {
+		void $editorsRevision;
+		const task = registeredTool?.task;
+		return !!task && tasks.get('video', task)?.range === 'required';
+	});
+	let rangeBlock = $derived(taskTool && ready ? rangeBlockReason(aiRange, duration, rangeCap, rangeRequired) : null);
+	let rangeStatus = $derived(
+		`${aiRange ? `${fixed2(aiRange.start)} → ${fixed2(aiRange.end)} s` : 'Whole clip'}${rangeCap !== null ? ` · max ${formatCap(rangeCap)}` : ''}`
+	);
+	$effect(() => {
+		const cap = rangeCap;
+		untrack(() => {
+			if (cap !== null && aiRange) aiRange = capRange(aiRange, null, cap, duration);
+		});
+	});
+	let runStep = $derived.by(() => {
+		const id = $generateUi.activeStepId;
+		return id ? (generateSteps(edits).find((entry) => entry.step.id === id) ?? null) : null;
+	});
+	let runView = $derived(runStep ? ($runViews[runStep.params.run.id] ?? null) : null);
+	let runStatus = $derived(runStep ? (runView?.status ?? runStep.params.run.status) : null);
+	let runningId = $derived(runStep && (runStatus === 'queued' || runStatus === 'running') ? runStep.step.id : null);
+	let runOutOfDate = $derived(!!runStep && chain.stale.has(runStep.step.id));
+	let dockHasTemp = $derived(!!runStep && runStatus === 'done' && (runStep.params.results.length > 0 || runOutOfDate));
+	let saveNotices = $derived([leftOutNotice(leftOutCount(effective)), outOfDateNotice(chain.stale.size)].filter((line): line is string => !!line));
+
+	async function redoStep(id: string) {
+		await generate.redo(id);
+	}
+
+	function stepAction(id: string, action: string) {
+		if (action === 'cancel') void generate.cancel(id);
+		else if (action === 'again') void generate.tryAgain(id);
+		else if (action === 'retry') void generate.retry(id);
+		else if (action === 'redo') void redoStep(id);
+	}
+
+	function removeStep(id: string) {
+		generate.stepRemoved(id, edits as EditStackState<unknown>);
+		edits = remove(edits, id);
+	}
+
+	function markRange(next: AiRange | null) {
+		aiRange = next ? capRange(next, aiRange, rangeCap, duration) : null;
+	}
+
+	function rangeFrom(seconds: number, which: 'start' | 'end') {
+		if (!ready) return;
+		const current = aiRange;
+		if (!current) markRange(defaultRange(which === 'start' ? seconds : Math.max(0, seconds - 2), duration));
+		else markRange(which === 'start' ? withStart(current, seconds, duration) : withEnd(current, seconds, duration));
+	}
+
+	function rowInfo(step: EditStep<unknown>): StepRowInfo | null {
+		if (step.tool === 'generate') return generateRowInfo(step, chain.stale.has(step.id));
+		if (!afterPlan?.analysis.some((need) => need.tool === step.tool)) return null;
+		return { state: { kind: 'busy', label: 'Measuring colours' }, locked: false };
+	}
+
 	$effect(() => {
 		const ref = source;
-		inputRef = null;
+		originalRef = null;
 		origin = null;
 		refReason = null;
 		if (!ref) return;
 		const direct = directInputRef(ref);
 		if (direct) {
-			inputRef = direct;
+			originalRef = direct;
 			origin = 'item_id' in direct ? 'library' : 'history';
 			return;
 		}
@@ -981,10 +1431,10 @@
 		void resolveEditableResource(null, ref.relative_path || ref.path, 'video').then((resolved) => {
 			if (cancelled) return;
 			if (resolved.itemId) {
-				inputRef = { item_id: resolved.itemId };
+				originalRef = { item_id: resolved.itemId };
 				origin = 'library';
 			} else if (resolved.generationFileId) {
-				inputRef = { generation_file_id: resolved.generationFileId };
+				originalRef = { generation_file_id: resolved.generationFileId };
 				origin = 'history';
 			} else refReason = resolved.reason;
 		});
@@ -993,23 +1443,40 @@
 		};
 	});
 
+	const STRIP_HEIGHT = 48;
+	let stripWidthRaw = $state(0);
+	let stripWidth = $state(0);
+	let stripLayout = $derived(tileLayout(stripWidth, STRIP_HEIGHT, clip.width > 0 && clip.height > 0 ? clip.width / clip.height : 16 / 9, typeof window === 'undefined' ? 1 : window.devicePixelRatio));
+
+	$effect(() => {
+		const next = stripWidthRaw;
+		stripWidth = settleWidth(untrack(() => stripWidth), next);
+	});
+
 	$effect(() => {
 		const href = url;
 		const length = duration;
-		const count = phone ? 8 : 12;
-		if (!href || !(length > 0)) {
+		const layout = stripLayout;
+		const width = untrack(() => stripWidth);
+		if (!href || !(length > 0) || !layout) {
 			frames = [];
 			return;
 		}
-		frames = Array(count).fill(null);
+		const cacheKey = frameCache.key(href, layout, length);
+		const initial = frameCache.get(cacheKey, layout.count);
+		frames = initial;
+		const missing = new Set(initial.flatMap((frame, i) => (frame ? [] : [i])));
+		if (initial[0]) hostApi.setThumbnail(initial[0]);
+		if (missing.size === 0) return;
 		const controller = new AbortController();
-		const grabber = createFrameGrabber(href, phone ? 40 : 48);
-		const times = stripTimes(length, count);
+		const grabber = createFrameGrabber(href, STRIP_HEIGHT, { width: layout.pixelWidth, height: layout.pixelHeight, quality: 0.85 });
+		const times = tileTimes(length, width, layout);
 		void runStrip({
-			count,
+			count: layout.count,
 			signal: controller.signal,
-			work: (index, signal) => grabber.grab(times[index], signal),
+			work: (index, signal) => (missing.has(index) ? grabber.grab(times[index], signal) : Promise.resolve(initial[index] as string)),
 			onResult: (index, value) => {
+				frameCache.set(cacheKey, index, value);
 				frames = frames.map((frame, i) => (i === index ? value : frame));
 				if (index === 0) hostApi.setThumbnail(value);
 			},
@@ -1092,11 +1559,16 @@
 	});
 
 	$effect(() => {
-		hostApi.setState(writeVideoState(stateSnapshot()));
+		hostApi.setState(withEditLink({ ...writeVideoState(stateSnapshot()) }, editLink));
 	});
 
 	$effect(() => {
-		hostApi.setDirty(dirty);
+		const doc = videoEditDoc(stateSnapshot(), clipNow);
+		untrack(() => autosave.observe(doc));
+	});
+
+	$effect(() => {
+		hostApi.setDirty(autosaveStatus === 'saved' ? 0 : dirty);
 	});
 
 	$effect(() => {
@@ -1108,18 +1580,15 @@
 	});
 
 	$effect(() => {
-		const requested = host.activeTool;
-		if (isRailToolId(requested) && requested !== untrack(() => tool)) untrack(() => selectTool(requested));
+		const requested = knownTool(host.activeTool);
+		if (requested && requested !== untrack(() => tool)) untrack(() => selectTool(requested));
 	});
 
 	$effect(() => {
 		const hint = (host as HintedHost).hint;
 		if (!hint) return;
 		untrack(() => {
-			if (hint.effect && isEffectOp(hint.effect)) {
-				if (tool !== 'effects') selectTool('effects');
-				selectEffect(hint.effect);
-			}
+			if (hint.effect && isEffectOp(hint.effect)) selectTool(hint.effect);
 			if (hint.sendTo) preferredSend = `${hint.sendTo.tabId}::${hint.sendTo.field}`;
 			(hostApi as HintedHost).clearHint?.();
 		});
@@ -1130,7 +1599,12 @@
 			hostApi.setActions(null);
 			return;
 		}
+		if (!source) {
+			hostApi.setActions({ hidden: true });
+			return;
+		}
 		hostApi.setActions({
+			menu: { run: () => (phoneMenuOpen = true) },
 			undo: { label: undoLabel(edits) ? `Undo ${undoLabel(edits)}` : 'Undo', disabled: !canUndo(edits), run: doUndo },
 			redo: null,
 			save: { label: 'Save', disabled: !canSave, progress: render ? render.percent : null, run: () => (saveSheetOpen = true) }
@@ -1189,47 +1663,35 @@
 	});
 
 	$effect(() => {
-		const href = url;
-		const at = playhead;
-		const wanted = showTray && !playing;
-		if (!wanted || !href) return;
-		const controller = new AbortController();
-		const timer = setTimeout(() => {
-			if (!tileGrabber || tileGrabber.href !== href) {
-				tileGrabber?.grabber.dispose();
-				tileGrabber = { href, grabber: createFrameGrabber(href, 160) };
-			}
-			tileGrabber.grabber
-				.grab(Math.max(0, at), controller.signal)
-				.then((dataUrl) => frameSource(dataUrl, phone ? 112 : 144))
-				.then((image) => {
-					if (controller.signal.aborted || !image) return;
-					thumbs.begin();
-					tileSource = image;
-				})
-				.catch(() => undefined);
-		}, 300);
-		return () => {
-			clearTimeout(timer);
-			controller.abort();
-		};
-	});
-
-	$effect(() => {
-		if (!effectsTool && hoverTile) hoverTile = null;
+		if (tool !== 'look' && hoverTile) hoverTile = null;
 	});
 
 	onMount(() => {
+		const ids = get(tabsStore).tabs.map((tab) => tab.id);
+		if (ids.includes(tabId)) editAutosaveOutbox.prune(ids);
+		autosave.start();
 		webgl2 = supportsWebGL2();
 		void loadMediaToolCatalog();
+		void generate.loadTasks();
 		const run = untrack(() => host.run);
 		if (run?.runId) void reattach(run.runId);
 	});
 
+	onMount(() => {
+		hostApi.setCloseGuard?.(async () => {
+			const edits = untrack(() => (ready ? visibleCount : 0));
+			if (edits > 0) await autosave.settle();
+			return editCloseLoss({ edits, layersFlushed: true, status: autosave.status() });
+		});
+		return () => hostApi.setCloseGuard?.(null);
+	});
+
+	onDestroy(() => void autosave.close());
+
 	onDestroy(() => {
 		destroyed = true;
+		generate.dispose();
 		if (liveTimer) clearTimeout(liveTimer);
-		tileGrabber?.grabber.dispose();
 		cancelAnimationFrame(raf);
 		detachRender(tabId, listener);
 		if (!tabAlive()) stopRender(tabId);
@@ -1241,74 +1703,11 @@
 </script>
 
 {#snippet emptyState()}
-	<div class="dot-grid flex h-full min-h-0 flex-1 items-center justify-center p-6">
-		<div class="flex w-full max-w-md flex-col items-center rounded-lg border border-dashed border-line-strong bg-surface-1 px-8 py-10 text-center" data-testid="tool-tab-empty">
-			<span class="mb-4 flex h-11 w-11 items-center justify-center rounded border border-line bg-surface-2 text-fg-muted">
-				<Icon name="video" className="h-5 w-5" />
-			</span>
-			<h2 class="text-base font-semibold text-fg">Open a clip to edit</h2>
-			<p class="mt-2 text-sm text-fg-muted">Pick a video from your Library or History. Edit from History or Library opens it here too.</p>
-			<div class="mt-5 flex gap-2">
-				{#each sourceEntries('video') as entry (entry.id)}
-					<Button variant="secondary" size="sm" icon={entry.icon} onclick={() => openReplacePicker(entry.id)}>{entry.label}</Button>
-				{/each}
-			</div>
-		</div>
-	</div>
+	<VideoStartScreen {tabId} onpick={openReplacePicker} />
 {/snippet}
 
 {#snippet replaceMenu()}
 	<ReplaceMenu label="Replace clip" entries={sourceEntries('video')} current={currentSourceOf(source) as SourceEntryId | null} disabled={!!render || starting} {phone} onselect={openReplacePicker} />
-{/snippet}
-
-{#snippet barContent()}
-	<VideoBar
-		{tool}
-		title={toolLabels[tool]}
-		icon={toolIcons[tool]}
-		op={panelOp}
-		params={panelParams}
-		{duration}
-		trimIn={scrubIn}
-		trimOut={scrubOut}
-		{outputLength}
-		{aspect}
-		size={displaySize}
-		effect={tool === 'effects' && currentEffect ? (effectMap.get(currentEffect) ?? null) : null}
-		{phone}
-		onparams={setParams}
-		onaspect={setAspect}
-		ontrim={setTrimField}
-	/>
-{/snippet}
-
-{#snippet barActionsContent()}
-	{#if effectsTool && !pendingEffect}
-		<Button variant="secondary" size="sm" class="h-7" disabled={!canResetEffect} onclick={resetEffect} attrs={{ 'data-options-reset': '' }}>Reset</Button>
-	{:else if effectsTool}
-		<BarActions applyLabel={effectUpdating ? 'Update effect' : 'Add effect'} canApply={canApplyEffect} canReset={canResetEffect} onapply={applyCurrent} onreset={resetEffect} />
-	{:else}
-		<BarActions applyLabel={tool === 'trim' ? 'Apply trim' : tool === 'mute' ? 'Mute' : 'Apply'} {canApply} canReset={!!pending} onapply={applyCurrent} onreset={resetCurrent} />
-	{/if}
-{/snippet}
-
-{#snippet phoneBar()}
-	{@render barContent()}
-	<span class="flex-1"></span>
-	{#if effectsTool && !pendingEffect}
-		<Button variant="secondary" size="sm" class="h-8 flex-none" disabled={!canResetEffect} onclick={resetEffect} attrs={{ 'data-options-reset': '' }}>Reset</Button>
-	{:else}
-		<Button variant="primary" size="sm" class="h-8 flex-none" disabled={!canApply} onclick={applyCurrent} attrs={{ 'data-options-apply': '' }}>{effectsTool ? (effectUpdating ? 'Update' : 'Add') : 'Apply'}</Button>
-	{/if}
-{/snippet}
-
-{#snippet tileThumb(item: { id: string })}
-	{@const tile = tileById(tiles, item.id)}
-	{#if item.id === '__original'}
-		<canvas use:drawSource={tileSource} class="block h-full w-full object-cover" aria-hidden="true"></canvas>
-	{:else if tile}
-		<canvas use:thumbs.draw={{ tile, source: tileSource }} class="block h-full w-full object-cover" aria-hidden="true"></canvas>
-	{/if}
 {/snippet}
 
 {#snippet saveRows()}
@@ -1336,17 +1735,31 @@
 	onPick={pickedMedia}
 />
 
+{#if recentDialog}
+	<RecentEditsDialog tabId={hostApi.tabId} tool="video" inPlace={false} onclose={() => (recentDialog = false)} />
+{/if}
+
+{#snippet saveStateContent()}
+	<EditSaveIndicator status={autosaveStatus} />
+{/snippet}
+
 {#if !source}
 	{@render emptyState()}
 {:else}
 	<div class="flex h-full min-h-0 flex-col" data-testid="video-editor" data-ready={ready || undefined} data-phone={phone || undefined}>
+		{#if autosaveStatus === 'conflict' || autosaveStatus === 'too-large'}
+			<div class="flex-none" data-edit-notice-host>
+				<EditConflictNotice kind={autosaveStatus} busy={autosaveBusy} onload={() => void loadNewerEdit()} onkeep={() => void keepMineAsCopy()} />
+			</div>
+		{/if}
 		<EditorFrame
+				dock={taskTool && !phone ? dockContent : undefined}
 			{phone}
 			bind:compare
 			bind:stackOpen
 			canCompare={ready}
-			barVisible={phoneBarred}
 			editCount={visibleCount}
+			phoneSize={ready ? `${fixed2(outputLength)} s` : null}
 			phoneChips="bottom"
 			onundo={doUndo}
 			onredo={doRedo}
@@ -1355,21 +1768,28 @@
 		>
 			{#snippet phoneLead()}
 				{@render replaceMenu()}
+				<EditSaveIndicator status={autosaveStatus} chip />
 			{/snippet}
 
 			{#snippet toolbar()}
-				{#if !phone}
+				{#if phone}
+					{#if phoneMenuOpen}
+						<EditorMenuSheet ctx={menuCtx} fileName={source?.name ?? stem} onclose={() => (phoneMenuOpen = false)} onopenmenu={onMenuOpened} />
+					{/if}
+				{:else}
 					<EditorToolbar
 						fileName={source?.name ?? stem}
 						emptyLabel="No clip"
-						chips={ready ? [`${clip.width}×${clip.height}`, `${fixed2(outputLength)} s`] : []}
-						source={sourceInfo}
+						{saveNotices}
+						title={toolLabel}
+						titleIcon={toolIcon}
+						menu={menuCtx}
+						onopenmenu={onMenuOpened}
+						saveState={autosaveStatus === 'idle' ? undefined : saveStateContent}
 						canUndo={canUndo(edits)}
 						canRedo={canRedo(edits)}
 						undoLabel={undoLabel(edits)}
 						redoLabel={redoLabel(edits)}
-						{compare}
-						canCompare={ready}
 						{canSave}
 						saved={!!saved && !splitting}
 						replace={replaceOption}
@@ -1380,34 +1800,24 @@
 						bind:saveMenuOpen
 						onundo={doUndo}
 						onredo={doRedo}
-						oncompare={(next) => (compare = next)}
 						onsave={onSave}
 						oncancelsave={cancelRender}
-						bar={ready ? barContent : undefined}
-						barActions={ready ? barActionsContent : undefined}
-					>
-						{#snippet replaceControl()}
-							{@render replaceMenu()}
-						{/snippet}
-					</EditorToolbar>
+					/>
 				{/if}
 			{/snippet}
 
 			{#snippet rail()}
 				<ToolRail
-					groups={RAIL_GROUPS}
+					groups={railGroups}
 					active={tool}
-					pending={pending ? [railToolOf(pending.tool) ?? ''] : []}
+					pending={pendingTools}
+					applied={appliedTools}
+					memoryKey="video"
+					groupedStrip
 					variant={phone ? 'strip' : 'icons'}
 					label="Video tools"
 					onselect={selectTool}
 				/>
-			{/snippet}
-
-			{#snippet bar()}
-				{#if phoneBarred}
-					{@render phoneBar()}
-				{/if}
 			{/snippet}
 
 			{#snippet canvas()}
@@ -1419,6 +1829,9 @@
 					</div>
 				{/if}
 				<EditorCanvas
+					bind:this={canvasApi}
+					statusSize={ready ? `${clip.width}×${clip.height}` : null}
+					{statusExtra}
 					mediaWidth={displaySize.width}
 					mediaHeight={displaySize.height}
 					bind:viewport
@@ -1442,6 +1855,7 @@
 									onloadedmetadata={onMetadata}
 									onplay={onPlay}
 									onpause={onPause}
+									onended={onEnded}
 									onerror={() => (videoError = true)}
 									data-video-element
 								><track kind="captions" /></video>
@@ -1514,9 +1928,6 @@
 			{/snippet}
 
 			{#snippet below()}
-				{#if showTray}
-					<LookTray label="Looks and effects" items={trayItems} original={{ selected: !pickedTiles.size }} {phone} thumb={tileThumb} onpick={pickTile} onpreview={(id) => (hoverTile = id)} />
-				{/if}
 				<ScrubBar
 					duration={duration}
 					{playhead}
@@ -1524,12 +1935,22 @@
 					outPoint={scrubOut}
 					outputLength={outputLength}
 					handles={tool === 'trim' && ready}
+					rangeMode={taskTool && ready}
+					range={aiRange}
+					rangeName={extendTask ? 'Extend from' : rangeCap !== null ? `Section, max ${formatCap(rangeCap)}` : 'Section'}
+					{rangeMarker}
 					{playing}
 					{loop}
 					muted={playbackMuted}
 					frameStep={1 / fps}
 					{frames}
+					tileWidth={stripLayout?.tileWidth ?? 0}
+					onstripwidth={(width) => (stripWidthRaw = width)}
 					{peaks}
+					{markers}
+					fadeIn={volumeFade.fadeIn}
+					fadeOut={volumeFade.fadeOut}
+					{replacement}
 					compact={phone}
 					active={ready && !pickers && !saveSheetOpen}
 					onseek={(seconds) => {
@@ -1539,11 +1960,17 @@
 					}}
 					onin={setIn}
 					onout={setOut}
+					onrange={markRange}
+					onrangestart={(seconds) => rangeFrom(seconds, 'start')}
+					onrangeend={(seconds) => rangeFrom(seconds, 'end')}
 					ontoggleplay={togglePlay}
 					onstep={step}
 					ontoggleloop={() => (loop = !loop)}
 					ontogglemute={() => (playbackMuted = !playbackMuted)}
 				/>
+				{#if taskTool && phone}
+					{@render phoneDock()}
+				{/if}
 			{/snippet}
 
 			{#snippet panelTop()}
@@ -1570,52 +1997,27 @@
 						label={render.mode === 'replace' ? 'Replacing original' : 'Saving as new'}
 						oncancel={cancelRender}
 					/>
-				{:else}
-					{#if !(phoneBarred && tool === 'trim')}
+				{:else if settingsOpen && settingsRef && !phone}
+					<EditorEntryComponent entry={entryKey('video', registeredTool!.id)} componentRef={settingsRef} props={{ host: toolHost, phone, onback: () => (settingsFor = null) }} onclose={() => (settingsFor = null)} />
+				{:else if !(phone && taskTool)}
 					<OptionsPanel
-						title={toolLabels[tool]}
-						icon={toolIcons[tool]}
-						subtitle={phone ? null : 'Properties'}
-						bind:collapsed={optionsCollapsed}
-						actions={phone && !phoneBarred}
-						applyLabel={tool === 'trim' ? 'Apply trim' : tool === 'mute' ? 'Mute' : 'Apply'}
+						title={toolLabel}
+						icon={toolIcon}
+						actions={footerActions && !taskTool}
+						showApply={!effectsTool && !taskTool && !ACTION_ENTRIES.includes(tool)}
+						applyLabel={applyText}
 						{canApply}
-						canReset={!!pending}
+						canReset={resetEnabled}
 						{phone}
 						onapply={applyCurrent}
-						onreset={resetCurrent}
+						onreset={menuCommands.reset}
 					>
-						{#if ready}
-							<VideoToolOptions
-								{tool}
-								op={panelOp}
-								params={panelParams}
-								effect={currentEffect}
-								effects={groups}
-								showClip={live.showClip}
-								{clip}
-								{playhead}
-								{outputLength}
-								{aspect}
-								{sizeOptions}
-								{phone}
-								previewState={clipPreview?.state ?? 'idle'}
-								{busy}
-								onparams={setParams}
-								onaspect={setAspect}
-								oneffect={selectEffect}
-								onsetin={() => setIn(playhead)}
-								onsetout={() => setOut(playhead)}
-								onpreview={previewClip}
-								oncancelpreview={closeClipPreview}
-								onframe={frameAction}
-								onpickaudio={pickAudio}
-							/>
+						{#if ready && registeredTool}
+							<VideoEntryPanel entry={registeredTool} host={toolHost} {phone} />
 						{:else if refReason}
 							<p class="text-sm text-warning">{refReason}</p>
 						{/if}
 					</OptionsPanel>
-					{/if}
 				{/if}
 			{/snippet}
 
@@ -1623,12 +2025,15 @@
 				<div class="{variant === 'panel' ? 'flex max-h-[45%] min-h-0 flex-none flex-col border-t border-line' : ''}">
 					<EditStack
 						stack={edits}
+						{rowInfo}
 						{variant}
-						original={{ summary: ready ? `${fixed2(duration)} s · ${clip.width}×${clip.height}` : 'Loading…', thumb: frames[0] ?? null }}
+						bind:collapsed={editsHidden}
+						original={{ summary: ready ? `${fixed2(duration)} s · ${clip.width}×${clip.height}${formatLabel ? ` · ${formatLabel}` : ''}` : 'Loading…', thumb: frames[0] ?? null }}
 						onreopen={reopenStep}
 						onseek={(cursor) => (edits = seek(edits, cursor))}
 						ontogglehidden={(id) => (edits = toggleHidden(edits, id))}
-						onremove={(id) => (edits = remove(edits, id))}
+						onrowaction={stepAction}
+						onremove={removeStep}
 						onmove={(id, to) => (edits = move(edits, id, to))}
 						onundo={doUndo}
 						onredo={doRedo}
@@ -1663,6 +2068,35 @@
 			<img src={beforeFrame.url} alt="" class="h-full w-full object-fill" data-video-before />
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet dockTempRow()}
+	{#if runStep && runStatus === 'done' && runStep.params.results.length && !runOutOfDate}
+		<CandidateStrip dock video results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
+		<span class="min-w-0 truncate font-mono text-sm tabular-nums text-fg-subtle" data-dock-result-note>{runStep.params.results.length} {runStep.params.results.length === 1 ? 'result' : 'results'} · {rangeText(runStep.params.range)}</span>
+	{:else if runStep && runStatus === 'done' && runOutOfDate}
+		<DockStaleNotice noun="clip" onredo={() => void redoStep(runStep!.step.id)} />
+	{/if}
+{/snippet}
+
+{#snippet dockContent()}
+	<FloatingPrompt running={runningId} run={runStep && runStatus ? { status: runStatus, progress: runView?.progress ?? null } : null} settings={promptSettings} tempRow={dockTempRow} hasTemp={dockHasTemp} {rangeStatus} {rangeBlock} />
+{/snippet}
+
+{#snippet phoneDock()}
+	{#if runStep && runStatus === 'done' && runStep.params.results.length && !runOutOfDate}
+		<div class="flex flex-none justify-center bg-canvas pb-2" data-generate-strip-phone>
+			<CandidateStrip phone video results={runStep.params.results} chosen={runStep.params.chosen} onchoose={(index) => generate.choose(runStep!.step.id, index)} onagain={() => void generate.tryAgain(runStep!.step.id)} />
+		</div>
+	{/if}
+	{#if settingsOpen && settingsRef}
+		<EditorEntryComponent entry={entryKey('video', registeredTool!.id)} componentRef={settingsRef} props={{ host: toolHost, phone, onback: () => (settingsFor = null) }} onclose={() => (settingsFor = null)} />
+	{:else}
+		<div class="flex-none border-t border-line bg-surface-1 px-3 py-2" data-task-range-bar>
+			<RangeOptions host={toolHost} phone tool={registeredTool?.id} />
+		</div>
+		<FloatingPrompt phone running={runningId} settings={promptSettings} {rangeStatus} {rangeBlock} />
+	{/if}
 {/snippet}
 
 {#snippet trimHint()}

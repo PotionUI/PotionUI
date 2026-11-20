@@ -3,6 +3,7 @@ export interface RailTool {
 	label: string;
 	icon: string;
 	keys?: string;
+	ai?: boolean;
 	disabled?: boolean;
 	later?: boolean;
 	reason?: string;
@@ -11,6 +12,7 @@ export interface RailTool {
 export interface RailGroup {
 	id: string;
 	label: string;
+	fold?: number;
 	tools: RailTool[];
 }
 
@@ -49,3 +51,10 @@ export type SaveAction =
 	| { kind: 'copy' };
 
 export type StackVariant = 'panel' | 'sheet';
+
+export interface StackHistory {
+	canUndo: boolean;
+	canRedo: boolean;
+	undoLabel: string | null;
+	redoLabel: string | null;
+}

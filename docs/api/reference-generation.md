@@ -434,7 +434,7 @@ Response `200`: the standard envelope (`success`, `data`, `message`, `error`). T
 
 **Get Generation History**
 
-Your generations with their files, a page at a time (limit and offset). Narrow the list with status, mode, preset_id, tag_ids, collection_id, favorites_only, min_rating, created_from, created_to, media_type or search.
+Your generations with their files, a page at a time (limit and offset). Narrow the list with status, mode, preset_id, tag_ids, collection_id, favorites_only, min_rating, created_from, created_to, media_type, origin or search.
 
 Key permission: `read`.
 
@@ -465,6 +465,7 @@ Query parameters:
 - `system_tag` (string, optional)
 - `semantic_query` (string, optional)
 - `grid_id` (string, optional)
+- `origin` (one of editor, mcp, chat, tab, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
@@ -1281,6 +1282,8 @@ Query parameters:
 - `preset_id` (string, optional)
 - `name` (string, optional)
 - `q` (string, optional)
+- `kind` (one of generation, editor, any, optional, default 'generation')
+- `mode` (string, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
@@ -1295,6 +1298,11 @@ Key permission: `read`.
 Path parameters:
 
 - `preset_id` (string, required)
+
+Query parameters:
+
+- `kind` (one of generation, editor, any, optional, default 'generation')
+- `mode` (string, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
@@ -1313,6 +1321,7 @@ JSON body, `SaveSessionRequest`:
 - `data` (object, required)
 - `mode` (string, optional)
 - `base_version` (integer, optional)
+- `kind` (one of generation, editor, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
@@ -1348,6 +1357,7 @@ JSON body, `src__features__sessions__dto__UpdateSessionRequest`:
 - `data` (object, required)
 - `mode` (string, optional)
 - `base_version` (integer, optional)
+- `kind` (one of generation, editor, optional)
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 

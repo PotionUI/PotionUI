@@ -11,9 +11,10 @@ from src.features.kits.expansion import split_kit_rows
 from src.features.llm.tools.media_values import missing_media_paths
 from src.features.models.exceptions import ModelAccessDeniedException, ModelNotFoundException
 from src.features.models.form_refs import collect_model_ids
+from src.features.presets.editor_modes import form_overrides_for
 from src.features.presets.operations.access import preset_available_to_user
 from src.features.presets.retired_modes import replacement_for, replacement_note
-from src.features.sessions.dto import Session
+from src.features.sessions.dto import EDITOR_KIND, GENERATION_KIND, Session
 from src.features.sessions.request import (
     DIRECTOR_REFUSAL,
     DIRECTOR_SUPPORTED,
@@ -38,7 +39,7 @@ KIND_CONTAINER = "container"
 
 FIELD_KINDS: Dict[str, str] = {
     **{name: KIND_VALUE for name in (
-        "string", "textbox", "number", "integer", "boolean", "checkbox", "slider", "stepper", "seed",
+        "string", "textbox", "number", "number_box", "integer", "boolean", "checkbox", "slider", "stepper", "seed",
         "resolution", "select", "checkbox_group", "tags", "cloud_options", "sampler", "schedule",
         "carousel", "llm", "gate", "prompt_timeline", "camera_shot", "segmented", "anchor", "color",
     )},
@@ -162,13 +163,25 @@ class SessionRequests:
         session = self.sessions.get_by_id(session_id)
         if session is None or session.user_id != user_id:
             raise SessionRequestError(404, "session_not_found", "Session not found")
+        if session.kind == EDITOR_KIND:
+            raise SessionRequestError(
+                422,
+                "session_is_editor",
+                "This setup belongs to the Image editor; it has no prompt or picture",
+            )
         return session
 
     def listing(
-        self, user_id: str, preset_id: Optional[str] = None, name: Optional[str] = None, query: Optional[str] = None
+        self,
+        user_id: str,
+        preset_id: Optional[str] = None,
+        name: Optional[str] = None,
+        query: Optional[str] = None,
+        kind: str = GENERATION_KIND,
+        mode: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         out = []
-        for session in self.sessions.list_for_user(user_id, preset_id, name, query):
+        for session in self.sessions.list_for_user(user_id, preset_id, name, query, kind=kind, mode=mode):
             template = self._template(session.preset_id)
             data = session.data if isinstance(session.data, dict) else {}
             modes = session_modes(session)
@@ -183,6 +196,7 @@ class SessionRequests:
                     "pinned": session.pinned,
                     "updated_at": dt_iso(session.updated_at or session.created_at),
                     "version": session.version,
+                    "kind": session.kind,
                 }
             )
         return out
@@ -208,7 +222,8 @@ class SessionRequests:
 
     def _locks(self, preset_id: str, mode: str) -> Dict[str, Any]:
         try:
-            return dict(self.preset_db.get_preset_form_overrides(preset_id).get(mode, {}))
+            stored = self.preset_db.get_preset_form_overrides(preset_id)
+            return dict(form_overrides_for(self._template(preset_id), mode, stored))
         except Exception:
             return {}
 

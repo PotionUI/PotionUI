@@ -37,6 +37,243 @@ Key permission: `read`.
 
 Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
 
+## Editor
+
+### GET /api/editor/expand/formats
+
+**List Expand Formats**
+
+The named formats the Expand task offers: the built-in ones and the house formats an administrator added for everyone or for a group you belong to. Each has a ratio as W:H.
+
+Key permission: `read`.
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### GET /api/editor/runs/{run_id}
+
+**Get An Editor Run**
+
+One of your runs with its state, progress and finished patches. Someone else's run answers 404.
+
+Key permission: `read`.
+
+Path parameters:
+
+- `run_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### DELETE /api/editor/runs/{run_id}
+
+**Cancel An Editor Run**
+
+Cancels a queued or running run and its generation. A run that has finished is returned as it is.
+
+Key permission: `generate`.
+
+Path parameters:
+
+- `run_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### GET /api/editor/tasks
+
+**List Editor Tasks**
+
+The jobs the editor can do and which preset modes offer each, limited to the presets you may use.
+
+Key permission: `read`.
+
+Query parameters:
+
+- `editor` (one of image, video, audio, optional, default 'image')
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### POST /api/editor/tasks/fix_faces/detections
+
+**Find Faces And Hands**
+
+Renders the picture the way a run does and answers with the faces and hands found in it, each with a box in 0..1 of the picture, so the editor can offer them for ticking before a Fix faces run. Answers 503 detector_unavailable when no detector or its weights are installed.
+
+Key permission: `generate`.
+
+JSON body, `DetectionRequest`:
+
+- `input` (InputRef, required)
+- `steps` (array of StepRequest, optional)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### PUT /api/editor/tasks/{task_id}/default
+
+**Set My Default Setup For A Task**
+
+Makes a preset mode and a starting point for its settings (one of your editor sessions, one of your formulas, or the mode's own defaults) your default for a task. Replaces any earlier default of yours for that task. Answers with the task entry.
+
+Key permission: `content`.
+
+Path parameters:
+
+- `task_id` (string, required)
+
+JSON body, `SetTaskDefaultRequest`:
+
+- `preset_id` (string, required, at least 1 characters)
+- `mode` (string, required, at least 1 characters)
+- `setup` (DefaultSetup, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### DELETE /api/editor/tasks/{task_id}/default
+
+**Clear My Default Setup For A Task**
+
+Removes your default for a task. Answers with the task entry, whose default is null.
+
+Key permission: `content`.
+
+Path parameters:
+
+- `task_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### POST /api/editor/tasks/{task_id}/runs
+
+**Start An Editor Run**
+
+Crops the marked area with its surroundings, runs a preset mode on it as a normal generation, and blends each result back as a patch. On a video task it cuts the marked time range (in seconds) and splices each result into the clip. Upscale and Fix faces run in parts, one generation after another, and the upscale takes a scale or a target size. Answers at once with the run; follow it with the run route or the editor_run_update message on /ws/generation.
+
+Key permission: `generate`.
+
+Path parameters:
+
+- `task_id` (string, required)
+
+JSON body, `StartEditorRunRequest`:
+
+- `edit` (RunEditRef, required)
+- `input` (InputRef, required)
+- `steps` (array of StepRequest, optional)
+- `region` (InputRef, optional)
+- `range` (RunRange, optional)
+- `expand` (RunExpand, optional)
+- `prompt` (string, optional)
+- `setup` (RunSetup, required)
+- `candidates` (integer, optional, 1.0 to 4.0, default 1)
+- `seed` (integer, optional, at least 0.0)
+- `options` (object, optional)
+- `strength` (number, optional, at least 0.0)
+- `scale` (number, optional, at most 64.0)
+- `target` (UpscaleTarget, optional)
+
+Response `202`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+## Edits
+
+### GET /api/edits
+
+**List Edits**
+
+Key permission: `read`.
+
+Query parameters:
+
+- `tool` (string, optional)
+- `search` (string, optional)
+- `limit` (integer, optional, 1 to 200, default 50)
+- `offset` (integer, optional, at least 0, default 0)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### POST /api/edits
+
+**Create Edit**
+
+Key permission: `content`.
+
+JSON body, `CreateEditRequest`:
+
+- `tool` (string, optional, default 'image')
+- `name` (string, optional)
+- `source` (EditSource, required)
+- `state` (object, optional)
+- `thumbnail_upload_id` (string, optional)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### GET /api/edits/{edit_id}
+
+**Get Edit**
+
+Key permission: `read`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### PUT /api/edits/{edit_id}
+
+**Save Edit State**
+
+Key permission: `content`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+JSON body, `UpdateEditStateRequest`:
+
+- `revision` (integer, required, at least 1.0)
+- `state` (object, required)
+- `thumbnail_upload_id` (string, optional)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### PATCH /api/edits/{edit_id}
+
+**Rename Edit**
+
+Key permission: `content`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+JSON body, `RenameEditRequest`:
+
+- `name` (string, optional)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### DELETE /api/edits/{edit_id}
+
+**Delete Edit**
+
+Key permission: `content`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
+### POST /api/edits/{edit_id}/duplicate
+
+**Duplicate Edit**
+
+Key permission: `content`.
+
+Path parameters:
+
+- `edit_id` (string, required)
+
+Response `200`: the standard envelope (`success`, `data`, `message`, `error`). The shape of `data` is not described in the schema.
+
 ## Plugins
 
 ### GET /api/plugins/frontend-extensions

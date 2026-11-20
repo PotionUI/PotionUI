@@ -22,6 +22,7 @@
 	import { isToolTab, visibleTabs, type Tab, type ToolTab } from '$lib/types/tabs';
 	import type { WorkspaceTab } from '$lib/types/generation';
 	import NewTabMenu from '$lib/tool-tabs/NewTabMenu.svelte';
+	import RunningElsewhere from './RunningElsewhere.svelte';
 	import { toolKinds } from '$lib/tool-tabs/registry';
 
 	$: tabs = visibleTabs($tabsStore.tabs);
@@ -325,6 +326,7 @@
 							isGenerating={tab.generation.isGenerating}
 							unsaved={tabShowsUnsavedChanges(tab, $tabSessionDirty)}
 							remoteChange={remoteChangeLabel($liveSyncMarks[tab.id])}
+								sourceLabel={tab.openedFrom?.label ?? null}
 							on:select={(e) => setActiveTab(e.detail.id)}
 							on:rename={handleTabRename}
 							on:delete={(e) => removeTab(e.detail.id)}
@@ -351,6 +353,8 @@
 				</Tooltip>
 
 			</div>
+
+			<RunningElsewhere />
 
 			<!-- Workspace menu sits OUTSIDE the scrollable tab cluster: its
 			     overflow-x-auto clips the dropdown (overflow on one axis forces

@@ -13,6 +13,7 @@ backend internals assumed. Read in this order, or jump to whatever you need:
 - [Presets & Forms](presets-and-forms.md) — what a preset is and how its form maps to what you're generating.
 - [Bringing Your Own ComfyUI Workflows](comfyui-presets.md) — turn a ComfyUI workflow you already have into a preset.
 - [History & Tags](history-and-tags.md) — finding past generations, inspecting how something was made, tagging and cleanup.
+- [Image Editor & Saved Edits](image-editor.md) — crop, paint and refine pictures, with edits that save themselves and can be continued later.
 - [Prompts Workspace](prompts-library.md) — the four reusable prompt-composition libraries in one place.
 - [PotionAI](llm-chat.md) — the optional AI chat assistant for writing prompts and taking actions.
 - [API keys and MCP](mcp.md) — keys for scripts and MCP clients, and how to connect them.

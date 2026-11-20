@@ -50,6 +50,7 @@ class ApiKeyResolver:
                 scopes=scopes,
                 display_prefix=key.display_prefix,
                 expires_at=key.expires_at,
+                name=key.name,
             ),
         )
 

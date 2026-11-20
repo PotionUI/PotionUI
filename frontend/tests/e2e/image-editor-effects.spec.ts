@@ -1,6 +1,6 @@
 import { deflateSync } from 'node:zlib';
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, ownerToken, screenshot, selectRailTool } from './helpers';
 import { chunk } from './mediaFieldHelpers';
 
 const JOURNEY = 'image-editor-effects';
@@ -92,6 +92,7 @@ test('Vignette from the effect catalog previews live on the image canvas through
 	});
 
 	await loginAsOwner(page);
+	await clearEdits(page);
 	const token = await ownerToken(page);
 	const upload = await page.request.post('/api/media/upload', {
 		headers: { Authorization: `Bearer ${token}` },
@@ -129,12 +130,15 @@ test('Vignette from the effect catalog previews live on the image canvas through
 		throw new Error(`${(error as Error).message}\nprobe samples:\n${samples.join('\n')}\nerrors: ${JSON.stringify(errors)}`);
 	}
 
-	await page.locator('[data-tool-rail] button[data-tool="effects"]').click();
-	const card = page.locator('[data-effect-card="vignette"]');
-	await expect(card).toBeVisible();
-	await card.click();
-	await expect(card).toHaveAttribute('data-open', 'true');
-	await expect(page.locator('[data-param="amount"]')).toBeVisible();
+	await page.setViewportSize({ width: 1440, height: 1200 });
+	await selectRailTool(page, 'vignette');
+	const panel = page.locator('[data-entry-options="vignette"]');
+	await expect(panel).toBeVisible();
+	await expect(page.locator('[data-options-apply]')).toHaveCount(0);
+	const amount = panel.locator('[data-field-name="amount"] input').first();
+	await expect(amount).toBeVisible();
+	await amount.fill('60');
+	await amount.press('Tab');
 
 	await expect
 		.poll(async () => {
@@ -148,7 +152,6 @@ test('Vignette from the effect catalog previews live on the image canvas through
 	await screenshot(page, JOURNEY, 'vignette-live-light-1440');
 	await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
 
-	await page.locator('[data-options-apply]').click();
 	await expect(page.locator('[data-edit-stack="panel"] [data-stack-row]')).toHaveCount(2);
 
 	type Run = { run_id: string; status: string; items: Array<{ id: string; url: string }> };
@@ -160,7 +163,7 @@ test('Vignette from the effect catalog previews live on the image canvas through
 	await expect.poll(async () => !!fresh(await listRuns()), { timeout: 60000 }).toBe(true);
 
 	expect(runBodies.at(-1)?.steps.map((step) => step.tool)).toEqual(['vignette']);
-	expect(runBodies.at(-1)?.steps[0].params).toMatchObject({ amount: 40, radius: 50, softness: 50 });
+	expect(runBodies.at(-1)?.steps[0].params).toMatchObject({ amount: 60, radius: 50, softness: 50 });
 	expect(uploads).toEqual([]);
 	const saved = await probeUrl(page, fresh(await listRuns())!.items[0].url);
 	const before = await probeUrl(page, source.url);

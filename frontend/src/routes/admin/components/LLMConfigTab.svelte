@@ -485,7 +485,7 @@ Always be creative and helpful while staying focused on the image generation con
 						compact
 					>
 						{#snippet actions()}
-							<Button variant="primary" size="sm" icon="plus" onclick={handleCreateConfig}>Add configuration</Button>
+							<Button size="sm" variant="secondary" icon="plus" onclick={handleCreateConfig}>Add configuration</Button>
 						{/snippet}
 					</EmptyState>
 				{/snippet}

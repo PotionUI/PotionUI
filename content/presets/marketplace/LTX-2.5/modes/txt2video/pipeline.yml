@@ -1,0 +1,237 @@
+pipeline:
+  - name: "model_loader/ltx"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio: "{{ form.generate_audio }}"
+      audio_model:
+        file_path: "{{ form.audio_vae | default('') }}"
+        name: "{{ form.audio_vae | default('') }}"
+      upscale_model:
+        file_path: "{{ form.upscale_model | default('') }}"
+        name: "{{ form.upscale_model | default('') }}"
+      temporal_upscale_model:
+        file_path: "{{ form.temporal_upscale_model | default('') }}"
+        name: "{{ form.temporal_upscale_model | default('') }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/ltx", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      quantity: 1
+      guidance_scale: "{{ ([form.cfg | default(generation.profile.guidance), form.refine_cfg] | max) if (form.upscale) != 'off' else (form.cfg | default(generation.profile.guidance)) }}"
+      nag_scale: "{{ form.nag_scale }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: 1
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae | default('') }}"]
+        - ["model", "{{ form.upscale_model | default('') }}"]
+        - ["model", "{{ form.temporal_upscale_model | default('') }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
+        - ["resolution", "{{ form.resolution }}"]
+        - ["fps", "{{ form.fps }}"]
+
+  - name: "media_loader"
+    id: "media_images"
+    enabled: "{{ (form.start_image | default('')) != '' }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ [form.start_image | default(''), form.end_image | default('')] | select | list }}"
+          template:
+            type: "image"
+            path: "{{ item }}"
+
+  - name: "generator/video_ltx"
+    id: "generator_stage1"
+    input:
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "media_images", "image"]
+    enabled: true
+    configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile == 'distilled') else ('' if (form.speed_profile == 'quality') else (form.manual_sigmas)) }}"
+      quality_mode: "{{ (form.speed_profile) == 'quality' }}"
+      quality_cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      quality_stg: "{{ preset.vars.quality_stg }}"
+      quality_rescale: "{{ preset.vars.quality_rescale }}"
+      quality_modality: "{{ preset.vars.quality_modality }}"
+      quality_stg_blocks: "{{ preset.vars.quality_stg_blocks }}"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
+      resolution: "{{ form.resolution }}"
+      frames: "{{ (form.duration * form.fps) | round | int }}"
+      fps: "{{ form.fps }}"
+      quantity: 1
+      media_placements:
+        "@loop":
+          items: "{{ ([{'index': 0, 'frame': 'first'}] if (form.start_image | default('')) != '' else []) + ([{'index': 1, 'frame': 'last'}] if (form.end_image | default('')) != '' else []) }}"
+          template:
+            source: "image"
+            index: "{{ item.index }}"
+            frame: "{{ item.frame }}"
+            strength: 1.0
+            role: "keyframe"
+      audio: "{{ form.generate_audio }}"
+      audio_source: "generate"
+      decode: "{{ (form.upscale) == 'off' and (form.dfr_rounds | int) == 0 }}"
+
+  - name: "latent_upscaler/ltx"
+    id: "latent_upscaler"
+    input:
+      - ["latent", "generator_stage1", "latent"]
+      - ["model", "model_loader/ltx", "model"]
+    enabled: "{{ (form.upscale) != 'off' }}"
+    configuration: {}
+
+  - name: "generator/video_ltx"
+    id: "generator_stage2"
+    input:
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["initial_latent", "latent_upscaler", "latent"]
+      - ["image", "media_images", "image"]
+      - ["audio", "generator_stage1", "audio"]
+    enabled: "{{ (form.upscale) != 'off' }}"
+    configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
+      resolution: "{% set effective_upscale = (form.upscale) %}{% set factor = 1.5 if effective_upscale == '1.5x' else (2.0 if effective_upscale == '2.0x' else 1.0) %}{{ (form.resolution.split('x')[0] | int * factor) | round | int }}x{{ (form.resolution.split('x')[1] | int * factor) | round | int }}"
+      frames: "{{ (form.duration * form.fps) | round | int }}"
+      fps: "{{ form.fps }}"
+      quantity: 1
+      audio: "{{ form.generate_audio }}"
+      audio_source: "passthrough"
+      media_placements:
+        "@loop":
+          items: "{{ ([{'index': 0, 'frame': 'first'}] if (form.start_image | default('')) != '' else []) + ([{'index': 1, 'frame': 'last'}] if (form.end_image | default('')) != '' else []) }}"
+          template:
+            source: "image"
+            index: "{{ item.index }}"
+            frame: "{{ item.frame }}"
+            strength: 1.0
+            role: "keyframe"
+      decode: "{{ (form.dfr_rounds | int) == 0 }}"
+      cfg: "{{ form.refine_cfg }}"
+      sampler: "{{ form.refine_sampler }}"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
+      refine_sigmas: "{{ form.upscale_refine_sigmas or (preset.vars.stage2_sigma_recipe_balanced if (form.refine_strength) == 'balanced' else (preset.vars.stage2_sigma_recipe_light if (form.refine_strength) == 'light' else preset.vars.stage2_sigma_recipe)) }}"
+      stage2_loras:
+        "@loop":
+          items: "{{ form.enhancement_loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "generator/dfr_video_ltx"
+    id: "dfr"
+    input:
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["latent", "{% if (form.upscale) != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "latent"]
+      - ["image", "media_images", "image"]
+      - ["audio", "generator_stage1", "audio"]
+    enabled: "{{ (form.dfr_rounds | int) > 0 }}"
+    configuration:
+      rounds: "{{ form.dfr_rounds | int }}"
+      resolution: "{% set effective_upscale = (form.upscale) %}{% if effective_upscale == 'off' %}{{ form.resolution }}{% else %}{% set factor = 1.5 if effective_upscale == '1.5x' else 2.0 %}{{ (form.resolution.split('x')[0] | int * factor) | round | int }}x{{ (form.resolution.split('x')[1] | int * factor) | round | int }}{% endif %}"
+      frames: "{{ (form.duration * form.fps) | round | int }}"
+      fps: "{{ form.fps }}"
+      media_placements:
+        "@loop":
+          items: "{{ ([{'index': 0, 'frame': 'first'}] if (form.start_image | default('')) != '' else []) + ([{'index': 1, 'frame': 'last'}] if (form.end_image | default('')) != '' else []) }}"
+          template:
+            source: "image"
+            index: "{{ item.index }}"
+            frame: "{{ item.frame }}"
+            strength: 1.0
+            role: "keyframe"
+      nag_scale: "{{ form.nag_scale }}"
+      nag_tau: "{{ form.nag_tau }}"
+      nag_alpha: "{{ form.nag_alpha }}"
+      decode: true
+
+  - name: "detailer/video_ltx"
+    id: "detailer"
+    input:
+      - ["video", "{% set effective_upscale = (form.upscale) %}{% if (form.dfr_rounds | int) > 0 %}dfr{% elif effective_upscale != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: "{{ form.enhance_faces_hands }}"
+    configuration:
+      strength: "{{ form.enhancement_strength }}"
+      face_model: "{{ form.face_detector_model or 'models/mediapipe/face_landmarker.task' }}"
+      hand_model: "{{ form.hand_detector_model or 'models/mediapipe/hand_landmarker.task' }}"
+
+  - name: "gallery"
+    input:
+      - ["video", "{% set effective_upscale = (form.upscale) %}{% if form.enhance_faces_hands %}detailer{% elif (form.dfr_rounds | int) > 0 %}dfr{% elif effective_upscale != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

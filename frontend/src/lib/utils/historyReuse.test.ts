@@ -273,3 +273,32 @@ describe('reusing a Long video generation', () => {
 		expect(buildHistoryReuseTabData(makeGeneration()).converted).toBeUndefined();
 	});
 });
+
+describe('reusing a generation that stored only prompt text', () => {
+	const textOnly = {
+		id: 'g1',
+		preset_id: 'p',
+		mode: 'txt2img',
+		form_data: {},
+		prompt_state: { prompt: 'a lighthouse at dusk', negativePrompt: 'blur' },
+		status: 'completed',
+		files: []
+	} as unknown as Parameters<typeof buildHistoryReuseTabData>[0];
+
+	it('puts the text into editable prompt segments so it is generated again as submitted', () => {
+		const { tabData } = buildHistoryReuseTabData(textOnly);
+		expect(tabData.prompt).toBe('a lighthouse at dusk');
+		expect(tabData.promptSegments).toHaveLength(1);
+		expect(tabData.promptSegments?.[0]).toMatchObject({ content: 'a lighthouse at dusk' });
+		expect(tabData.negativePromptSegments?.[0]).toMatchObject({ content: 'blur' });
+	});
+
+	it('leaves stored segments alone', () => {
+		const segments = [{ id: 's', type: 'content', content: 'kept', chips: {}, enabled: true }];
+		const { tabData } = buildHistoryReuseTabData({
+			...textOnly,
+			prompt_state: { prompt: 'kept', promptSegments: segments }
+		} as never);
+		expect(tabData.promptSegments).toBe(segments);
+	});
+});

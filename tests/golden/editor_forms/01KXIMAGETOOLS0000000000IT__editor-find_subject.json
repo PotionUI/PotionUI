@@ -1,0 +1,24 @@
+{
+  "editor_mode": "find_subject",
+  "from": "remove_background",
+  "preset_id": "01KXIMAGETOOLS0000000000IT",
+  "preset_name": "Image Tools",
+  "shown": [
+    {
+      "label": "Matting Model",
+      "name": "matting_model",
+      "type": "model"
+    },
+    {
+      "label": "Matte Strength",
+      "name": "matte_strength",
+      "type": "slider"
+    },
+    {
+      "label": "Matte Feather",
+      "name": "matte_feather",
+      "type": "slider"
+    }
+  ],
+  "task": "find_subject"
+}

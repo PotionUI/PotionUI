@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
 	import type { SessionPanelActions, SessionPanelState } from '$lib/session/sessionDialogs';
 	import Icon from '$lib/components/Icon.svelte';
@@ -14,14 +15,22 @@
 		fieldLabels = {},
 		layout = 'segment',
 		compact = false,
-		labelId = undefined
+		autosave = true,
+		shortcut = true,
+		labelId = undefined,
+		widthClass = undefined,
+		trailing = undefined
 	}: {
 		session: SessionPanelState;
 		actions: SessionPanelActions;
 		fieldLabels?: FieldLabels;
 		layout?: 'segment' | 'sheet';
 		compact?: boolean;
+		autosave?: boolean;
+		shortcut?: boolean;
 		labelId?: string;
+		widthClass?: string;
+		trailing?: Snippet;
 	} = $props();
 
 	const uid = $props.id();
@@ -52,9 +61,10 @@
 	);
 	let saveDisabled = $derived(saveState === 'unavailable' || saveState === 'saved');
 	let segmentWidth = $derived(
-		current
+		widthClass ??
+			(current
 			? `${compact ? 'min-w-[214px]' : 'min-w-[262px]'} max-w-[442px]`
-			: `${compact ? 'min-w-[176px]' : 'min-w-[224px]'} max-w-[404px]`
+			: `${compact ? 'min-w-[176px]' : 'min-w-[224px]'} max-w-[404px]`)
 	);
 	let reloadDisabled = $derived(!dirty || saving);
 	let reloadTip = $derived(dirty ? 'Reload from last snapshot' : 'No unsaved changes to discard');
@@ -88,7 +98,7 @@
 </script>
 
 {#snippet saveButton(shape: string)}
-	<Tooltip text={saveTip} kbd={saveDisabled ? undefined : $shortcutLabels['save_session']} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
+	<Tooltip text={saveTip} kbd={saveDisabled || !shortcut ? undefined : $shortcutLabels['save_session']} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
 		<button
 			type="button"
 			class="flex w-[78px] flex-shrink-0 items-center justify-center gap-1.5 transition-colors {shape} {saveDisabled
@@ -110,6 +120,24 @@
 			{/if}
 		</button>
 	</Tooltip>
+{/snippet}
+
+{#snippet actionButtons()}
+		{@render saveButton(`h-8 rounded text-sm ${saveDisabled ? 'bg-surface-3/50' : 'bg-surface-3 hover:bg-line-hover'}`)}
+		{#if current}
+			<Tooltip text={reloadTip} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
+				<IconButton
+					icon="undo"
+					label="Reload from last snapshot"
+					variant="secondary"
+					size="sm"
+					class="!p-0 {reloadDisabled ? '!cursor-not-allowed !bg-surface-3/50 !text-fg-disabled' : ''}"
+					aria-disabled={reloadDisabled ? 'true' : undefined}
+					data-testid="session-reload"
+					onclick={reload}
+				/>
+			</Tooltip>
+		{/if}
 {/snippet}
 
 {#if layout === 'sheet'}
@@ -164,26 +192,19 @@
 				<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
 			</button>
 		</Tooltip>
-		{@render saveButton(`h-8 rounded text-sm ${saveDisabled ? 'bg-surface-3/50' : 'bg-surface-3 hover:bg-line-hover'}`)}
-		{#if current}
-			<Tooltip text={reloadTip} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
-				<IconButton
-					icon="undo"
-					label="Reload from last snapshot"
-					variant="secondary"
-					size="sm"
-					class="!p-0 {reloadDisabled ? '!cursor-not-allowed !bg-surface-3/50 !text-fg-disabled' : ''}"
-					aria-disabled={reloadDisabled ? 'true' : undefined}
-					data-testid="session-reload"
-					onclick={reload}
-				/>
-			</Tooltip>
+		{#if trailing}
+			<div class="session-actions flex flex-none items-center gap-1.5" data-session-actions>
+				{@render actionButtons()}
+				{@render trailing()}
+			</div>
+		{:else}
+			{@render actionButtons()}
 		{/if}
 	</div>
 {/if}
 
 {#if open}
-	<SessionPanel {fieldLabels} {session} {actions} anchor={anchorEl} fullscreen={layout === 'sheet'} onClose={close} />
+	<SessionPanel {fieldLabels} {session} {actions} {autosave} anchor={anchorEl} fullscreen={layout === 'sheet'} onClose={close} />
 {/if}
 
 <style>

@@ -9,6 +9,7 @@
 	export let config: any = {};
 	export let value: any;
 	export let onChange: (fieldName: string, value: any) => void;
+	export let onCommit: ((fieldName: string) => void) | undefined = undefined;
 
 	const serverErrors =
 		getContext<Writable<Record<string, string[]>>>(FORM_FIELD_ERRORS_CONTEXT_KEY) ??
@@ -29,11 +30,24 @@
 	const monoClass = 'font-mono text-[13px] tabular-nums whitespace-pre overflow-x-auto';
 	$: errorId = name ? `${name}-pattern-error` : undefined;
 
+	let dirty = false;
+
+	function commit() {
+		if (!dirty || !name) return;
+		dirty = false;
+		onCommit?.(name);
+	}
+
 	function handleInput(event: Event) {
 		const target = event.target as HTMLInputElement | HTMLTextAreaElement;
 		if (name) {
+			dirty = true;
 			onChange(name, target.value);
 		}
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === 'Enter') commit();
 	}
 
 	function describedBy(descriptionId: string | undefined): string | undefined {
@@ -48,6 +62,8 @@
 			id={name || undefined}
 			{value}
 			on:input={handleInput}
+			on:change={commit}
+			on:blur={commit}
 			{disabled}
 			{rows}
 			{placeholder}
@@ -62,6 +78,9 @@
 			id={name || undefined}
 			{value}
 			on:input={handleInput}
+			on:change={commit}
+			on:keydown={handleKeydown}
+			on:blur={commit}
 			{disabled}
 			{placeholder}
 			spellcheck={mono ? false : undefined}

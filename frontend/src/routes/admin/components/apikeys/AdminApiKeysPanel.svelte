@@ -170,7 +170,7 @@
 			>
 				{#snippet actions()}
 					{#if !emptyIsNone}
-						<Button variant="ghost" size="sm" onclick={clearAll}>Clear filters</Button>
+						<Button size="sm" variant="secondary" onclick={clearAll}>Clear filters</Button>
 					{/if}
 				{/snippet}
 			</EmptyState>

@@ -1,4 +1,4 @@
-import { seekVideo } from '$lib/media/editors/seekVideo';
+import { seekVideo } from '$lib/media/seekVideo';
 
 export interface FrameGrabber {
 	grab(time: number, signal: AbortSignal): Promise<string>;
@@ -27,7 +27,13 @@ function waitForData(video: HTMLVideoElement, signal: AbortSignal): Promise<void
 	});
 }
 
-export function createFrameGrabber(url: string, height = 48): FrameGrabber {
+export interface GrabSize {
+	width: number;
+	height: number;
+	quality?: number;
+}
+
+export function createFrameGrabber(url: string, height = 48, size?: GrabSize): FrameGrabber {
 	const video = document.createElement('video');
 	video.muted = true;
 	video.playsInline = true;
@@ -40,12 +46,13 @@ export function createFrameGrabber(url: string, height = 48): FrameGrabber {
 			await seekVideo(video, time);
 			if (signal.aborted) throw new Error('cancelled');
 			const ratio = video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : 16 / 9;
-			canvas.height = height;
-			canvas.width = Math.max(1, Math.round(height * ratio));
+			canvas.height = size ? size.height : height;
+			canvas.width = size ? size.width : Math.max(1, Math.round(height * ratio));
 			const context = canvas.getContext('2d');
 			if (!context) throw new Error('No canvas');
+			context.imageSmoothingQuality = 'high';
 			context.drawImage(video, 0, 0, canvas.width, canvas.height);
-			return canvas.toDataURL('image/jpeg', 0.72);
+			return canvas.toDataURL('image/jpeg', size?.quality ?? 0.72);
 		},
 		dispose() {
 			video.removeAttribute('src');

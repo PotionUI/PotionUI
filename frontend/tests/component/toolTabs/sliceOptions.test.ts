@@ -38,6 +38,11 @@ function render(props: Record<string, unknown> = {}) {
 	return { calls, view, q, all };
 }
 
+async function settle() {
+	for (let i = 0; i < 30; i++) await Promise.resolve();
+	flushSync();
+}
+
 afterEach(() => {
 	document.body.innerHTML = '';
 });
@@ -102,10 +107,13 @@ describe('Slice options, output', () => {
 		]);
 	});
 
-	it('toggles trim and changes the aspect', () => {
+	it('toggles trim and changes the aspect', async () => {
 		const { q, all, calls } = render({ params: params(2), tab: 'output' });
-		q<HTMLButtonElement>('[data-slice-section="cells"] [role="switch"]')!.click();
+		await settle();
+		q<HTMLInputElement>('[data-slice-section="cells"] [data-field-name="trim"] input')!.click();
+		await settle();
 		all<HTMLButtonElement>('[data-slice-section="cells"] button').find((b) => b.textContent?.trim() === 'Square')!.click();
+		await settle();
 		expect(calls).toEqual([
 			['output', { trim: true }],
 			['output', { aspect: 'square' }]

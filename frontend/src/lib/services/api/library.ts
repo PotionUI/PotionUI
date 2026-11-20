@@ -32,6 +32,15 @@ export interface LibraryItem {
 	has_audio?: boolean | null;
 	source_generation_id?: string | null;
 	provenance?: Record<string, unknown> | null;
+	made_in_editor?: LibraryMadeInEditor | null;
+}
+
+export interface LibraryMadeInEditor {
+	edit_id: string;
+	tool: string;
+	revision: number;
+	available: boolean;
+	continuable: boolean;
 }
 
 export interface LibraryItemTag {

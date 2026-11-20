@@ -42,7 +42,7 @@ def library():
         album = collections.create("Refs", "user-1", "library")
         collections.add_upload_members(album.id, [fox.id], "user-1", "library")
         yield SimpleNamespace(
-            collaborators=SimpleNamespace(repository=LibraryRepository(), tag_repository=TagRepository()),
+            collaborators=SimpleNamespace(repository=LibraryRepository(), tag_repository=TagRepository(), edit_repository=None),
             collections=collections, album=album, fox=fox, cat=cat, clip=clip, theirs=theirs,
         )
     test_database.close()

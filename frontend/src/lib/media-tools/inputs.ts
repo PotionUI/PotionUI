@@ -4,7 +4,7 @@ import {
 	generationLocatorFromPath,
 	matchGenerationFileId,
 	resolveEditableResource
-} from '$lib/media/editors/editorSource';
+} from '$lib/media/editorSource';
 import type { MediaToolInputRef, MediaToolSource, ToolMediaKind, ToolScope } from './types';
 
 export interface ResolvedToolInput {

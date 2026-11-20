@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { notifications, groupByDay } from '$lib/stores/notifications';
 	import Button from '$lib/components/ui/Button.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -136,14 +137,9 @@
 
 		<div class="flex-1 overflow-y-auto">
 			{#if items.length === 0}
-				<div
-					class="flex flex-col items-center justify-center h-full px-6 py-10 text-center gap-2 bg-[radial-gradient(rgb(var(--line-strong))_1px,transparent_1px)] bg-[length:14px_14px]"
-				>
-					<p class="text-sm text-fg-muted">You're all caught up</p>
-					<p class="text-xs text-fg-subtle">New notifications appear here</p>
-				</div>
+				<EmptyState compact icon="bell" title="You're all caught up" description="New notifications appear here" />
 			{:else if groupedItems.length === 0}
-				<p class="px-4 py-8 text-xs text-fg-subtle text-center">No notifications in this category</p>
+				<EmptyState compact icon="bell" title="Nothing in this category" />
 			{:else}
 				{#each groupedItems as group (group.bucket)}
 					<div class="px-3 pt-2 pb-1 font-mono text-2xs uppercase tracking-wide text-fg-subtle">

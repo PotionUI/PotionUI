@@ -1,5 +1,6 @@
 from typing import Any, Dict, Iterable, List, Mapping
 
+from src.features.presets.templates import find_mode
 from src.features.prompt.markers import RESOURCE_MARKER_RE
 
 
@@ -28,7 +29,7 @@ def merge_from_aliases(fields: Iterable[Any]) -> Dict[str, str]:
 
 
 def mode_merge_from_aliases(preset_template: Any, mode: Any) -> Dict[str, str]:
-    mode_data = (getattr(preset_template, "modes", None) or {}).get(mode)
+    mode_data = find_mode(preset_template, mode)
     aliases: Dict[str, str] = {}
     for form in getattr(mode_data, "forms", None) or []:
         for old, new in merge_from_aliases(form.fields or []).items():

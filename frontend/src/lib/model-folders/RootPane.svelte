@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, IconButton, Menu } from '$lib/components/ui';
+	import { Alert, Badge, Button, EmptyState, IconButton, Menu } from '$lib/components/ui';
 	import type { MenuItem } from '$lib/components/ui/Menu.svelte';
 	import { DetailBody, DetailHeader } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
@@ -134,7 +134,7 @@
 					<span>Type</span><span>Folder</span><span class="text-right">Files</span><span class="text-right">Size</span><span>Status</span><span></span>
 				</div>
 				{#if r.bindings.length === 0}
-					<p class="px-4 py-8 text-center text-sm text-fg-subtle">No types bound to this folder yet. Open Folder settings to add one.</p>
+					<EmptyState compact icon="folder" title="No types bound" description="No types bound to this folder yet. Open Folder settings to add one." />
 				{/if}
 				{#each r.bindings as b (bindingKey(r.id, b))}
 					<div

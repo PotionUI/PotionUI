@@ -38,7 +38,7 @@ const filtersButton = () =>
 const includeBox = () =>
 	document.querySelector<HTMLInputElement>('[data-testid="include-subcollections"] input[type="checkbox"]');
 const clearAll = () =>
-	Array.from(document.querySelectorAll<HTMLButtonElement>('[aria-label="Advanced filters"] button')).find(
+	Array.from(document.querySelectorAll<HTMLButtonElement>('[data-filters-popover] button')).find(
 		(b) => b.textContent?.trim() === 'Clear all'
 	)!;
 

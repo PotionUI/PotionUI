@@ -372,6 +372,10 @@ for (const size of SIZES) {
 			});
 			await host.locator('[data-tools-trigger]').first().click();
 			await page.locator('[data-tools-menu] [data-tool="mask"]').click();
+			const editRequests: string[] = [];
+			page.on('request', (request) => {
+				if (request.url().includes('/api/edits')) editRequests.push(request.url());
+			});
 			const dialog = page.getByRole('dialog', { name: 'Create inpainting mask' });
 			await expect(dialog).toBeVisible();
 			const canvas = dialog.locator('canvas').first();
@@ -381,8 +385,10 @@ for (const size of SIZES) {
 			await page.mouse.down();
 			await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6, { steps: 6 });
 			await page.mouse.up();
-			await dialog.getByRole('button', { name: /Save mask/ }).click();
+			await screenshot(page, JOURNEY, `mask-modal-${size.tag}`);
+			await dialog.getByRole('button', { name: /Apply/ }).click();
 			await expect(dialog).toBeHidden({ timeout: 15000 });
+			expect(editRequests).toEqual([]);
 
 			const chip = host.locator('[data-mask-chip]');
 			await expect(chip).toBeVisible();
@@ -392,6 +398,84 @@ for (const size of SIZES) {
 			await expect(chip).toHaveCount(0);
 			const masks = await page.evaluate(() => (window as any).__mf.masks);
 			expect(masks.at(-1)).toBeNull();
+		});
+
+		test('Edit image opens the paint modal built from the shared rail, panel and layer list', async ({ page }) => {
+			const host = await mountField(page, size, {
+				config: { title: 'Image', accept: 'image/*', allow_inpaint: true },
+				value: imageItem(1)
+			});
+			await host.locator('[data-tools-trigger]').first().click();
+			await page.locator('[data-tools-menu] [data-tool="edit"]').click();
+			const modal = page.locator('[data-paint-modal]');
+			await expect(modal).toBeVisible();
+			await expect(modal.locator('canvas[aria-label="Drawing canvas"]')).toBeVisible();
+			await expect(modal.locator('[data-paint-tools]')).toHaveCount(0);
+			await expect(modal.locator('[data-paint-menubar]')).toBeVisible();
+			if (size.tag === '1440') {
+				await expect(modal.locator('[aria-label="Paint tools"] button[data-tool="transform"]')).toBeVisible();
+				await expect(modal.locator('[aria-label="Paint tools"] button[data-tool="crop"]')).toBeVisible();
+				await expect(modal.locator('[data-paint-layers] [data-layer-row]')).toHaveCount(1);
+				await screenshot(page, JOURNEY, '09-modal-brush-1440');
+				await modal.locator('[data-layer-row="0"] button[aria-label^="Actions for"]').click();
+				await page.locator('[data-layer-menu] [role="menuitem"]', { hasText: 'Adjust colours' }).click();
+				await expect(modal.locator('[data-paint-layer-panel="adjust"]')).toBeVisible();
+				await screenshot(page, JOURNEY, '08b-modal-adjust-colours-1440');
+				await modal.locator('[data-paint-back]').click();
+				await expect(modal.locator('[data-paint-layers]')).toBeVisible();
+			} else {
+				await expect(modal.locator('[data-paint-phone-dock]')).toBeVisible();
+				await modal.locator('[data-paint-layers-button]').click();
+				await expect(page.locator('[data-paint-layers-sheet] [data-layer-row]')).toHaveCount(1);
+			}
+			await page.keyboard.press('Escape');
+		});
+
+		test('a lasso area applied from the quick dialog shows the same blue MASK chip', async ({ page }) => {
+			await page.route('**/api/media/upload', async (route) => {
+				await route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({
+						success: true,
+						data: { path: 'uploads/mask-e2e.png', relative_path: 'uploads/mask-e2e.png', url: '/api/e2e-media/image-9.png' }
+					})
+				});
+			});
+			const host = await mountField(page, size, {
+				config: { title: 'Image', accept: 'image/*', allow_inpaint: true },
+				value: imageItem(1)
+			});
+			await host.locator('[data-tools-trigger]').first().click();
+			await page.locator('[data-tools-menu] [data-tool="mask"]').click();
+			const dialog = page.getByRole('dialog', { name: 'Create inpainting mask' });
+			await expect(dialog).toBeVisible();
+			await expect(dialog.getByRole('button', { name: 'Apply' })).toBeDisabled();
+			await dialog.getByRole('button', { name: 'Lasso', exact: true }).click();
+			await expect(dialog.getByRole('button', { name: 'Add', exact: true })).toBeVisible();
+			await expect(dialog.getByRole('button', { name: 'Subtract', exact: true })).toBeVisible();
+
+			const canvas = dialog.locator('[data-mask-layer]');
+			const box = await canvas.boundingBox();
+			if (!box) throw new Error('mask canvas has no box');
+			const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+			const outline = [at(0.3, 0.3), at(0.7, 0.28), at(0.72, 0.65), at(0.35, 0.7)];
+			await page.mouse.move(outline[0].x, outline[0].y);
+			await page.mouse.down();
+			for (const point of outline.slice(1)) await page.mouse.move(point.x, point.y, { steps: 5 });
+			await expect(dialog.locator('[data-lasso-outline]')).toBeVisible();
+			await page.mouse.up();
+			await expect(dialog.locator('[data-mask-area]')).toBeVisible();
+			await screenshot(page, JOURNEY, `mask-lasso-modal-${size.tag}`);
+
+			await dialog.getByRole('button', { name: /Apply/ }).click();
+			await expect(dialog).toBeHidden({ timeout: 15000 });
+			const chip = host.locator('[data-mask-chip]');
+			await expect(chip).toBeVisible();
+			await expectNoOverflow(page, host);
+			await screenshot(page, JOURNEY, `mask-lasso-${size.tag}`);
+			const masks = await page.evaluate(() => (window as any).__mf.masks);
+			expect(masks.at(-1)).toBe('uploads/mask-e2e.png');
 		});
 
 		test('a video and an audio file each get their own inspector and tools', async ({ page }) => {

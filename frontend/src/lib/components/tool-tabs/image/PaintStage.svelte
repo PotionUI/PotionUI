@@ -1,42 +1,45 @@
-<script lang="ts" module>
-	export const PAINT_TOOL_IDS = ['brush', 'eraser', 'fill', 'pick', 'rect', 'lasso', 'move'];
-
-	export interface PaintResult {
-		file: File;
-		layers: number;
-		size: { width: number; height: number };
-	}
-</script>
-
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
-	import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
-	import { canvasFromUrl } from '$lib/components/imageEditor/loadPicked';
-	import { PaintSession, type SessionSnapshot } from '$lib/components/imageEditor/session';
+	import { onDestroy, onMount, untrack } from 'svelte';
+	import { PaintSession, type SessionSnapshot } from '$lib/paint/session';
 	import { Spinner } from '$lib/components/ui';
+	import { getFrameContext } from '$lib/tool-tabs/frame/context';
+	import { CANVAS_ZOOM_RESERVE, MAX_ZOOM, MIN_ZOOM, ZOOM_STEP } from '$lib/tool-tabs/frame/viewport';
+	import CanvasZoomControl from '../frame/CanvasZoomControl.svelte';
 
 	let {
-		base,
-		layerUrl = null,
-		name,
+		tool = 'brush',
+		session = new PaintSession(),
+		prepare = null,
+		zoomControl = false,
+		locked = false,
 		onstate
 	}: {
-		base: HTMLCanvasElement;
-		layerUrl?: string | null;
-		name: string;
+		tool?: string;
+		session?: PaintSession;
+		prepare?: ((session: PaintSession) => void | Promise<void>) | null;
+		zoomControl?: boolean;
+		locked?: boolean;
 		onstate: (session: PaintSession, state: SessionSnapshot) => void;
 	} = $props();
 
-	const session = new PaintSession();
+	const frame = getFrameContext();
 	let host = $state<HTMLDivElement>();
 	let stage = $state<HTMLCanvasElement>();
 	let overlay = $state<HTMLCanvasElement>();
-	let snapshot = $state.raw<SessionSnapshot>(session.snapshot());
-	let original: HTMLCanvasElement | null = null;
+	let snapshot = $state.raw<SessionSnapshot>(untrack(() => session.snapshot()));
 	let observer: ResizeObserver | null = null;
 	let stop: (() => void) | null = null;
 	let failed = $state(false);
+	let docBox = $derived(
+		[snapshot.view.panX, snapshot.view.panY, snapshot.width * snapshot.view.zoom, snapshot.height * snapshot.view.zoom]
+			.map((value) => Math.round(value * 100) / 100)
+			.join(',')
+	);
 	let detachWheel: (() => void) | null = null;
+
+	$effect(() => {
+		session.setReserve(frame?.canvasReserve ?? 0, zoomControl ? CANVAS_ZOOM_RESERVE : 0);
+	});
 
 	onMount(async () => {
 		if (!stage || !overlay || !host) return;
@@ -45,6 +48,7 @@
 			snapshot = session.snapshot();
 			onstate(session, snapshot);
 		});
+		if (!prepare) session.setTool(tool);
 		observer = new ResizeObserver(() => {
 			const box = host!.getBoundingClientRect();
 			session.resize(box.width, box.height, window.devicePixelRatio || 1);
@@ -54,20 +58,7 @@
 		stage.addEventListener('wheel', wheel, { passive: false });
 		detachWheel = () => stage?.removeEventListener('wheel', wheel);
 		try {
-			session.openImage(base, name);
-			original = session.flatten();
-			if (layerUrl) {
-				const stored = await canvasFromUrl(layerUrl);
-				const piece = document.createElement('canvas');
-				piece.width = session.docWidth;
-				piece.height = session.docHeight;
-				piece.getContext('2d')?.drawImage(stored, 0, 0, piece.width, piece.height);
-				session.addPieceLayer(piece, 0, 0, 'Paint');
-			} else {
-				session.addLayer();
-			}
-			session.markSaved();
-			session.setTool('brush');
+			if (prepare) await prepare(session);
 		} catch {
 			failed = true;
 		}
@@ -82,58 +73,23 @@
 		session.detach();
 	});
 
-	export function changed(): boolean {
-		return snapshot.dirty || (!!layerUrl && snapshot.ready);
-	}
-
-	export async function exportLayer(): Promise<PaintResult | null> {
-		if (!original || !snapshot.ready) return null;
-		const flat = session.flatten();
-		const width = flat.width;
-		const height = flat.height;
-		const before = original.getContext('2d')?.getImageData(0, 0, width, height);
-		const after = flat.getContext('2d')?.getImageData(0, 0, width, height);
-		if (!before || !after) return null;
-		const out = document.createElement('canvas');
-		out.width = width;
-		out.height = height;
-		const context = out.getContext('2d');
-		if (!context) return null;
-		const layer = context.createImageData(width, height);
-		let painted = false;
-		for (let i = 0; i < after.data.length; i += 4) {
-			const differs =
-				after.data[i] !== before.data[i] ||
-				after.data[i + 1] !== before.data[i + 1] ||
-				after.data[i + 2] !== before.data[i + 2] ||
-				after.data[i + 3] !== before.data[i + 3];
-			if (!differs) continue;
-			painted = true;
-			layer.data[i] = after.data[i];
-			layer.data[i + 1] = after.data[i + 1];
-			layer.data[i + 2] = after.data[i + 2];
-			layer.data[i + 3] = after.data[i + 3];
-		}
-		if (!painted) return null;
-		context.putImageData(layer, 0, 0);
-		return {
-			file: await canvasToPngFile(out, 'paint-layer.png'),
-			layers: Math.max(1, snapshot.layers.length - 1),
-			size: { width, height }
-		};
-	}
-
 	function pointerDown(event: PointerEvent) {
+		if (locked || !snapshot.ready) {
+			event.preventDefault();
+			return;
+		}
+		if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) document.activeElement.blur();
 		stage?.setPointerCapture(event.pointerId);
 		session.onPointerDown(event);
 		event.preventDefault();
 	}
 </script>
 
-<div bind:this={host} class="relative min-h-0 min-w-0 flex-1 touch-none overflow-hidden bg-scrim" data-paint-stage>
+<div bind:this={host} class="relative min-h-0 min-w-0 flex-1 touch-none overflow-hidden bg-scrim" data-paint-stage data-paint-ready={(snapshot.ready && !locked) || undefined}>
 	<canvas
 		bind:this={stage}
 		aria-label="Drawing canvas"
+		data-doc-box={docBox}
 		class="absolute inset-0 block h-full w-full touch-none"
 		style="cursor: {snapshot.panning ? 'grabbing' : snapshot.spaceHeld ? 'grab' : session.cursorStyle}"
 		onpointerdown={pointerDown}
@@ -147,5 +103,18 @@
 		<p class="absolute inset-0 flex items-center justify-center p-6 text-sm text-danger">This picture could not be opened for painting.</p>
 	{:else if !snapshot.ready}
 		<div class="absolute inset-0 flex items-center justify-center"><Spinner /></div>
+	{/if}
+	{#if zoomControl && snapshot.ready}
+		<CanvasZoomControl
+			percent={Math.round(snapshot.zoom * 100)}
+			canZoomIn={snapshot.zoom < MAX_ZOOM}
+			canZoomOut={snapshot.zoom > MIN_ZOOM}
+			fitted={snapshot.fitted}
+			actual={!snapshot.fitted && snapshot.zoom === 1}
+			onzoomin={() => session.zoomBy(ZOOM_STEP)}
+			onzoomout={() => session.zoomBy(1 / ZOOM_STEP)}
+			onfit={() => session.fit()}
+			onactual={() => session.actualSize()}
+		/>
 	{/if}
 </div>

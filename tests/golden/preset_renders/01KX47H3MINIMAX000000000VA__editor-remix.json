@@ -1,0 +1,361 @@
+{
+  "mode": "editor:remix",
+  "pipes": [
+    {
+      "config": {
+        "audio_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "audio_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "video_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        },
+        "video_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_loader",
+      "name": "model_loader/minimax_h3"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_video.mp4",
+              "type": "video"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "reference_videos",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "references",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "guidance_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "subject_definitions: <Video 1> is the source video. summary: [video editing] Re-create <Video 1> with this change: golden positive prompt retention_analysis: <Video 1> (appears in [Shot 1]): partially_preserved - camera movement, motion, timing and composition are kept and the requested change is applied. detailed_description: The video follows <Video 1> moment by moment, keeping its camera movement, motion and timing. [Shot 1] golden positive prompt overall_soundscape: The same sounds as <Video 1>. non_diegetic_music: N/A"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "subject_definitions: <Video 1> is the source video. summary: [video editing] Re-create <Video 1> with this change: golden positive prompt retention_analysis: <Video 1> (appears in [Shot 1]): partially_preserved - camera movement, motion, timing and composition are kept and the requested change is applied. detailed_description: The video follows <Video 1> moment by moment, keeping its camera movement, motion and timing. [Shot 1] golden positive prompt overall_soundscape: The same sounds as <Video 1>. non_diegetic_music: N/A"
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "",
+              "positive": "subject_definitions: <Video 1> is the source video. summary: [video editing] Re-create <Video 1> with this change: golden positive prompt retention_analysis: <Video 1> (appears in [Shot 1]): partially_preserved - camera movement, motion, timing and composition are kept and the requested change is applied. detailed_description: The video follows <Video 1> moment by moment, keeping its camera movement, motion and timing. [Shot 1] golden positive prompt overall_soundscape: The same sounds as <Video 1>. non_diegetic_music: N/A"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "reference_video_frames": {
+          "type": "int",
+          "value": 336
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/video_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/audio_vae.safetensors"
+            ],
+            [],
+            [
+              "max_seconds",
+              14
+            ],
+            [],
+            [
+              "steps",
+              4
+            ],
+            [
+              "speed_profile",
+              "quality"
+            ],
+            [
+              "fps",
+              24
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "audio_sigma_shift": {
+          "type": "float",
+          "value": 3.0
+        },
+        "audio_source": {
+          "type": "str",
+          "value": "reference_video"
+        },
+        "decode": {
+          "type": "bool",
+          "value": true
+        },
+        "frames": {
+          "type": "int",
+          "value": 336
+        },
+        "length_from": {
+          "type": "str",
+          "value": "reference_video"
+        },
+        "manual_audio_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "manual_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "mode": {
+          "type": "str",
+          "value": "references"
+        },
+        "preview": {
+          "type": "bool",
+          "value": true
+        },
+        "preview_decoder": {
+          "type": "str",
+          "value": "/GOLDEN/models/preview_decoder.safetensors"
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "reference_videos": {
+          "type": "list",
+          "value": [
+            "/GOLDEN/media/source_video.mp4"
+          ]
+        },
+        "references": {
+          "type": "list",
+          "value": []
+        },
+        "resolution": {
+          "type": "str",
+          "value": "auto"
+        },
+        "runtime_loras": {
+          "type": "list",
+          "value": []
+        },
+        "sampler": {
+          "type": "str",
+          "value": "euler"
+        },
+        "scheduler": {
+          "type": "str",
+          "value": "simple"
+        },
+        "sla_block_size": {
+          "type": "int",
+          "value": 64
+        },
+        "sla_sparsity": {
+          "type": "float",
+          "value": 0.9
+        },
+        "sol_attn_tau": {
+          "type": "float",
+          "value": 1.0
+        },
+        "sparse_attn": {
+          "type": "str",
+          "value": "off"
+        },
+        "sparse_attn_dense_last_steps": {
+          "type": "int",
+          "value": 2
+        },
+        "step_cache_max_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache_warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
+        "steps": {
+          "type": "int",
+          "value": 4
+        },
+        "video_sigma_shift": {
+          "type": "float",
+          "value": 12.0
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/video_minimax_h3"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KX47H3MINIMAX000000000VA",
+  "preset_name": "MiniMax-H3"
+}

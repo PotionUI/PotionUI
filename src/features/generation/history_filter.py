@@ -1,5 +1,5 @@
 from dataclasses import dataclass, replace
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,7 @@ class HistoryFilter:
     grid_id: Optional[str] = None
     semantic_query: Optional[str] = None
     generation_ids: Optional[List[str]] = None
+    origin: Optional[str] = None
 
     @classmethod
     def resolve(cls, base: Optional["HistoryFilter"], overrides: dict) -> "HistoryFilter":
@@ -60,6 +61,7 @@ def history_filter_query(
     system_tag: Optional[str] = None,
     semantic_query: Optional[str] = None,
     grid_id: Optional[str] = None,
+    origin: Optional[Literal["editor", "mcp", "chat", "tab"]] = None,
 ) -> HistoryFilter:
     return HistoryFilter(
         status=status,
@@ -82,4 +84,5 @@ def history_filter_query(
         system_tag=system_tag,
         semantic_query=semantic_query,
         grid_id=grid_id,
+        origin=origin,
     )

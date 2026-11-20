@@ -277,7 +277,7 @@
 						<Spinner size="lg" />
 					{:else}
 						<EmptyState title="User not found" description="This user may have been removed." icon="group" compact>
-							{#snippet actions()}<Button variant="ghost" size="sm" onclick={closeDetail}>Back to users</Button>{/snippet}
+							{#snippet actions()}<Button size="sm" variant="secondary" onclick={closeDetail}>Back to users</Button>{/snippet}
 						</EmptyState>
 					{/if}
 				</div>
@@ -300,7 +300,7 @@
 					<Spinner size="lg" />
 				{:else}
 					<EmptyState title="Group not found" description="This group may have been removed." icon="group" compact>
-						{#snippet actions()}<Button variant="ghost" size="sm" onclick={closeDetail}>Back to groups</Button>{/snippet}
+						{#snippet actions()}<Button size="sm" variant="secondary" onclick={closeDetail}>Back to groups</Button>{/snippet}
 					</EmptyState>
 				{/if}
 			</div>

@@ -16,6 +16,7 @@ from src.features.library.repository import LibraryRepository
 from src.features.media.upload_repository import UploadRepository
 
 if TYPE_CHECKING:
+    from src.features.edits.repository import EditRepository
     from src.features.generation.file_repository import FileRepository
     from src.features.media.file_resolver import FilePathResolver
     from src.features.tags.repository import TagRepository
@@ -34,3 +35,4 @@ class LibraryCollaborators:
     file_store: "FileStore"
     storage_driver: "FileStorageDriver"
     limit_guard: Optional["LimitGuard"] = None
+    edit_repository: Optional["EditRepository"] = None

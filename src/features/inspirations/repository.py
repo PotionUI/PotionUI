@@ -19,6 +19,7 @@ from src.features.inspirations.records import (
     InspirationCollection,
 )
 from src.platform.database import get_cursor
+from src.platform.http.sorting import resolve_direction
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,20 @@ _FEED_SELECT = """
     FROM inspirations i
     JOIN users u ON u.id = i.user_id
 """
+
+
+_SORT_EXPRESSIONS = {
+    "created": ("i.created_at", "DESC"),
+    "title": ("LOWER(i.title)", "ASC"),
+    "saved": ("save_count", "DESC"),
+    "comments": ("comment_count", "DESC"),
+}
+
+
+def _order_by(sort_by: str, sort_dir: Optional[str]) -> str:
+    expression, default_dir = _SORT_EXPRESSIONS[sort_by]
+    direction = resolve_direction(sort_dir, default_dir)
+    return f"{expression} {direction}, i.id {direction}"
 
 
 class InspirationRepository:
@@ -69,8 +84,10 @@ class InspirationRepository:
         saved: Optional[bool] = None,
         include_descendants: bool = True,
         unsorted: bool = False,
+        sort_by: str = "created",
+        sort_dir: Optional[str] = None,
     ) -> Tuple[List[Inspiration], int]:
-        """One filtered, newest-first page of the public feed, plus its total."""
+        """One filtered page, newest first unless sorted, of the public feed, plus its total."""
         where = []
         params: List = []
 
@@ -110,7 +127,7 @@ class InspirationRepository:
 
         with get_cursor() as cursor:
             cursor.execute(
-                _FEED_SELECT + f" {where_clause} ORDER BY i.created_at DESC LIMIT ? OFFSET ?",
+                _FEED_SELECT + f" {where_clause} ORDER BY {_order_by(sort_by, sort_dir)} LIMIT ? OFFSET ?",
                 (viewer_id or "", *params, limit, offset),
             )
             items = [Inspiration.from_row(row) for row in cursor.fetchall()]

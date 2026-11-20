@@ -2,9 +2,10 @@
 	import { onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import FormulasDrawer from './FormulasDrawer.svelte';
+	import { Button } from '$lib/components/ui';
 	import { formulaLists, formulasKey, getFormulaDeclaration, loadFormulas } from '$lib/stores/formulas';
 	import { sideDrawer } from '$lib/stores/sideDrawer';
-	import type { FormulaDeclaration } from '$lib/formulas/types';
+	import type { FormulaDeclaration, FormulaHost } from '$lib/formulas/types';
 	import type { GenerationTab } from '$lib/types/tabs';
 
 	let {
@@ -13,6 +14,8 @@
 		presetVersion,
 		modeLabel,
 		onApplied,
+		host,
+		appliedCount = 0,
 		layout
 	}: {
 		tab: GenerationTab;
@@ -20,7 +23,9 @@
 		presetVersion: string;
 		modeLabel: string;
 		onApplied?: () => void;
-		layout: 'rail' | 'sheet';
+		host?: FormulaHost;
+		appliedCount?: number;
+		layout: 'rail' | 'sheet' | 'dock';
 	} = $props();
 
 	let loaded = $state.raw<{ key: string; value: FormulaDeclaration | null } | null>(null);
@@ -76,6 +81,13 @@
 </script>
 
 {#if declaration}
+	{#if layout === 'dock'}
+	<span class="dock-btn">
+		<Button size="sm" icon="book" class="h-8 text-base" pressed={open} ariaLabel="Formulas" onclick={toggle} attrs={{ 'data-testid': 'formulas-button' }}>
+			Formulas{#if appliedCount > 0}<span class="font-mono tabular-nums" data-testid="formulas-count">· {appliedCount}</span>{/if}
+		</Button>
+	</span>
+	{:else}
 	<button
 		type="button"
 		class="flex flex-shrink-0 items-center justify-center gap-1.5 rounded text-sm transition-colors {layout === 'rail'
@@ -93,8 +105,11 @@
 			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-testid="formulas-count">{count}</span>
 		{/if}
 	</button>
-
-	{#if open}
-		<FormulasDrawer {tab} {declaration} {presetName} {presetVersion} {modeLabel} onClose={close} {onApplied} />
 	{/if}
+
+	<span class="contents" data-formulas-drawer-host>
+		{#if open}
+			<FormulasDrawer {tab} {declaration} {presetName} {presetVersion} {modeLabel} {host} onClose={close} {onApplied} />
+		{/if}
+	</span>
 {/if}

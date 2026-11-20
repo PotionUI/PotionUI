@@ -19,6 +19,7 @@ The API is served by your own PotionUI instance, on the backend port (26730 by d
 | Authentication and permissions | Understand keys, the five permissions, expiry, revoking and every error a key can get. |
 | Generating | Start a generation, follow it by polling or over a WebSocket, queue position, cancel, results, errors and limits. |
 | Generate from a saved session | Configure a generation once in the app and send only the prompt from a script. |
+| Generative edits in the editor | Run a preset mode on a marked area of a picture and get feathered patches back. |
 | Working with your content | History, Library, Kits, collections and tags. |
 | MCP in one page | Connect an assistant with the same key. |
 | Endpoint reference | Every route with the key permission it needs. Generated from the running app. |

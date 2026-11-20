@@ -1,0 +1,35 @@
+[
+  {
+    "type": "slider",
+    "name": "amount",
+    "title": "Form strength",
+    "minimum": 0,
+    "maximum": 100,
+    "step": 1,
+    "default": 40,
+    "reset": true,
+    "fill": "from-default"
+  },
+  {
+    "type": "segmented",
+    "name": "mode",
+    "title": "Form mode",
+    "default": "soft",
+    "options": [
+      {
+        "label": "Soft",
+        "value": "soft"
+      },
+      {
+        "label": "Hard",
+        "value": "hard"
+      }
+    ]
+  },
+  {
+    "type": "checkbox",
+    "name": "keep",
+    "title": "Keep tones",
+    "default": false
+  }
+]

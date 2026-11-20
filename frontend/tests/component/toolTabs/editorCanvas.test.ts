@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
+import { CANVAS_ZOOM_RESERVE } from '$lib/tool-tabs/frame/viewport';
 import { mountComponent } from '../helpers/mount';
 
 const { default: CanvasHost } = await import('./CanvasHost.svelte');
@@ -16,7 +17,7 @@ function stubSize(prop: 'clientWidth' | 'clientHeight', value: number) {
 
 beforeEach(() => {
 	stubSize('clientWidth', 1120);
-	stubSize('clientHeight', 620);
+	stubSize('clientHeight', 620 + CANVAS_ZOOM_RESERVE);
 });
 
 afterEach(() => {
@@ -60,6 +61,7 @@ describe('EditorCanvas zoom', () => {
 		const art = q('[data-canvas-art]')!.getAttribute('style')!;
 		expect(art).toContain('width: 1000px');
 		expect(art).toContain('left: 60px');
+		expect(art).toContain(`top: ${60 + CANVAS_ZOOM_RESERVE}px`);
 		expect(text(q('[data-canvas-zoom-value]'))).toBe('100%');
 		expect(q('[data-canvas-fit]')!.getAttribute('aria-pressed')).toBe('true');
 	});
@@ -81,7 +83,7 @@ describe('EditorCanvas zoom', () => {
 		const { q, state } = render();
 		q<HTMLButtonElement>('[data-canvas-actual]')!.click();
 		flushSync();
-		expect(state().viewport).toEqual({ fit: false, zoom: 1, panX: 60, panY: 60 });
+		expect(state().viewport).toEqual({ fit: false, zoom: 1, panX: 60, panY: 60 + CANVAS_ZOOM_RESERVE });
 		expect(q('[data-canvas-actual]')!.getAttribute('aria-pressed')).toBe('true');
 		q<HTMLButtonElement>('[data-canvas-fit]')!.click();
 		flushSync();
@@ -91,14 +93,14 @@ describe('EditorCanvas zoom', () => {
 	it('zooms with the wheel about the pointer', () => {
 		const { q, state } = render();
 		const stage = q('[data-editor-canvas]')!;
-		const event = new WheelEvent('wheel', { deltaY: -200, clientX: 60, clientY: 60, cancelable: true });
+		const event = new WheelEvent('wheel', { deltaY: -200, clientX: 60, clientY: 60 + CANVAS_ZOOM_RESERVE, cancelable: true });
 		stage.dispatchEvent(event);
 		flushSync();
 		expect(event.defaultPrevented).toBe(true);
 		const { viewport } = state();
 		expect(viewport.zoom).toBeGreaterThan(1);
 		expect(viewport.panX).toBeCloseTo(60);
-		expect(viewport.panY).toBeCloseTo(60);
+		expect(viewport.panY).toBeCloseTo(60 + CANVAS_ZOOM_RESERVE);
 	});
 
 	it('pans with a drag only while Space is held', () => {
@@ -115,7 +117,7 @@ describe('EditorCanvas zoom', () => {
 		view.rerender({ spaceHeld: true });
 		expect(stage.className).toContain('cursor-grab');
 		drag();
-		expect(state().viewport).toMatchObject({ fit: false, panX: 90, panY: 40 });
+		expect(state().viewport).toMatchObject({ fit: false, panX: 90, panY: 40 + CANVAS_ZOOM_RESERVE });
 	});
 
 	it('pinches with two fingers', () => {

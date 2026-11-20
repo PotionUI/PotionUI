@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { entry, openTool, setField } from './video-helpers';
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
@@ -141,12 +142,9 @@ test('a look from the Image editor grades the live video preview and the saved c
 	const editor = await openInEditor(page, upload);
 
 	await expect(editor.locator('[data-effect-later]')).toHaveCount(0);
-	const card = editor.locator('[data-effect-card="look"]');
-	await expect(card).toBeVisible({ timeout: 10000 });
-	await card.locator('button').first().click();
-	await card.locator('[data-param="look"]').getByRole('button', { name: 'Toggle options' }).click();
-	await page.locator('[role="option"][id^="custom-select-"]').filter({ hasText: 'Noir' }).click();
-	await editor.locator('[data-options-apply]').click();
+	await openTool(page, editor, 'look');
+	await expect(editor.locator('[data-look-list]')).toBeVisible({ timeout: 10000 });
+	await editor.locator('[data-look-item="look:noir"]').click();
 	await expect(editor.locator('[data-stack-row]').filter({ hasText: 'Look' })).toBeVisible();
 
 	const canvas = editor.locator('[data-live-preview]');

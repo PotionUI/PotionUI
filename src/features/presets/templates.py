@@ -98,6 +98,26 @@ class FormTemplate:
     requirements: List[Dict[str, Any]] = field(default_factory=list)
 
 @dataclass
+class EditorModeSpec:
+    name: str
+    task: str
+    region: str
+    inputs: Dict[str, Any]
+    size: Dict[str, Any]
+    context: float = 0.5
+    from_mode: Optional[str] = None
+    label: Optional[str] = None
+    short_description: Optional[str] = None
+    icon: Optional[str] = None
+    order: int = 0
+    fixed: Dict[str, Any] = field(default_factory=dict)
+    hide: List[str] = field(default_factory=list)
+    max_range_s: Optional[float] = None
+    instruction: Optional[str] = None
+    strength: Optional[Dict[str, Any]] = None
+
+
+@dataclass
 class ModeTemplate:
     """Template for a specific generation mode (txt2img, img2img, etc.)"""
     forms: List[FormTemplate]  # Multiple forms can be defined per mode
@@ -113,6 +133,7 @@ class ModeTemplate:
     prompt_placeholder: Optional[str] = None
     llm_guide: Optional[str] = None
     segment_templates: Optional[List[Dict[str, Any]]] = None
+    editor: Optional[EditorModeSpec] = None
 
 
 def sorted_forms(mode_data: 'ModeTemplate') -> List[FormTemplate]:
@@ -190,11 +211,36 @@ class PresetTemplate:
     negative_prompt: Optional[Dict[str, Any]] = None
     source_preset_id: Optional[str] = None
     file_name: Optional[str] = None
+    editor_modes: Dict[str, ModeTemplate] = field(default_factory=dict)
 
     def __post_init__(self):
         # Default to the built-in native engine if not specified
         if self.engine is None:
             self.engine = "native"
+
+
+EDITOR_KEY_PREFIX = "editor:"
+
+
+def is_editor_key(key: Optional[str]) -> bool:
+    return isinstance(key, str) and key.startswith(EDITOR_KEY_PREFIX)
+
+
+def find_mode(template: Optional[PresetTemplate], key: Optional[str]) -> Optional[ModeTemplate]:
+    if template is None or not key:
+        return None
+    if is_editor_key(key):
+        return (getattr(template, "editor_modes", None) or {}).get(key[len(EDITOR_KEY_PREFIX):])
+    return (getattr(template, "modes", None) or {}).get(key)
+
+
+def inherited_mode_key(template: Optional[PresetTemplate], key: Optional[str]) -> Optional[str]:
+    if not is_editor_key(key):
+        return key
+    spec = getattr(find_mode(template, key), "editor", None)
+    if spec is not None and spec.from_mode:
+        return spec.from_mode
+    return key
 
 
 def files_preset_id(template: PresetTemplate) -> str:

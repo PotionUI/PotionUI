@@ -18,6 +18,8 @@ from src.features.users.routes import build_router as build_user_router
 from src.features.sessions.routes import build_router as build_session_router
 from src.features.filters.routes import build_router as build_filter_router
 from src.features.formulas.routes import build_router as build_formula_router
+from src.features.editor_tasks.routes import build_router as build_editor_tasks_router
+from src.features.editor_tasks.routes import build_runs_router as build_editor_runs_router
 from src.features.elixirs.routes import build_router as build_elixirs_router
 from src.features.organize.routes import build_admin_router as build_organize_admin_router
 from src.features.organize.routes import build_router as build_organize_router
@@ -57,9 +59,13 @@ from src.features.media.routes import (
     build_router as build_media_router,
     build_admin_router as build_media_admin_router,
 )
-from src.features.media_tools.routes import build_router as build_media_tools_router
+from src.features.media_tools.routes import (
+    build_admin_router as build_media_tools_admin_router,
+    build_router as build_media_tools_router,
+)
 from src.features.library.routes import build_router as build_library_router
 from src.features.kits.routes import build_router as build_kits_router
+from src.features.edits.routes import build_router as build_edits_router
 from src.features.inspirations.routes import (
     build_router as build_inspiration_router,
     build_media_router as build_inspiration_media_router,
@@ -120,6 +126,8 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_organize_router(container))
     app.include_router(build_organize_admin_router(container))
     app.include_router(build_elixirs_router(container))
+    app.include_router(build_editor_tasks_router(container))
+    app.include_router(build_editor_runs_router(container))
     app.include_router(build_plans_router(container))
     app.include_router(build_plans_admin_router(container))
     app.include_router(build_workspace_router(container))  # Workspace management routes
@@ -149,8 +157,10 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_remote_models_admin_router(container))  # Remote worker model sync (admin-only)
     app.include_router(build_media_router(container))  # Media endpoints
     app.include_router(build_media_tools_router(container))
+    app.include_router(build_media_tools_admin_router(container))
     app.include_router(build_library_router(container))  # User media library
     app.include_router(build_kits_router(container))
+    app.include_router(build_edits_router(container))
     app.include_router(build_inspiration_router(container))  # Inspirations - cross-user publishing
     app.include_router(build_inspiration_media_router(container))  # Serves copied inspiration media
     app.include_router(build_system_router(container))

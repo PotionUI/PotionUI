@@ -1,5 +1,6 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { resolveOwnership } from './ownership';
+import { shouldApplyPreview } from './replayGuard';
 
 // Moved verbatim from generate/+page.svelte handleGenerationMessage's
 // 'workbench_update' case (image/video/audio branching).
@@ -13,6 +14,7 @@ generationMessageRegistry.register('workbench_update', {
 		// spot (see ownership.ts).
 		const { isOwner, adopted } = resolveOwnership(ctx.tab, ctx.generationId);
 		if (!isOwner) return;
+		if (!shouldApplyPreview(ctx.generationId, 'frame', message)) return;
 
 		const targetTabId = ctx.tabId;
 		// Fold the adoption in locally so every branch below (each ending its

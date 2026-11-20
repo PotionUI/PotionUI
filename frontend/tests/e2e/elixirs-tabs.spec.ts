@@ -265,7 +265,7 @@ test('All elixirs lists, filters, opens, renames, duplicates and deletes', async
 	await expect(rows.first()).toHaveAttribute('data-elixir-id', busyId);
 	await show.getByRole('radio', { name: 'Needs you' }).click();
 	await expect(rows).toHaveCount(0);
-	await expect(dialog.getByText('No elixir matches.')).toBeVisible();
+	await expect(dialog.getByText('No elixir matches')).toBeVisible();
 	await show.getByRole('radio', { name: 'Failed' }).click();
 	await expect(rows).toHaveCount(0);
 	await show.getByRole('radio', { name: 'All' }).click();

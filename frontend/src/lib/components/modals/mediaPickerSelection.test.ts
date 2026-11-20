@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
 	historyMediaKey,
 	historyTileLabel,
+	promptExcerptOf,
 	isMediaTypeSelectable,
 	itemsForKeys,
 	mediaTypeConstraintMessage,
@@ -66,5 +67,18 @@ describe('historyTileLabel', () => {
 		const base = { id: 'g', created_at: '2026-10-08T10:00:00Z', form_data: {} } as any;
 		expect(historyTileLabel({ ...base, preset_name: 'FLUX 3' }, file)).toEqual({ label: 'FLUX 3', sublabel: '2026-10-08' });
 		expect(historyTileLabel(base, file).label).toBe('0.png');
+	});
+});
+
+describe('promptExcerptOf', () => {
+	it('cuts a long prompt to a short single line', () => {
+		const text = promptExcerptOf({ prompt: 'a lighthouse\non a cliff at dusk, volumetric light, film grain, 35mm' });
+		expect(text.length).toBeLessThanOrEqual(40);
+		expect(text.startsWith('a lighthouse on a cliff')).toBe(true);
+	});
+
+	it('is empty without a prompt', () => {
+		expect(promptExcerptOf({ steps: 20 })).toBe('');
+		expect(promptExcerptOf(null)).toBe('');
 	});
 });

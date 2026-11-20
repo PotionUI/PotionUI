@@ -20,7 +20,7 @@
 <div class="flex h-full items-center justify-center p-5">
 	<EmptyState {title} description={message} icon="warning" tone="danger" {compact}>
 		{#snippet actions()}
-			<Button variant="secondary" size="sm" icon="refresh" loading={retrying} onclick={onRetry}>Retry</Button>
+			<Button size="sm" variant="secondary" icon="refresh" loading={retrying} onclick={onRetry}>Retry</Button>
 		{/snippet}
 	</EmptyState>
 </div>

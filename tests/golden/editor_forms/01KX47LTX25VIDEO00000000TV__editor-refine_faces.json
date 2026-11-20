@@ -1,0 +1,84 @@
+{
+  "editor_mode": "refine_faces",
+  "from": "refine_faces",
+  "preset_id": "01KX47LTX25VIDEO00000000TV",
+  "preset_name": "LTX-2.5",
+  "shown": [
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "LTX-2.5 DiT (transformer-only)",
+      "name": "model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Gemma4-12B with projection)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "Video VAE",
+      "name": "video_vae",
+      "type": "model"
+    },
+    {
+      "label": "Face Detection Model",
+      "name": "face_detector_model",
+      "type": "model"
+    },
+    {
+      "label": "Hand Detection Model",
+      "name": "hand_detector_model",
+      "type": "model"
+    },
+    {
+      "label": "Faces",
+      "name": "refine_faces",
+      "type": "checkbox"
+    },
+    {
+      "label": "Hands",
+      "name": "refine_hands",
+      "type": "checkbox"
+    },
+    {
+      "label": "Strength",
+      "name": "enhancement_strength",
+      "type": "select"
+    },
+    {
+      "label": "Max subjects",
+      "name": "max_subjects",
+      "type": "slider"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Detect every Nth frame",
+      "name": "detection_stride",
+      "type": "slider"
+    },
+    {
+      "label": "Detection confidence",
+      "name": "detection_confidence",
+      "type": "slider"
+    },
+    {
+      "label": "Working size (short side, px)",
+      "name": "working_short_side",
+      "type": "slider"
+    },
+    {
+      "label": "Colour match",
+      "name": "color_correction",
+      "type": "select"
+    }
+  ],
+  "task": "refine_faces"
+}

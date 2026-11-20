@@ -1,6 +1,8 @@
 import type { ComponentType } from 'svelte';
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 import type { LibraryItem } from '$lib/services/api/library';
+import { promptExcerptOf } from '$lib/components/modals/mediaPickerSelection';
+import { madeInEditor, type MadeInEditor } from '$lib/library/libraryItemMeta';
 import {
 	isAudioFileType,
 	isImageFileType,
@@ -21,6 +23,7 @@ export interface MediaToolItem {
 	kind: MediaKind;
 	url: string;
 	filename: string;
+	title?: string;
 	width?: number;
 	height?: number;
 	durationSeconds?: number | null;
@@ -28,6 +31,7 @@ export interface MediaToolItem {
 	hasAlpha?: boolean | null;
 	hasAudio?: boolean | null;
 	itemId?: string | null;
+	madeInEditor?: MadeInEditor | null;
 	generationId?: string;
 	generationFileId?: string | null;
 	paramIndex?: number;
@@ -72,6 +76,7 @@ export interface ToolRunHost {
 	open?: (ctx: MediaToolContext) => void;
 	openGrid?: (ctx: MediaToolContext) => void;
 	reuse?: (ctx: MediaToolContext) => void;
+	openInTab?: (ctx: MediaToolContext) => void;
 	remove?: (ctx: MediaToolContext) => void;
 	cancel?: (ctx: MediaToolContext) => void;
 	deselect?: (ctx: MediaToolContext, entryId?: string) => void;
@@ -245,11 +250,13 @@ export function buildHistoryToolContext(
 			kinds.add(kind);
 
 			const filename = file.file_path.split('/').pop() || file.file_path;
+			const title = promptExcerptOf(generation.form_data);
 			items.push({
 				id: `${generation.id}:${index}`,
 				kind,
 				url: `/api/media/generations/${generation.id}/${filename}`,
 				filename,
+				...(title ? { title } : {}),
 				width: file.width,
 				height: file.height,
 				durationSeconds: file.duration_seconds,
@@ -271,6 +278,11 @@ export function buildHistoryToolContext(
 		generationIds: selected.map((generation) => generation.id),
 		files
 	};
+}
+
+function linkOf(item: LibraryItem): { madeInEditor?: MadeInEditor } {
+	const link = madeInEditor(item.made_in_editor);
+	return link ? { madeInEditor: link } : {};
 }
 
 /** Resolves the Library page's selection into a tool context. A library item
@@ -296,7 +308,8 @@ export function buildLibraryToolContext(
 				fps: item.fps,
 				hasAlpha: item.has_alpha,
 				hasAudio: item.has_audio,
-				itemId: item.id
+				itemId: item.id,
+				...linkOf(item)
 			};
 		})
 		.filter((item): item is MediaToolItem => item !== null);

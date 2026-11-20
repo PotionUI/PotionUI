@@ -4,7 +4,7 @@ import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Callable, Deque, Dict, List, Optional
+from typing import Any, Callable, Deque, Dict, List, Optional, Sequence
 
 from src.features.media_tools.dto import (
     TERMINAL_STATUSES,
@@ -14,6 +14,8 @@ from src.features.media_tools.dto import (
     RunError,
     RunSummaryDTO,
 )
+from src.features.media_tools.pool_limits import PoolLimits
+from src.features.media_tools.pool_metrics import REJECTION_QUEUE_FULL, PoolMetrics
 from src.platform.http.base_controller import PassThrough
 from src.platform.http.errors import DomainError
 from src.platform.media_tools import MediaToolError, ToolCancelled
@@ -54,6 +56,12 @@ class _Run:
     done: threading.Event = field(default_factory=threading.Event)
     finished_at: Optional[float] = None
     callbacks: List[Callable[[], None]] = field(default_factory=list)
+    tools: List[str] = field(default_factory=list)
+    seq: int = 0
+    queued_at: float = 0.0
+    started_at: Optional[float] = None
+    queued_wall: float = 0.0
+    started_wall: Optional[float] = None
 
 
 class RunControl:
@@ -76,9 +84,20 @@ class MediaToolJobManager:
         clock: Callable[[], float] = time.monotonic,
         cancel_wait_seconds: float = CANCEL_WAIT_SECONDS,
         max_queued_per_user: int = DEFAULT_MAX_QUEUED_PER_USER,
+        limits: Optional[Callable[[], PoolLimits]] = None,
+        metrics: Optional[PoolMetrics] = None,
+        wall_clock: Callable[[], float] = time.time,
     ):
-        self._max = max(1, int(max_concurrent))
-        self._max_queued_per_user = max(1, int(max_queued_per_user))
+        static = PoolLimits(
+            max_concurrent=max(1, int(max_concurrent)),
+            max_queued_per_user=max(1, int(max_queued_per_user)),
+        )
+        self._limits_source: Callable[[], PoolLimits] = limits if limits is not None else (lambda: static)
+        self._metrics = metrics if metrics is not None else PoolMetrics(clock)
+        self._wall_clock = wall_clock
+        self._sequence = 0
+        self._served: Dict[str, int] = {}
+        self._served_ticket = 0
         self._closed = False
         self._retention = retention_seconds
         self._clock = clock
@@ -88,21 +107,41 @@ class MediaToolJobManager:
         self._queue: Deque[str] = deque()
         self._running = 0
 
-    def submit(self, user_id: str, work: Callable[[RunControl], RunOutcome], kind: str = "run") -> str:
-        run = _Run(run_id=uuid.uuid4().hex, user_id=user_id, work=work, kind=kind)
+    def limits(self) -> PoolLimits:
+        return self._limits_source()
+
+    @property
+    def metrics(self) -> PoolMetrics:
+        return self._metrics
+
+    def submit(
+        self,
+        user_id: str,
+        work: Callable[[RunControl], RunOutcome],
+        kind: str = "run",
+        tools: Sequence[str] = (),
+    ) -> str:
+        run = _Run(run_id=uuid.uuid4().hex, user_id=user_id, work=work, kind=kind, tools=list(tools))
+        limits = self.limits()
         with self._lock:
             if self._closed:
                 raise DomainError("shutting_down", "The server is shutting down", status_code=503)
             self._purge()
             queued = sum(1 for other in self._runs.values() if other.user_id == user_id and other.status == "queued")
-            if queued >= self._max_queued_per_user:
+            if queued >= limits.max_queued_per_user:
+                self._metrics.record_rejection(REJECTION_QUEUE_FULL)
                 raise DomainError(
                     "too_many_queued",
                     f"You already have {queued} runs waiting; let some finish first",
                     status_code=429,
                 )
+            self._sequence += 1
+            run.seq = self._sequence
+            run.queued_at = self._clock()
+            run.queued_wall = self._wall_clock()
             self._runs[run.run_id] = run
             self._queue.append(run.run_id)
+            self._observe(limits)
         self._pump()
         return run.run_id
 
@@ -121,13 +160,22 @@ class MediaToolJobManager:
         with self._lock:
             self._purge()
             run = self._owned(user_id, run_id)
-            if run is None:
-                return None
+        return self._cancel(run) if run is not None else None
+
+    def cancel_any(self, run_id: str) -> Optional[RunDTO]:
+        with self._lock:
+            self._purge()
+            run = self._runs.get(run_id)
+        return self._cancel(run) if run is not None else None
+
+    def _cancel(self, run: _Run) -> RunDTO:
+        with self._lock:
             if run.status in TERMINAL_STATUSES:
                 return self._snapshot(run)
             run.cancel_event.set()
             if run.status == "queued":
                 callbacks = self._settle_queued(run)
+                self._observe()
             else:
                 callbacks = None
             if callbacks is not None:
@@ -218,6 +266,52 @@ class MediaToolJobManager:
         run = self._runs.get(run_id)
         return run if run is not None and run.user_id == user_id else None
 
+    def _observe(self, limits: Optional[PoolLimits] = None) -> None:
+        queued = sum(1 for run in self._runs.values() if run.status == "queued")
+        self._metrics.observe(self._running, queued, (limits or self.limits()).max_concurrent)
+
+    def _running_by_user(self) -> Dict[str, int]:
+        tally: Dict[str, int] = {}
+        for run in self._runs.values():
+            if run.status == "running":
+                tally[run.user_id] = tally.get(run.user_id, 0) + 1
+        return tally
+
+    def pool_state(self) -> Dict[str, Any]:
+        self._pump()
+        limits = self.limits()
+        with self._lock:
+            self._purge()
+            now = self._clock()
+            jobs = []
+            for run in sorted(self._runs.values(), key=lambda item: item.seq):
+                if run.status not in ("queued", "running"):
+                    continue
+                since = run.started_at if run.status == "running" and run.started_at is not None else run.queued_at
+                jobs.append({
+                    "run_id": run.run_id,
+                    "user_id": run.user_id,
+                    "kind": run.kind,
+                    "status": run.status,
+                    "tools": list(run.tools),
+                    "label": run.label,
+                    "progress": round(run.progress, 3) if run.status == "running" else None,
+                    "queued_at": run.queued_wall,
+                    "started_at": run.started_wall,
+                    "elapsed_seconds": round(max(0.0, now - since), 3),
+                    "waited_seconds": round(
+                        max(0.0, (run.started_at if run.started_at is not None else now) - run.queued_at), 3
+                    ),
+                })
+            counts = self.counts()
+            return {
+                "limits": limits,
+                "running": counts["running"],
+                "queued": counts["queued"],
+                "jobs": jobs,
+                "metrics": self._metrics.summary(),
+            }
+
     def _purge(self) -> None:
         now = self._clock()
         expired = [
@@ -229,6 +323,10 @@ class MediaToolJobManager:
         ]
         for run_id in expired:
             del self._runs[run_id]
+        if expired:
+            active = {run.user_id for run in self._runs.values()}
+            for user_id in [user for user in self._served if user not in active]:
+                del self._served[user_id]
 
     def _snapshot(self, run: _Run) -> RunDTO:
         completed = run.status == "completed"
@@ -253,16 +351,55 @@ class MediaToolJobManager:
             if label:
                 run.label = label
 
+    def _pick(self, limits: PoolLimits) -> Optional[_Run]:
+        running = self._running_by_user()
+        running_batch: Dict[str, int] = {}
+        for run in self._runs.values():
+            if run.status == "running" and run.kind != "preview":
+                running_batch[run.user_id] = running_batch.get(run.user_id, 0) + 1
+        heads: Dict[Any, _Run] = {}
+        for run_id in self._queue:
+            run = self._runs.get(run_id)
+            if run is None or run.status != "queued":
+                continue
+            heads.setdefault((run.user_id, run.kind == "preview"), run)
+        best: Optional[_Run] = None
+        best_key = None
+        for (user_id, interactive), run in heads.items():
+            if (
+                not interactive
+                and limits.max_running_per_user > 0
+                and running_batch.get(user_id, 0) >= limits.max_running_per_user
+            ):
+                continue
+            key = (0 if interactive else 1, running.get(user_id, 0), self._served.get(user_id, 0), run.seq)
+            if best_key is None or key < best_key:
+                best, best_key = run, key
+        return best
+
     def _pump(self) -> None:
         starters: List[_Run] = []
+        limits = self.limits()
         with self._lock:
-            while self._running < self._max and self._queue:
-                run = self._runs.get(self._queue.popleft())
-                if run is None or run.status != "queued":
-                    continue
+            self._queue = deque(
+                run_id for run_id in self._queue
+                if run_id in self._runs and self._runs[run_id].status == "queued"
+            )
+            while self._running < limits.max_concurrent and self._queue:
+                run = self._pick(limits)
+                if run is None:
+                    break
+                self._queue.remove(run.run_id)
+                self._served_ticket += 1
+                self._served[run.user_id] = self._served_ticket
                 run.status = "running"
+                run.started_at = self._clock()
+                run.started_wall = self._wall_clock()
                 self._running += 1
+                self._metrics.record_wait(run.started_at - run.queued_at)
                 starters.append(run)
+            if starters:
+                self._observe(limits)
         for run in starters:
             threading.Thread(
                 target=self._execute, args=(run,), name=f"media-tool-{run.run_id[:8]}", daemon=True
@@ -305,6 +442,7 @@ class MediaToolJobManager:
                 run.progress = 1.0
             run.finished_at = self._clock()
             self._running -= 1
+            self._observe()
             run.done.set()
             callbacks, run.callbacks = run.callbacks, []
         self._fire(callbacks)

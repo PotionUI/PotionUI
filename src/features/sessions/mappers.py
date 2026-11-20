@@ -30,6 +30,7 @@ def session_to_response_dict(session: Session) -> Dict[str, Any]:
         'updated_at': dt_iso(session.updated_at),
         'pinned': session.pinned,
         'version': session.version,
+        'kind': session.kind,
     }
 
 

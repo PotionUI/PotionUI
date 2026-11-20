@@ -10,7 +10,7 @@
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Spinner, Pagination } from '$lib/components/ui';
+	import { EmptyState, Spinner, Pagination } from '$lib/components/ui';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 
 	export let assignedModelIds: string[] = [];
@@ -269,10 +269,7 @@
 				<Spinner size="md" />
 			</div>
 		{:else if models.length === 0}
-			<div class="text-center py-12">
-				<Icon name="folder" className="w-12 h-12 text-fg-subtle mx-auto mb-3" />
-				<p class="text-fg-muted text-sm">No models match current filters</p>
-			</div>
+			<EmptyState icon="search" title="No models match current filters" />
 		{:else}
 			<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
 				{#each models as model (model.id)}

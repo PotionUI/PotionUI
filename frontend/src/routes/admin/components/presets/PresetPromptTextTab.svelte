@@ -162,7 +162,7 @@
 		</div>
 	{:else if loadError}
 		<EmptyState title="Prompt text unavailable" description={loadError} icon="warning" compact>
-			{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={load}>Try again</Button>{/snippet}
+			{#snippet actions()}<Button size="sm" variant="secondary" icon="refresh" onclick={load}>Try again</Button>{/snippet}
 		</EmptyState>
 	{:else}
 		<Alert variant="info" density="compact" icon>

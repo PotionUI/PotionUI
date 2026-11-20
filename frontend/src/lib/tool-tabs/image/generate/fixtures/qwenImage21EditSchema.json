@@ -1,0 +1,783 @@
+{
+ "properties": {
+  "tabs": {
+   "audience": "simple",
+   "children": [
+    {
+     "audience": "simple",
+     "children": [
+      {
+       "audience": "simple",
+       "configuration": {
+        "allow_empty": false
+       },
+       "default": "balanced",
+       "description": null,
+       "formula": "speed",
+       "name": "speed_profile",
+       "options": [
+        {
+         "label": "Balanced",
+         "sub_label": "40 steps",
+         "value": "balanced"
+        },
+        {
+         "label": "Turbo",
+         "sub_label": "8 steps, Turbo8 LoRA",
+         "value": "turbo"
+        },
+        {
+         "label": "Custom",
+         "sub_label": "set steps/CFG freely",
+         "value": "custom"
+        }
+       ],
+       "title": "Speed profile",
+       "type": "select"
+      },
+      {
+       "audience": "simple",
+       "children": [
+        {
+         "audience": "simple",
+         "children": [
+          {
+           "audience": "simple",
+           "default": -1,
+           "description": null,
+           "is_seed_field": true,
+           "maximum": 4294967295,
+           "minimum": -1,
+           "name": "seed",
+           "step": 1,
+           "title": "Seed",
+           "type": "seed",
+           "width": "3/5"
+          },
+          {
+           "audience": "simple",
+           "configuration": {
+            "max": 10,
+            "min": 1,
+            "step": 1
+           },
+           "default": 1,
+           "description": null,
+           "full_width": true,
+           "maximum": 10,
+           "minimum": 1,
+           "name": "quantity",
+           "step": 1,
+           "title": "Quantity",
+           "type": "stepper",
+           "width": "2/5"
+          }
+         ],
+         "description": null,
+         "title": null,
+         "type": "row"
+        }
+       ],
+       "description": null,
+       "title": "Image",
+       "type": "section"
+      },
+      {
+       "audience": "simple",
+       "children": [
+        {
+         "audience": "simple",
+         "configuration": {
+          "allow_info_modal": true,
+          "families": [
+           "qwen_image21"
+          ],
+          "filter_tags": null,
+          "model_type": "diffusion_model",
+          "placeholder": "Select Qwen-Image-2.1 MMDiT (e.g. qwen_image_2.1_bf16)...",
+          "recommendations": [
+           {
+            "description": "Qwen-Image-2.1 MMDiT, bf16 - the validated local checkpoint. Same checkpoint as txt2img -- edit is the same weights, run with the vision tower loaded.",
+            "installed": true,
+            "link": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_bf16.safetensors",
+            "name": "qwen_image_2.1_bf16.safetensors",
+            "sha256": "89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc",
+            "size": "14.23 GB"
+           }
+          ],
+          "searchable": true
+         },
+         "description": null,
+         "name": "diffusion_model",
+         "preset_id": "01M31Y6WNM07EHAXXCDV1QVJVX",
+         "required": true,
+         "title": "Diffusion Model",
+         "type": "model"
+        },
+        {
+         "audience": "simple",
+         "configuration": {
+          "allow_info_modal": true,
+          "filter_tags": null,
+          "model_type": "text_encoder",
+          "placeholder": "Select Qwen3-VL-8B text encoder...",
+          "recommendations": [
+           {
+            "description": "Qwen3-VL-8B encoder, bf16 - pairs with the bf16 MMDiT.",
+            "installed": true,
+            "link": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_bf16.safetensors",
+            "name": "qwen3vl_8b_bf16.safetensors",
+            "sha256": "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9",
+            "size": "17.53 GB"
+           }
+          ],
+          "searchable": true
+         },
+         "description": null,
+         "name": "text_encoder",
+         "preset_id": "01M31Y6WNM07EHAXXCDV1QVJVX",
+         "required": true,
+         "title": "Text Encoder (Qwen3-VL-8B)",
+         "type": "model"
+        },
+        {
+         "audience": "simple",
+         "configuration": {
+          "allow_info_modal": true,
+          "filter_tags": null,
+          "model_type": "vae",
+          "placeholder": "Select Qwen-Image-2.1 VAE...",
+          "recommendations": [
+           {
+            "description": "Qwen-Image-2.1 VAE (RGBA, 16x latent). Alpha is dropped on decode in this preset.",
+            "installed": true,
+            "link": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors",
+            "name": "qwen_image_2.1_vae_bf16.safetensors",
+            "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9",
+            "size": "0.68 GB"
+           }
+          ],
+          "searchable": true
+         },
+         "description": null,
+         "name": "vae",
+         "preset_id": "01M31Y6WNM07EHAXXCDV1QVJVX",
+         "required": true,
+         "title": "VAE",
+         "type": "model"
+        },
+        {
+         "audience": "simple",
+         "configuration": {
+          "allow_info_modal": true,
+          "filter_tags": null,
+          "model_type": "lora",
+          "placeholder": "turbo8_lora_step2500...",
+          "recommendations": [
+           {
+            "description": "Turbo8, 8 steps and no CFG (Qwen Research License, non-commercial use only).",
+            "installed": false,
+            "link": "https://huggingface.co/chriswritescode/Turbo8-LoRA-Qwen-Image-2.1/resolve/main/turbo8_lora_step2500.safetensors",
+            "name": "turbo8_lora_step2500.safetensors",
+            "sha256": "a0b7a7634ff2f82ccbe209e16b0ba19b25e2d9e18624d89edc490503b6a75d39",
+            "size": "1.36 GB"
+           }
+          ],
+          "searchable": true
+         },
+         "description": "For the Turbo speed profile.",
+         "name": "turbo_lora",
+         "preset_id": "01M31Y6WNM07EHAXXCDV1QVJVX",
+         "reactions": [
+          {
+           "then": {
+            "set_disabled": null,
+            "set_filter_tags": null,
+            "set_required": null,
+            "set_value": null,
+            "set_visibility": true,
+            "update_options": null,
+            "update_validation": null
+           },
+           "when": {
+            "equals": "turbo",
+            "field": "speed_profile",
+            "operator": "equals",
+            "value": "turbo"
+           }
+          }
+         ],
+         "title": "Turbo LoRA",
+         "type": "model"
+        }
+       ],
+       "description": null,
+       "formula": "models",
+       "title": "Models",
+       "type": "section"
+      }
+     ],
+     "configuration": {
+      "icon": "generation",
+      "icon_display": "icon_only"
+     },
+     "description": null,
+     "label": "Generation",
+     "title": "Generation",
+     "type": "tab"
+    },
+    {
+     "audience": "simple",
+     "children": [
+      {
+       "accept": "image/bmp,image/gif,image/jpeg,image/png,image/webp",
+       "ai_hint": "The image to edit. Describe the change in the prompt and say what must stay. Paint a region on it to change only that area: the area is cropped with surrounding context, edited at the model's working size and composited back, so every pixel outside it stays exactly as it was.",
+       "audience": "simple",
+       "configuration": {
+        "allow_inpaint": true
+       },
+       "description": null,
+       "multiple": false,
+       "name": "source_image",
+       "required": true,
+       "title": "Image",
+       "type": "image"
+      }
+     ],
+     "configuration": {
+      "icon": "image",
+      "icon_display": "icon_only"
+     },
+     "description": null,
+     "label": "References",
+     "title": "References",
+     "type": "tab"
+    },
+    {
+     "audience": "simple",
+     "children": [
+      {
+       "ai_hint": "LoRAs add specialized styles, concepts, or characters to the base model. Multiple LoRAs can be combined. Check model page for recommended strength values. 0.5-0.8 is recommended for most LoRAs, 1.0 = full effect; negative values invert the effect. Leave empty if not needed.",
+       "audience": "simple",
+       "configuration": {
+        "allow_info_modal": true,
+        "filter_tags": null,
+        "max_items": 3,
+        "model_type": "lora",
+        "placeholder": "Select a LoRA...",
+        "row_fields": [],
+        "show_triggers": true,
+        "strength_default": 1.0,
+        "strength_max": 10.0,
+        "strength_min": -10.0,
+        "strength_step": 0.1
+       },
+       "default": [],
+       "description": null,
+       "formula": "loras",
+       "name": "loras",
+       "preset_id": "01M31Y6WNM07EHAXXCDV1QVJVX",
+       "title": "LoRAs",
+       "type": "lora_picker"
+      }
+     ],
+     "configuration": {
+      "icon": "lora",
+      "icon_display": "icon_only"
+     },
+     "description": null,
+     "label": "LoRA",
+     "title": "LoRA",
+     "type": "tab"
+    },
+    {
+     "audience": "advanced",
+     "children": [
+      {
+       "audience": "simple",
+       "children": [
+        {
+         "audience": "advanced",
+         "configuration": {
+          "max": 100,
+          "min": 1,
+          "step": 1
+         },
+         "default": 40,
+         "description": null,
+         "maximum": 100,
+         "minimum": 1,
+         "name": "steps",
+         "reactions": [
+          {
+           "then": {
+            "set_disabled": false,
+            "set_filter_tags": null,
+            "set_required": null,
+            "set_value": 40,
+            "set_visibility": null,
+            "update_options": null,
+            "update_validation": null
+           },
+           "when": {
+            "equals": "balanced",
+            "field": "speed_profile",
+            "operator": "equals",
+            "value": "balanced"
+           }
+          },
+          {
+           "then": {
+            "set_disabled": false,
+            "set_filter_tags": null,
+            "set_required": null,
+            "set_value": 8,
+            "set_visibility": null,
+            "update_options": null,
+            "update_validation": null
+           },
+           "when": {
+            "equals": "turbo",
+            "field": "speed_profile",
+            "operator": "equals",
+            "value": "turbo"
+           }
+          },
+          {
+           "then": {
+            "set_disabled": false,
+            "set_filter_tags": null,
+            "set_required": null,
+            "set_value": null,
+            "set_visibility": null,
+            "update_options": null,
+            "update_validation": null
+           },
+           "when": {
+            "equals": "custom",
+            "field": "speed_profile",
+            "operator": "equals",
+            "value": "custom"
+           }
+          }
+         ],
+         "step": 1,
+         "title": "Steps",
+         "type": "slider"
+        },
+        {
+         "audience": "simple",
+         "children": [
+          {
+           "audience": "advanced",
+           "configuration": {
+            "allow_empty": false
+           },
+           "default": "euler",
+           "description": null,
+           "name": "sampler",
+           "options": [
+            {
+             "label": "Euler",
+             "value": "euler"
+            },
+            {
+             "label": "DPM++ 2M",
+             "value": "dpmpp_2m"
+            },
+            {
+             "label": "UniPC",
+             "value": "unipc"
+            },
+            {
+             "label": "Euler SDE",
+             "value": "euler_sde"
+            },
+            {
+             "label": "Euler Ancestral",
+             "value": "euler_ancestral"
+            },
+            {
+             "label": "Euler Ancestral CFG++",
+             "value": "euler_ancestral_cfg_pp"
+            },
+            {
+             "label": "Euler CFG++",
+             "value": "euler_cfg_pp"
+            },
+            {
+             "label": "Euler Restart",
+             "value": "euler_restart"
+            },
+            {
+             "label": "DPM++ 2M SDE",
+             "value": "dpmpp_2m_sde"
+            },
+            {
+             "label": "DPM++ 3M",
+             "value": "dpmpp_3m"
+            },
+            {
+             "label": "ER SDE",
+             "value": "er_sde"
+            },
+            {
+             "label": "RES Multistep",
+             "value": "res_multistep"
+            }
+           ],
+           "reactions": [
+            {
+             "then": {
+              "set_disabled": false,
+              "set_filter_tags": null,
+              "set_required": null,
+              "set_value": "euler",
+              "set_visibility": null,
+              "update_options": null,
+              "update_validation": null
+             },
+             "when": {
+              "equals": "balanced",
+              "field": "speed_profile",
+              "operator": "equals",
+              "value": "balanced"
+             }
+            },
+            {
+             "then": {
+              "set_disabled": false,
+              "set_filter_tags": null,
+              "set_required": null,
+              "set_value": "euler",
+              "set_visibility": null,
+              "update_options": null,
+              "update_validation": null
+             },
+             "when": {
+              "equals": "turbo",
+              "field": "speed_profile",
+              "operator": "equals",
+              "value": "turbo"
+             }
+            },
+            {
+             "then": {
+              "set_disabled": false,
+              "set_filter_tags": null,
+              "set_required": null,
+              "set_value": null,
+              "set_visibility": null,
+              "update_options": null,
+              "update_validation": null
+             },
+             "when": {
+              "equals": "custom",
+              "field": "speed_profile",
+              "operator": "equals",
+              "value": "custom"
+             }
+            }
+           ],
+           "title": "Sampler",
+           "type": "sampler"
+          },
+          {
+           "audience": "advanced",
+           "configuration": {
+            "allow_empty": false
+           },
+           "default": "shift",
+           "description": null,
+           "name": "schedule",
+           "options": [
+            {
+             "label": "Model default",
+             "value": "shift"
+            },
+            {
+             "label": "Beta",
+             "value": "beta"
+            },
+            {
+             "label": "Beta57",
+             "value": "beta57"
+            },
+            {
+             "label": "Exponential",
+             "value": "exponential"
+            },
+            {
+             "label": "Linear-quadratic",
+             "value": "linear_quadratic"
+            }
+           ],
+           "reactions": [
+            {
+             "then": {
+              "set_disabled": false,
+              "set_filter_tags": null,
+              "set_required": null,
+              "set_value": "shift",
+              "set_visibility": null,
+              "update_options": null,
+              "update_validation": null
+             },
+             "when": {
+              "equals": "balanced",
+              "field": "speed_profile",
+              "operator": "equals",
+              "value": "balanced"
+             }
+            },
+            {
+             "then": {
+              "set_disabled": false,
+              "set_filter_tags": null,
+              "set_required": null,
+              "set_value": "shift",
+              "set_visibility": null,
+              "update_options": null,
+              "update_validation": null
+             },
+             "when": {
+              "equals": "turbo",
+              "field": "speed_profile",
+              "operator": "equals",
+              "value": "turbo"
+             }
+            },
+            {
+             "then": {
+              "set_disabled": false,
+              "set_filter_tags": null,
+              "set_required": null,
+              "set_value": null,
+              "set_visibility": null,
+              "update_options": null,
+              "update_validation": null
+             },
+             "when": {
+              "equals": "custom",
+              "field": "speed_profile",
+              "operator": "equals",
+              "value": "custom"
+             }
+            }
+           ],
+           "title": "Schedule",
+           "type": "schedule"
+          }
+         ],
+         "description": null,
+         "title": null,
+         "type": "row"
+        },
+        {
+         "audience": "advanced",
+         "configuration": {
+          "max": 10.0,
+          "min": 1.0,
+          "step": 0.5
+         },
+         "default": 4.0,
+         "description": null,
+         "maximum": 10.0,
+         "minimum": 1.0,
+         "name": "cfg",
+         "reactions": [
+          {
+           "then": {
+            "set_disabled": false,
+            "set_filter_tags": null,
+            "set_required": null,
+            "set_value": 4.0,
+            "set_visibility": null,
+            "update_options": null,
+            "update_validation": null
+           },
+           "when": {
+            "equals": "balanced",
+            "field": "speed_profile",
+            "operator": "equals",
+            "value": "balanced"
+           }
+          },
+          {
+           "then": {
+            "set_disabled": false,
+            "set_filter_tags": null,
+            "set_required": null,
+            "set_value": 1.0,
+            "set_visibility": null,
+            "update_options": null,
+            "update_validation": null
+           },
+           "when": {
+            "equals": "turbo",
+            "field": "speed_profile",
+            "operator": "equals",
+            "value": "turbo"
+           }
+          },
+          {
+           "then": {
+            "set_disabled": false,
+            "set_filter_tags": null,
+            "set_required": null,
+            "set_value": null,
+            "set_visibility": null,
+            "update_options": null,
+            "update_validation": null
+           },
+           "when": {
+            "equals": "custom",
+            "field": "speed_profile",
+            "operator": "equals",
+            "value": "custom"
+           }
+          }
+         ],
+         "step": 0.5,
+         "title": "CFG Scale",
+         "type": "slider"
+        },
+        {
+         "audience": "advanced",
+         "configuration": {
+          "max": 10.0,
+          "min": 0.1,
+          "step": 0.05
+         },
+         "description": null,
+         "name": "shift",
+         "title": "Shift (override)",
+         "type": "number"
+        }
+       ],
+       "description": null,
+       "formula": "speed",
+       "title": "Sampling",
+       "type": "section"
+      },
+      {
+       "audience": "simple",
+       "children": [
+        {
+         "audience": "simple",
+         "children": [
+          {
+           "ai_hint": "A speed-for-fidelity trade, never a quality improvement -- it only removes work. Suggest 0.08 when the user explicitly wants a Qwen-Image-2.1 render faster and can accept some softening of fine detail; 0.15 only if they ask for aggressive speed. Keep it at 0.0 for final renders.",
+           "audience": "simple",
+           "configuration": {
+            "max": 0.3,
+            "min": 0.0,
+            "step": 0.01
+           },
+           "default": 0.0,
+           "description": null,
+           "maximum": 0.3,
+           "minimum": 0.0,
+           "name": "step_cache_threshold",
+           "step": 0.01,
+           "title": "Cache threshold",
+           "type": "slider"
+          },
+          {
+           "ai_hint": "Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition -- it gives back some of the speed.",
+           "audience": "simple",
+           "configuration": {
+            "max": 12,
+            "min": 0,
+            "step": 1
+           },
+           "default": 4,
+           "description": null,
+           "maximum": 12,
+           "minimum": 0,
+           "name": "step_cache_warmup_steps",
+           "step": 1,
+           "title": "Warmup steps",
+           "type": "slider"
+          },
+          {
+           "ai_hint": "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory.",
+           "audience": "simple",
+           "configuration": {
+            "max": 10,
+            "min": 0,
+            "step": 1
+           },
+           "default": 3,
+           "description": null,
+           "maximum": 10,
+           "minimum": 0,
+           "name": "step_cache_max_skips",
+           "step": 1,
+           "title": "Max consecutive skips",
+           "type": "slider"
+          }
+         ],
+         "description": null,
+         "title": null,
+         "type": "row"
+        }
+       ],
+       "description": null,
+       "formula": "cache",
+       "title": "Step Cache",
+       "type": "section"
+      },
+      {
+       "audience": "simple",
+       "children": [
+        {
+         "ai_hint": "How much of the surroundings the model sees around a painted region. Tight suits small, isolated changes; Wide helps when the edit must match a large neighbouring structure. Only used when a region is painted.",
+         "audience": "advanced",
+         "configuration": {
+          "allow_empty": false
+         },
+         "default": "0.5",
+         "description": null,
+         "name": "region_context",
+         "options": [
+          {
+           "label": "Tight",
+           "value": "0.25"
+          },
+          {
+           "label": "Balanced",
+           "value": "0.5"
+          },
+          {
+           "label": "Wide",
+           "value": "1.0"
+          }
+         ],
+         "title": "Region context",
+         "type": "select"
+        }
+       ],
+       "description": null,
+       "title": "Region",
+       "type": "section"
+      }
+     ],
+     "configuration": {
+      "icon": "settings",
+      "icon_display": "icon_only"
+     },
+     "description": null,
+     "label": "Advanced",
+     "title": "Advanced",
+     "type": "tab"
+    }
+   ],
+   "description": null,
+   "title": null,
+   "type": "tabs"
+  }
+ },
+ "required": [],
+ "type": "object"
+}

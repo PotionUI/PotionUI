@@ -1,0 +1,21 @@
+{
+	"v": 1,
+	"task": "edit_region",
+	"prompt": "a small red sailboat",
+	"setup": {
+		"preset_id": "qwen",
+		"mode": "edit",
+		"variant": "fast",
+		"form_data": { "steps": 20, "seed": 7 },
+		"source": { "kind": "session", "id": "s1", "name": "Soft portrait" },
+		"label": "Qwen-Image 2.1 · Edit · Soft portrait"
+	},
+	"area": { "region": { "item_id": "mask1" }, "size": { "width": 412, "height": 380 } },
+	"candidates": 2,
+	"results": [{ "patch": { "item_id": "p1" }, "url": "/p1.png", "seed": 5 }],
+	"chosen": 0,
+	"seed": 5,
+	"rect": { "x": 0.1, "y": 0.1, "width": 0.3, "height": 0.3 },
+	"soft": false,
+	"run": { "id": "er_old", "status": "done", "error": null }
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { mediaGroupByDay } from '$lib/stores/mediaGroupByDay';
 	import { libraryStore, libraryTotalPages, LIBRARY_ITEMS_PER_PAGE_OPTIONS } from '$lib/stores/library';
 	import { Button, EmptyState, Pagination } from '$lib/components/ui';
 	import {
@@ -49,7 +50,12 @@
 	// One flat keyed list per group: flex-wrap reproduces the packer's rows from
 	// the boxes' own widths, so a card keeps its DOM identity when a gridWidth
 	// reflow moves it across a row boundary (see flattenJustifiedRows).
-	$: groupLayouts = groupByDay(items, state.placedIds).map((group) => ({
+	$: dayGroups = $mediaGroupByDay
+		? groupByDay(items, state.placedIds)
+		: items.length > 0
+			? [{ key: '__flat__', label: '', items }]
+			: [];
+	$: groupLayouts = dayGroups.map((group) => ({
 		...group,
 		boxes: flattenJustifiedRows(
 			layoutJustifiedRows(
@@ -163,11 +169,11 @@
 	}
 </script>
 
-<div class="px-3 py-3 md:px-6 md:py-6">
+<div class="{!state.loading && items.length === 0 ? '' : 'px-3 py-3 md:px-6 md:py-6'} flex flex-1 flex-col">
 	<div
 		bind:this={gridRootEl}
 		bind:clientWidth={gridWidth}
-		class="relative"
+		class="relative flex flex-1 flex-col"
 		class:select-none={marqueeState.active}
 		role="listbox"
 		aria-multiselectable={state.selectionMode}
@@ -209,15 +215,17 @@
 			{/if}
 		{:else if items.length > 0 && gridWidth > 0}
 			{#each groupLayouts as group (group.key)}
-				<div class="flex items-baseline gap-3 mb-3 mt-8 first:mt-0">
-					<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted whitespace-nowrap">
-						{group.label}
-					</span>
-					<span class="font-mono tabular-nums text-2xs text-fg-subtle whitespace-nowrap">
-						{group.items.length}
-					</span>
-					<div class="flex-1 h-px bg-line self-center"></div>
-				</div>
+				{#if $mediaGroupByDay}
+					<div class="flex items-baseline gap-3 mb-3 mt-8 first:mt-0">
+						<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted whitespace-nowrap">
+							{group.label}
+						</span>
+						<span class="font-mono tabular-nums text-2xs text-fg-subtle whitespace-nowrap">
+							{group.items.length}
+						</span>
+						<div class="flex-1 h-px bg-line self-center"></div>
+					</div>
+				{/if}
 
 				<!-- Justified grid: flex-wrap lays out each box's already-computed
 				     width into the same rows the packer chose, from one flat keyed
@@ -274,6 +282,7 @@
 			{/if}
 		{:else if items.length === 0}
 			<EmptyState
+				page
 				icon={filtered ? 'search' : 'photo'}
 				title={filtered ? 'No results found' : 'Your library is empty'}
 				description={filtered
@@ -282,11 +291,11 @@
 			>
 				{#snippet actions()}
 					{#if filtered}
-						<Button variant="secondary" size="sm" icon="close" onclick={handleClearFilters}>
+						<Button variant="secondary" icon="close" onclick={handleClearFilters}>
 							Clear filters
 						</Button>
 					{:else}
-						<Button variant="primary" size="sm" icon="upload" onclick={onUploadRequest}>
+						<Button variant="secondary" icon="upload" onclick={onUploadRequest}>
 							Upload media
 						</Button>
 					{/if}

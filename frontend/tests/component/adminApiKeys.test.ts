@@ -372,7 +372,7 @@ describe('MCP tools ceiling', () => {
 		const ceiling = new CeilingDraft();
 		await ceiling.load();
 		await render(McpCeilingSection, { ceiling });
-		expect(target.textContent).toContain('MCP tools are not available yet.');
+		expect(target.textContent).toContain('MCP tools are not available yet');
 	});
 });
 

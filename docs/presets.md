@@ -82,16 +82,20 @@ content/presets/marketplace/<Model>[/<variant>]/    # or content/presets/local/<
 ├── files/
 │   └── form/
 │       └── *.yml              # preset-local form option files (see presets/forms.md)
-└── modes/
-    └── <mode>/                # one dir per mode listed in preset.yml `modes:`
-        ├── pipeline.yml       # the pipe list for this mode (Jinja2-templated)
-        ├── form.yml           # the DEFAULT form variant (usually a tabs container)
-        ├── tabs/
-        │   └── *.yml          # tab bodies referenced from form.yml
-        └── variants/          # OPTIONAL — additional named form variants
-            └── <name>/
-                ├── form.yml
-                └── tabs/*.yml
+├── modes/
+│   └── <mode>/                # one dir per mode listed in preset.yml `modes:`
+│       ├── pipeline.yml       # the pipe list for this mode (Jinja2-templated)
+│       ├── form.yml           # the DEFAULT form variant (usually a tabs container)
+│       ├── tabs/
+│       │   └── *.yml          # tab bodies referenced from form.yml
+│       └── variants/          # OPTIONAL — additional named form variants
+│           └── <name>/
+│               ├── form.yml
+│               └── tabs/*.yml
+└── editor_modes/              # OPTIONAL — what the Image editor runs (see "Editor modes")
+    └── <name>/
+        ├── editor_mode.yml
+        └── form.yml, pipeline.yml, tabs/   # standalone modes only
 ```
 
 Shared vocabulary (resolutions, ComfyUI samplers/schedulers) and tab bodies identical across
@@ -306,6 +310,281 @@ The file is validated with the same models as the contract. An invalid `elixir.y
 that names a field the mode does not have, is a lint error and the mode is not offered. The
 Video Director targets (`kind: video_director_role`, `role: first|last`) need a mode listed in
 `vars.video_director.preset_modes`, and the media type must be `image`.
+
+## Editor modes
+
+An **editor mode** is what the Image editor runs. It is a directory `editor_modes/<name>/` of a preset, next to
+`modes/`, with a file `editor_mode.yml` that names one task. `<name>` matches `^[a-z0-9][a-z0-9_-]{0,63}$`.
+`preset.yml` does not list editor modes: the directory is the declaration. A **generation mode** is what
+`modes/<mode>/` has always been, the form and the pipeline of the Generate page. Core, local, plugin-shipped
+(`presets:` root) and plugin-contributed (`preset_modes:` root) presets all work the same way, and a preset
+without `editor_modes/` offers the editor nothing.
+
+An editor mode is **derived** from a generation mode, or **standalone** with its own `form.yml` and `pipeline.yml`.
+
+```
+<preset>/
+├── modes/<mode>/...                 # generation modes
+└── editor_modes/
+    └── <name>/
+        ├── editor_mode.yml          # REQUIRED
+        ├── form.yml                 # standalone only (no `from`)
+        ├── tabs/*.yml               # optional, for form.yml or `fields.add` files
+        └── pipeline.yml             # standalone: required. With `from`: replaces the inherited pipeline
+```
+
+A derived mode says "that mode, with changes". Everything it does not name is inherited: the fields and their
+defaults and reactions, `formula:` groups, the prompt resources and syntax, and the pipeline. The editor mode is
+derived from the generation mode as it stands before plugin `preset_extensions` are applied, so a plugin's extra
+fields never reach it; a plugin that wants fields in the editor contributes an editor mode instead. Admin form
+overrides stored for the `from` mode apply to it as well, with the mode's own `fixed` and `hide` values on top.
+
+```yaml
+schema_version: 1
+task: edit_region
+from: edit
+region: crop
+inputs:
+  source: source_image
+fixed:
+  match_source: true
+  fit_mode: fit
+fields:
+  hide: [source_image_b]
+  change:
+    resolution:
+      label: Detail
+  add:
+    - into: { tab: advanced }
+      fields:
+        - { name: region_context, type: select, label: Surroundings, default: "0.5",
+            configuration: { options: [{ label: Tight, value: "0.25" }, { label: Balanced, value: "0.5" }] } }
+```
+
+| Key | Meaning |
+|---|---|
+| `schema_version` | Required, `1`. |
+| `task` | Required. A core task (`edit_region`, `remove_object`, `replace_background`, `find_subject`, `expand`, `fix_faces`, `upscale` for pictures; `extend`, `refine_faces`, `remix` for video) or a plugin task `<plugin>.<name>`. |
+| `from` | A generation mode of this preset. Leave it out for a standalone mode. |
+| `label`, `short_description`, `order` | The picker name (default: the `from` mode's label, else the title-cased name), one sentence under it, and the sort order within the preset. |
+| `instruction` | Optional. The prompt a run sends when the task takes no prompt (`prompt: none`, such as `remove_object`). Ignored by a task that takes one (lint **warning**). A fallback offer uses the task's own fallback prompt instead. |
+| `icon` | Optional. An icon name from the app's icon set, shown beside the mode in the picker (`mode_icon` on the offer). Default: the `from` mode's icon, else the standard icon for the mode name, else none. An unknown name → **warning**. |
+| `region` | Required. `crop`: the editor crops the marked area with context and the mode gets the crop. `mask`: the mode gets the whole picture and a mask. `whole`: the whole picture, no mask. `range`: for a video task. The mode gets a video, the whole clip or the marked time range cut out of it, and the run splices the result back ([video editor modes](#video-editor-modes)). |
+| `inputs.source` | Required. The `image` field that takes the picture (a `video` field for a video task), or `{field: <media field>, index: 0}`, which inserts the picture into a `media` list at that index. |
+| `inputs.mask` | Required for `region: mask`; not allowed with `region: range`. It must be named `<image field>_inpaint_mask`, and that image field must set `allow_inpaint: true`. With `region: crop` it asks for the region mask cut and resampled like the crop. |
+| `inputs.quantity`, `inputs.seed` | Default to the mode's quantity field and its `seed` field. The quantity field is shown in Settings like on the Generate page, and its value (1 to 4) is the number of results of a run; the seed field is shown. |
+| `inputs.scale` | For the `upscale` task: the number field (`slider`, `number`, `integer` or `stepper`) that receives the factor the run enlarges by. Its `min` and `max` are the factors the offer accepts (`scale: {min, max}` on the offer). |
+| `size` | `area` (default 1048576, 262144 to 4194304), `multiple` (8, 16, 32 or 64), `field` (a `resolution` field), `buckets`. |
+| `context` | Context around the area as a fraction of its size (0 to 4), default `0.5`. A `region_context` field in the form wins. |
+| `fixed` | Fields hidden in Settings that always get this value in a run. The key must be a field and the value valid for it (an option of a select, a boolean for a checkbox, a number inside the range of a slider). |
+| `fields.hide` | Fields hidden in Settings that keep their own default in a run. A required field without a default cannot be hidden: give it a value under `fixed`. |
+| `fields.change` | Per field: `label`, `description`, `ai_hint`, `default`, `audience`. |
+| `fields.add` | Field groups added at a `tab` or `section` anchor, with the same shape as a [plugin extension](presets/plugins.md). |
+| `pipeline` | The extension pipe operations (`add`, `patch`). Not allowed beside a `pipeline.yml`. |
+| `strength` | Optional `{field, default, min, max}`: a strength the editor offers as its own control. `field` is a number field of the mode (`slider`, `number`, `integer` or `stepper`) and its own range must contain `min` to `max`; `min < max` and `default` lies between them. A run without a `strength` gets `default`; a requested one is clamped to `min..max`, and either replaces the form value of `field`. `field` may also be listed under `fields.hide`, so Settings does not show a second control, but not under `inputs` or `fixed`. The offer carries it as `strength: {default, min, max}`, `null` when the mode has none. The SDXL `fix_faces` mode binds it to the detailer denoise `fix_strength` with default `0.35`. |
+
+`inputs`, `fixed` and `fields.hide` are the fields Settings does not show, and a field may appear in only one
+of them. `fixed` and `fields.hide` fields stay in the template because the pipeline reads them; binding pins them
+over any admin override. An editor setup (a saved session of kind `editor`) never stores them, and a run replaces
+whatever a request sends for them.
+
+### Upscale and part-based modes
+
+`region: whole` is for a task that works on the whole picture: the mode gets the picture, no mask. The `upscale` task uses it, and the editor runs it in **tiles**: it renders the picture beneath the upscale at its full size, cuts it into overlapping tiles of about `size.area` source pixels (so `area` is the tile budget; a picture that fits one tile is one tile) and runs the mode once for each tile, one after another, with the tile as `inputs.source`. The factor goes into `inputs.scale` and, when the mode has one, the output size of the tile (`WxH`) into `size.field`; a mode needs at least one of the two, or the lint reports an error. The results are resampled to the size each tile should have and feather-blended across the overlap into one picture, which the editor replaces the picture with (`place_patch` with `replace`). `fix_faces` runs the same way in parts, one for each separate marked area, with `region: crop` or `mask`. See [editor runs](api/editor-runs.md#runs-in-several-parts).
+
+Pick `size.area` for what one tile costs at the largest factor: the mode makes a picture `scale` times larger than the tile. SeedVR2 asks for 262144 (a 512 px tile, 2048 px at 4x), the SDXL upscale for 589824.
+
+```yaml
+schema_version: 1
+task: upscale
+from: upscale
+region: whole
+inputs: { source: input_image, scale: scale }
+size: { area: 262144, multiple: 16 }
+fixed: { target_short_side: 0 }
+fields: { hide: [resolution_target] }
+```
+
+### Video editor modes
+
+A task with `editors: [video]` is offered by the video editor, and its editor modes use `region: range`. The task
+states what it needs: `range` (`optional`: no range means the whole clip; `required` for `refine_faces`: a run without a range is refused with a 422), `prompt`,
+`region` (`none`: no shipped video mode takes a mask on the frame), `result` (`replace`: the new footage has the
+length of the range, or `append`: it adds time after the range) and `audio` (`keep`: the clip's own sound stays;
+`result`: the sound of the added part comes from the result, silence when it has none). `resizes` marks a task
+whose whole-clip result may be larger than the clip; on a time range the result is fitted to the clip's size.
+
+| Task | Prompt | Result | Offered by (editor mode = generation mode) |
+|---|---|---|---|
+| `extend` | optional | appends at the end of the range or the clip | LTX-2.5, MiniMax-H3, MiniMax-H3-Fast `extend` |
+| `refine_faces` | none, and a marked range is required (it works on the frames you mark) | replaces | LTX-2.5, MiniMax-H3, MiniMax-H3-Fast `refine_faces` |
+| `remix` | required | replaces the section; the clip's own sound stays | MiniMax-H3 `remix` (up to 14 s) |
+
+Whole-clip transforms (upscale, restore, colorize, day to night) and anything that would run over the whole clip are generation modes, not video editor tasks.
+
+```yaml
+schema_version: 1
+task: extend
+from: extend
+region: range
+inputs:
+  source: input_video
+fixed:
+  match_source: true
+  direction: forward
+```
+
+The editor fills the source field with the clip (cut to the range when there is one) and a `fixed` value pins the
+fields the editor decides, such as the extend direction. `max_range_s` (seconds, only with `region: range`) is the
+longest section the mode can work on: a run whose range, or whole clip, is longer is refused with a 422
+(`range_too_long`, "Remix works on up to 14 s; mark a shorter section"). The offer carries it as `max_range_s`
+(`null` without a cap) so the editor limits the marked range. A mode whose model takes a clip up to 14 s declares
+`max_range_s: 14`. Times are seconds everywhere; the server turns them into
+frames at the clip's own frame rate. The lint reports `region: range` on a picture task, a picture region on a video
+task, and `inputs.mask` with `region: range`.
+
+### One-click picture tools
+
+Three core tasks work on a marked area or the whole picture without a prompt box of their own, or with a short one.
+
+| Task | Region | Prompt | What it does |
+|---|---|---|---|
+| `remove_object` | required (the marked object) | none | Removes the object. The marked area is grown before the run (`grow: 0.04`, 4 % of the longer side of the marked area, at least 6 px) so the object's edge and soft shadow fall inside it, and the stitch feather is 1.6 times the default. The run option `include_shadow: true` grows it 2.5 times as much and also downward by a quarter of the marked height. |
+| `replace_background` | required, a soft **matte** (white = the background to replace) | required: the new background | The matte is kept grayscale (`matte: true`): it is never thresholded for the stitch, so its soft edge becomes the alpha of the result. The mode gets the matte thresholded like any mask. |
+| `find_subject` | none | none | `internal`: it has no tool in the rail and is run by other tools. It returns the subject as an RGBA PNG at the picture's size, alpha kept (`produces: matte`), instead of a patch to stitch. |
+
+`grow` (a fraction of the longer side of the marked area, grown with a round dilation capped at 15 % of the
+picture), `feather` (a multiplier on the stitch feather), `matte` and `internal` are fields of the task definition
+(also manifest keys, [plugin API](plugin-api.md#contributing-an-editor-task)). The grown region is what the crop, the
+mask given to the mode and the stitch all use.
+
+A task that takes no prompt sends the `instruction` of the offered editor mode as the generation prompt, and an
+empty prompt when the mode has none. A fallback prompt may contain `{prompt}`, replaced by the user's prompt (a
+fallback without it is sent as written); `replace_background` falls back to "Keep the subject exactly as it is, do not
+change it. Replace everything marked with this background: {prompt}".
+
+```yaml
+# editor_modes/remove_object/editor_mode.yml
+schema_version: 1
+task: remove_object
+from: edit
+instruction: Remove the marked object. Fill the area so it matches its surroundings, continuing the textures and lighting.
+region: crop
+inputs:
+  source: source_image
+```
+
+```yaml
+# editor_modes/replace_background/editor_mode.yml: no instruction, the user writes the new background
+schema_version: 1
+task: replace_background
+from: inpaint
+region: mask
+inputs:
+  source: source_image
+  mask: source_image_inpaint_mask
+```
+
+`find_subject` is declared on a mode that cuts a subject out; the `ImageTools` preset ships it from `remove_background`
+with `region: whole` and `inputs.source: input_image`. A picture or colour behind the subject, or transparency, is
+not a model run: the editor tool `replace_background` ([media tools](plugin-api.md)) fills the matte with it.
+
+Shipped: `remove_object` and `replace_background` on ZImage `inpaint`, QwenImage-2.1 `inpaint`, QwenImage `edit` and
+Krea2 `edit`; `find_subject` on ImageTools `remove_background`.
+
+### How an editor mode is addressed
+
+An editor mode is addressed as `editor:<name>` wherever a mode key is stored: the run body, a default, a session
+key, `generations.mode` and the form query `GET /api/presets/{id}/form?mode=editor:<name>`, which serves the form
+Settings shows (inputs, `fixed` and `hide` left out, `change` and `add` applied). A request to
+`POST /api/generations/start` with an editor key is refused with `422 mode_is_editor`; only the editor's run
+service may use one. The run and default routes answer a mode name without the prefix with a plain
+`422 task_not_offered`.
+
+### Which editor lists a mode
+
+The task decides, through the `editors` of its definition (default `[image]`). `remove_object` and
+`replace_background` need no editor mode on a preset: a preset that ships none for them offers its `edit_region`
+editor modes (offers carry `via: "edit_region"`) with the task's fallback prompt ("Remove the marked object. Fill the
+area so it matches its surroundings."; for `replace_background` the fallback with the user's text in `{prompt}`). A
+preset that ships its own mode for the task uses it with that mode's `instruction`, and does not also offer its
+`edit_region` modes for it; other presets keep the fallback. The setup picker of the tool lists the offers of the
+task, the preset's own modes and the fallback ones.
+
+### Expand
+
+`expand` puts the picture on a larger canvas and generates the new area (`region: none`, `prompt: optional`, and the
+task's `grows` flag says the result is larger than the picture). The server builds the canvas, fills the new area from
+the picture's edges, hands the mode the canvas and, when `inputs.mask` is set, a mask over the new area that reaches a
+little into the picture so the model continues it across the seam. A large expansion runs as several generations in a
+row (each grows the known picture by at most 80 percent per side, so the model keeps working at its own sizes);
+each pass is stitched into the canvas before the next one starts. The original pixels are never changed, and the result
+is one patch with the size of the new canvas.
+
+Declare it on a mode that repaints a masked area. `region: mask` with `inputs.mask` is the natural fit, and `fixed`
+usually pins the strength to full:
+
+```yaml
+schema_version: 1
+task: expand
+from: inpaint
+region: mask
+inputs:
+  source: source_image
+  mask: source_image_inpaint_mask
+fixed:
+  denoise: 1.0
+```
+
+Shipped: Z-Image, SDXL, Qwen-Image 2.1 and MOSS-Image declare it on their inpaint mode. A preset with no `expand` mode
+is offered through its `edit_region` modes with the built-in prompt "Continue the picture beyond its edges so the new
+area matches it."; those modes get the whole canvas (and a mask when they take one). One image is made per format, so
+the mode's quantity is sent as 1.
+
+### What a member sees
+
+An editor mode that offers a task appears in the Image editor: the task has a rail tool in the Generate group and
+its Settings panel shows the **setup** (this editor mode, and where its settings start from: a saved editor
+session, a formula of the editor mode or of its `from` mode, or the mode's own defaults) with the mode's form
+below it. A mode whose engine has no backend is listed but cannot be picked, with "No backend is set up for the
+engine of this preset." The person's **default** setup for the task is the one chosen first; a default that
+stopped working is reported, never replaced
+([your default setup for a task](api/editor-runs.md#your-default-setup-for-a-task)). In History, a picture made by
+a derived editor mode is reused on the Generate page through its `from` mode (`reuse_mode` in the history item); a
+standalone editor mode has none.
+
+### Lint
+
+`python scripts/preset_lint.py` checks every `editor_mode.yml`; an editor mode with an error is skipped and the
+preset still loads. Errors: a missing `editor_mode.yml`, a missing or unknown `schema_version`, an unknown key, a
+name outside the pattern, a `variants/` directory, a `from` that is not a mode of the preset, `form.yml`
+together with `from`, no `form.yml` or `pipeline.yml` without `from`, `pipeline` operations beside a
+`pipeline.yml`, an unknown task, a plugin task named by an editor mode of another plugin, an `inputs.source` that
+is not a field of the right type, `region: mask` without a valid `inputs.mask`, a `size` out of range or a
+`size.field` that is not a `resolution` field, a `fixed`, `hide` or `change` name that is not a field, a name in
+more than one of inputs, `fixed` and `hide`, a `fixed` value the field cannot take, a required `hide` field
+without a default, `fields.add` and `pipeline` errors, and a generation mode name containing `:`. With `--render`
+the pipeline of each editor mode is rendered with fixture data. Warnings: a plugin task whose plugin is not
+installed (the editor mode is skipped), a task that needs a prompt on an editor mode whose `from` mode is in
+`vars.promptless_modes`, and a leftover `modes/<mode>/editor.yml`, which is no longer read. Info: an image, video,
+audio or media field that Settings will show.
+
+### Moving from `editor.yml`
+
+`python scripts/editor_modes_from_editor_yml.py <preset dir>` prints the `editor_mode.yml` it would write for each
+`modes/*/editor.yml` below the path; `--write` writes the files and never deletes or overwrites anything. Review the
+result: `image` became `inputs.source`, `set` became `fixed`, and `owned` fields went to `fields.hide`.
+
+### The shown-fields golden
+
+Every shipped editor mode has a golden of the fields its Settings shows, `tests/golden/editor_forms/<preset
+id>__editor-<name>.json`, so a field added to a `from` mode appears as a diff someone accepts. The test names each
+field that is now shown or no longer shown. Regenerate after an intended change with
+`python scripts/preset_render.py --golden-all --root content/presets/marketplace`, which also writes the render
+golden `<preset id>__editor-<name>.json` in `tests/golden/preset_renders/`.
+
+`GET /api/editor/tasks?editor=image` lists the tasks with the editor modes that offer them, limited to the
+presets the caller may use.
 
 ## Regional prompting
 

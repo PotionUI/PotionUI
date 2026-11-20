@@ -795,11 +795,41 @@ def test_music3_gate_rejects_streaming(monkeypatch):
     assert (ok, reason) == (False, "streaming")
 
 
-def test_music3_gate_rejects_quantized_by_format(monkeypatch):
+@pytest.mark.parametrize("quant_format", ["fp8_scaled", "int8_convrot", "nvfp4"])
+def test_music3_gate_allows_a_quantized_lm_when_the_decoder_is_not_quantized(monkeypatch, quant_format):
     _enable(monkeypatch)
-    lm = _MockNativeLM(_tiny_depth_decoder(), quant_format="fp8_scaled")
+    lm = _MockNativeLM(_tiny_depth_decoder(), quant_format=quant_format)
     ok, reason = tc.music3_ar_compile_gate(lm, resident=True, is_cuda=True)
-    assert (ok, reason) == (False, "quantized")
+    assert (ok, reason) == (True, "ok")
+
+
+def test_music3_gate_still_rejects_a_quantized_lm_with_a_quantized_decoder(monkeypatch):
+    _enable(monkeypatch)
+    decoder = _tiny_depth_decoder()
+    decoder.projection = _fp8_linear()
+    lm = _MockNativeLM(decoder, quant_format="fp8_scaled")
+    ok, reason = tc.music3_ar_compile_gate(lm, resident=True, is_cuda=True)
+    assert (ok, reason) == (False, "quantized-linear")
+
+
+def test_music3_gate_still_rejects_a_quantized_lm_when_streaming(monkeypatch):
+    _enable(monkeypatch)
+    lm = _MockNativeLM(_tiny_depth_decoder(), quant_format="int8_convrot")
+    ok, reason = tc.music3_ar_compile_gate(lm, resident=False, is_cuda=True)
+    assert (ok, reason) == (False, "streaming")
+
+
+def test_music3_lm_graph_gate_reasons(monkeypatch):
+    decoder = _tiny_depth_decoder()
+    lm = types.SimpleNamespace(module=decoder, quant_format="int8_convrot")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", False)
+    assert tc.music3_lm_graph_gate(lm, resident=True, is_cuda=True) == (False, "disabled")
+    _enable(monkeypatch)
+    assert tc.music3_lm_graph_gate(lm, resident=True, is_cuda=False) == (False, "cpu")
+    assert tc.music3_lm_graph_gate(lm, resident=False, is_cuda=True) == (False, "streaming")
+    assert tc.music3_lm_graph_gate(lm, resident=True, is_cuda=True) == (True, "ok")
+    decoder.layers[0].self_attn.o_proj.lora_deltas = [object()]
+    assert tc.music3_lm_graph_gate(lm, resident=True, is_cuda=True) == (False, "runtime-lora")
 
 
 def test_music3_gate_rejects_no_audio_decoder(monkeypatch):

@@ -1,6 +1,7 @@
 import { createStack, deserialize, serialize, type EditStackState } from '$lib/tool-tabs/frame/editStack';
 import { fitViewport, type Viewport } from '$lib/tool-tabs/frame/viewport';
 import { readMask, type MaskChannel } from './mask';
+import { sliceLast } from './slice/stack';
 
 export const IMAGE_STATE_VERSION = 1;
 
@@ -61,11 +62,16 @@ export function writeImageState(state: ImageTabState): Record<string, unknown> {
 }
 
 export function stackSignature(stack: EditStackState<unknown>): string {
-	return JSON.stringify(stack.steps.slice(0, stack.cursor).map((step) => [step.tool, step.params, step.hidden]));
+	return JSON.stringify(stack.steps.slice(0, stack.cursor).map((step) => (step.layer ? [step.tool, step.params, step.hidden, step.layer.opacity] : [step.tool, step.params, step.hidden])));
 }
 
 export function unsavedEdits(stack: EditStackState<unknown>, saved: SavedCopy | null): number {
 	const applied = stack.cursor + (stack.pending ? 1 : 0);
 	if (saved && !stack.pending && saved.signature === stackSignature(stack)) return 0;
 	return applied;
+}
+
+export function withSavedCopy(raw: Record<string, unknown>, itemId: string): Record<string, unknown> {
+	const stack = sliceLast(readImageState(raw).stack);
+	return { ...raw, saved: { itemId, signature: stackSignature(stack) } };
 }

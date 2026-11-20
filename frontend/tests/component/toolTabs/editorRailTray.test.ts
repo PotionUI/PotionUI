@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
+import { RAIL_ICON_WIDTH } from '$lib/tool-tabs/frame/layout';
 import { mountComponent } from '../helpers/mount';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import TrayHost from './TrayHost.svelte';
 
 const { default: CropBar } = await import('$lib/components/tool-tabs/image/CropBar.svelte');
 const { default: ToolRail } = await import('$lib/components/tool-tabs/frame/ToolRail.svelte');
-const { default: PropertySlider } = await import('$lib/components/tool-tabs/frame/PropertySlider.svelte');
 
 const groups = [
 	{ id: 'shape', label: 'Shape', tools: [{ id: 'crop', label: 'Crop', icon: 'editor-crop' }, { id: 'resize', label: 'Resize', icon: 'editor-resize' }] },
@@ -29,7 +29,7 @@ describe('icon-only tool rail', () => {
 		const { view } = rail();
 		const text = view.target.textContent!.replace(/\s+/g, '');
 		expect(text).toBe('');
-		expect(view.target.querySelector('[data-tool-rail="icons"]')!.className).toContain('w-[52px]');
+		expect(view.target.querySelector<HTMLElement>('[data-tool-rail="icons"]')!.style.width).toBe(`${RAIL_ICON_WIDTH}px`);
 		expect(view.target.querySelectorAll('[role="separator"]')).toHaveLength(1);
 	});
 
@@ -53,55 +53,6 @@ describe('icon-only tool rail', () => {
 		tool('crop').focus();
 		view.target.querySelector('[role="toolbar"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
 		expect(document.activeElement).toBe(tool('resize'));
-	});
-});
-
-describe('PropertySlider', () => {
-	function slider(props: Record<string, unknown> = {}) {
-		const changes: number[] = [];
-		let commits = 0;
-		const view = mountComponent(PropertySlider, { label: 'Contrast', value: 0, min: -100, max: 100, defaultValue: 0, onchange: (value: number) => changes.push(value), oncommit: () => (commits += 1), ...props });
-		const range = view.target.querySelector<HTMLInputElement>('input[type="range"]')!;
-		return { view, range, changes, commits: () => commits };
-	}
-
-	it('reports each input as a change and the end of a drag as a commit', () => {
-		const { range, changes, commits } = slider();
-		range.value = '12';
-		range.dispatchEvent(new Event('input', { bubbles: true }));
-		range.value = '18';
-		range.dispatchEvent(new Event('input', { bubbles: true }));
-		expect(changes).toEqual([12, 18]);
-		expect(commits()).toBe(0);
-		range.dispatchEvent(new Event('change', { bubbles: true }));
-		expect(commits()).toBe(1);
-	});
-
-	it('shows a signed mono readout and flags a moved value', () => {
-		const { view } = slider({ value: 18 });
-		expect(view.target.querySelector('[data-property-value]')!.textContent).toBe('+18');
-		expect(view.target.querySelector('[data-property-slider]')!.hasAttribute('data-changed')).toBe(true);
-		expect(view.target.querySelector('[data-property-value]')!.className).toContain('tabular-nums');
-	});
-
-	it('resets to the default on double click and on Backspace, then commits', () => {
-		const { view, range, changes, commits } = slider({ value: 18 });
-		view.target.querySelector('[data-property-slider]')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-		range.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
-		expect(changes).toEqual([0, 0]);
-		expect(commits()).toBe(2);
-	});
-
-	it('does not reset a value that is already at its default', () => {
-		const { view, changes } = slider({ value: 0 });
-		view.target.querySelector('[data-property-slider]')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-		expect(changes).toEqual([]);
-	});
-
-	it('lays the label, track and value on one row when inline', () => {
-		const { view } = slider({ inline: true, label: 'Intensity', value: 60, min: 0, max: 100, defaultValue: 100 });
-		expect(view.target.querySelector('[data-property-slider]')!.className).toContain('items-center');
-		expect(view.target.querySelector('[data-property-value]')!.textContent).toBe('60');
 	});
 });
 

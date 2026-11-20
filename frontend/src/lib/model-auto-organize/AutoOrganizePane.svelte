@@ -110,7 +110,7 @@
 					compact
 				>
 					{#snippet actions()}
-						<Button variant="primary" size="sm" icon="plus" onclick={() => goto(url({ rule: 'new' }))}>New rule</Button>
+						<Button size="sm" variant="secondary" icon="plus" onclick={() => goto(url({ rule: 'new' }))}>New rule</Button>
 					{/snippet}
 				</EmptyState>
 			{:else if ctrl.visibleRules.length === 0}

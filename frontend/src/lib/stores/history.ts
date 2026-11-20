@@ -6,6 +6,7 @@ import type {
 	GenerationHistoryFilters,
 	HistoryPageState,
 	DatePreset,
+	HistoryOriginFilter,
 	SortBy,
 	SortDir
 } from '$lib/types/history';
@@ -107,6 +108,7 @@ const initialFilters: GenerationHistoryFilters = {
 	usedPhrasebookValueId: undefined,
 	usedPhrasebookLabel: undefined,
 	systemTag: undefined,
+	origin: undefined,
 	sortBy: 'created_at',
 	sortDir: 'desc'
 };
@@ -151,6 +153,7 @@ export function buildHistoryRequest(state: HistoryQueryState) {
 		directOnly: filters.directOnly || undefined,
 		usedPhrasebookValueId: filters.usedPhrasebookValueId || undefined,
 		systemTag: filters.systemTag || undefined,
+		origin: filters.origin || undefined,
 		minRating: filters.minRating || undefined,
 		favoritesOnly: filters.favoritesOnly || undefined,
 		sortBy: filters.sortBy,
@@ -494,6 +497,14 @@ function createHistoryStore() {
 			update((state) => ({
 				...state,
 				filters: { ...state.filters, systemTag: tag || undefined },
+				currentPage: 1
+			}));
+		},
+
+		setOriginFilter(origin: HistoryOriginFilter | null) {
+			update((state) => ({
+				...state,
+				filters: { ...state.filters, origin: origin || undefined },
 				currentPage: 1
 			}));
 		},

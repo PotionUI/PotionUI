@@ -1,3 +1,4 @@
+import { CONTINUE_ACTION, continuableLink } from '$lib/tool-tabs/continueTarget';
 import type { ComponentType } from 'svelte';
 import { recentLooks } from '$lib/filters/recentLooks';
 import { registerMediaTool } from '$lib/tools/tools';
@@ -66,6 +67,20 @@ export function registerCoreHistoryTools(): void {
 				? { enabled: true }
 				: { enabled: false, reason: 'Select at least 2 images' },
 		component: HistoryStitchModal as unknown as ComponentType
+	});
+
+	registerMediaTool({
+		id: CONTINUE_ACTION,
+		label: 'Continue this edit',
+		description: 'Reopen the steps this picture was made with',
+		icon: 'pencil-square',
+		category: 'compose',
+		shortcut: 'E',
+		source: 'core',
+		scopes: ['library'],
+		selection: { min: 1, max: 1 },
+		kinds: ['image'],
+		applies: (ctx) => (continuableLink(ctx.items) ? editMediaAvailability(ctx) : { enabled: false, hidden: true })
 	});
 
 	registerMediaTool({

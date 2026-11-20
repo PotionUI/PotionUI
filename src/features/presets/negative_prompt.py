@@ -1,10 +1,10 @@
 from typing import Any, Dict, Mapping, Optional
 
-from src.features.presets.templates import PresetTemplate, default_form_name
+from src.features.presets.templates import PresetTemplate, default_form_name, find_mode
 
 
 def _form_declaration(preset_template: PresetTemplate, mode: str, form_name: Optional[str]) -> Optional[Any]:
-    mode_data = (preset_template.modes or {}).get(mode)
+    mode_data = find_mode(preset_template, mode)
     if mode_data is None:
         return None
     name = form_name or default_form_name(mode_data)

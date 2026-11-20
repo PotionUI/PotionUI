@@ -1,3 +1,4 @@
+import type { CloseGuard } from './closeGuard';
 import type { Component } from 'svelte';
 import type { MediaRef, RunRef, ToolTab, ToolTabHint, ToolTabStatus } from '$lib/types/tabs';
 
@@ -28,6 +29,8 @@ export interface ToolTabSaveAction extends ToolTabAction {
 }
 
 export interface ToolTabActions {
+	hidden?: boolean;
+	menu?: { run: () => void; disabled?: boolean } | null;
 	undo?: ToolTabAction | null;
 	redo?: ToolTabAction | null;
 	save?: ToolTabSaveAction | null;
@@ -53,6 +56,7 @@ export interface ToolTabHost<State = unknown> {
 	setRun(run: RunRef | null): void;
 	clearHint(): void;
 	setActions(actions: ToolTabActions | null): void;
+	setCloseGuard?(guard: CloseGuard | null): void;
 	setStatus?(status: ToolTabStatus | null): void;
 	claimKey?(key: string, state: State | null, title?: string | null): string;
 	openToolTab(tool: string, source: MediaRef | null, options?: ToolTabOpenOptions): string;

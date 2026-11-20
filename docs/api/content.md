@@ -22,7 +22,7 @@ $headers = @{ Authorization = "Bearer $($env:POTIONUI_KEY)" }
 
 Every generation you make is kept in History.
 
-`GET /api/generations/history` lists generations with their files. Page through it with `limit` and `offset`; the answer carries `generations`, `total`, `limit` and `offset`. Narrow it with `status`, `mode`, `preset_id`, `model_name`, `media_type`, `tag_ids` (comma-separated), `collection_id`, `favorites_only`, `min_rating`, `created_from`, `created_to`, `search` and more; every filter is listed in the endpoint reference.
+`GET /api/generations/history` lists generations with their files. Page through it with `limit` and `offset`; the answer carries `generations`, `total`, `limit` and `offset`. Narrow it with `status`, `mode`, `preset_id`, `model_name`, `media_type`, `tag_ids` (comma-separated), `collection_id`, `favorites_only`, `min_rating`, `created_from`, `created_to`, `search`, `origin` and more; every filter is listed in the endpoint reference. `origin` takes `mcp`, `editor`, `chat` or `tab` (a generation with no recorded origin, one started in a tab or over the API); any other value answers `422`.
 
 ```bash
 curl -sS "$BASE/api/generations/history?status=completed&favorites_only=true&limit=20" \

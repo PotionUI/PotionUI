@@ -71,12 +71,12 @@
 		>
 			{#snippet emptyState()}
 				<EmptyState icon="group" title="No groups yet" description="Groups let you assign presets, LLMs, and models to many users at once." compact>
-					{#snippet actions()}<Button variant="primary" size="sm" icon="plus" onclick={onAdd}>Add group</Button>{/snippet}
+					{#snippet actions()}<Button size="sm" variant="secondary" icon="plus" onclick={onAdd}>Add group</Button>{/snippet}
 				</EmptyState>
 			{/snippet}
 			{#snippet filteredEmptyState()}
 				<EmptyState icon="search" title="No groups match your search" description="Try a different name or description." compact>
-					{#snippet actions()}<Button variant="ghost" size="sm" onclick={onClearFilters}>Clear search</Button>{/snippet}
+					{#snippet actions()}<Button size="sm" variant="secondary" onclick={onClearFilters}>Clear search</Button>{/snippet}
 				</EmptyState>
 			{/snippet}
 			{#snippet card(g)}

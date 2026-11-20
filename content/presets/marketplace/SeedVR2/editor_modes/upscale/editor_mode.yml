@@ -1,0 +1,15 @@
+schema_version: 1
+task: upscale
+from: upscale
+region: whole
+inputs:
+  source: input_image
+  scale: scale
+size:
+  area: 262144
+  multiple: 16
+fixed:
+  target_short_side: 0
+fields:
+  hide:
+    - resolution_target

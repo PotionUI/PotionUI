@@ -8,6 +8,7 @@ from src.features.kits.rules import ITEM_KINDS, ITEM_ID_PREFIX, KIT_ID_PREFIX, M
 from src.features.media.records import Upload
 from src.platform.database import get_cursor
 from src.platform.http.errors import ConflictError
+from src.platform.http.sorting import resolve_direction
 from src.platform.database.rows import dt_column, dt_iso, now_iso
 
 THUMBNAILS_PER_KIT = 4
@@ -26,11 +27,26 @@ def _marks(values: Sequence) -> str:
     return ",".join("?" * len(values))
 
 
+_SORT_EXPRESSIONS = {
+    "name": ("LOWER(name)", "ASC"),
+    "created": ("created_at", "DESC"),
+    "updated": ("COALESCE(updated_at, created_at)", "DESC"),
+}
+
+
+def _order_by(sort_by: str, sort_dir: Optional[str]) -> str:
+    if sort_by == "manual":
+        return "position ASC, created_at ASC, id ASC"
+    expression, default_dir = _SORT_EXPRESSIONS[sort_by]
+    direction = resolve_direction(sort_dir, default_dir)
+    return f"{expression} {direction}, id {direction}"
+
+
 class KitRepository:
 
     def list_kits(
         self, owner_id: str, label: Optional[str] = None, search: Optional[str] = None,
-        limit: int = 50, offset: int = 0,
+        limit: int = 50, offset: int = 0, sort_by: str = "manual", sort_dir: Optional[str] = None,
     ) -> Tuple[List[Kit], int]:
         clauses = ["owner_id = ?"]
         params: list = [owner_id]
@@ -45,7 +61,7 @@ class KitRepository:
             cursor.execute(f"SELECT COUNT(*) AS count FROM kits WHERE {where}", params)
             total = cursor.fetchone()["count"]
             cursor.execute(
-                f"SELECT * FROM kits WHERE {where} ORDER BY position ASC, created_at ASC, id ASC LIMIT ? OFFSET ?",
+                f"SELECT * FROM kits WHERE {where} ORDER BY {_order_by(sort_by, sort_dir)} LIMIT ? OFFSET ?",
                 (*params, limit, offset),
             )
             return [Kit.from_row(row) for row in cursor.fetchall()], total

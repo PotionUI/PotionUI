@@ -35,6 +35,7 @@ import KeyValueField from '$lib/components/form-fields/KeyValueField.svelte';
 import SegmentedField from '$lib/components/form-fields/SegmentedField.svelte';
 import AnchorField from '$lib/components/form-fields/AnchorField.svelte';
 import ColorField from '$lib/components/form-fields/ColorField.svelte';
+import NumberBoxField from '$lib/components/form-fields/NumberBoxField.svelte';
 
 let registered = false;
 
@@ -82,11 +83,28 @@ export function registerBuiltinFieldComponents(): void {
 		key_value_list: KeyValueField,
 		segmented: SegmentedField,
 		anchor: AnchorField,
-		color: ColorField
+		color: ColorField,
+		number_box: NumberBoxField
 	};
 
+	const commitsOwn = new Set([
+		'string',
+		'textbox',
+		'number',
+		'integer',
+		'stepper',
+		'slider',
+		'boolean',
+		'checkbox',
+		'select',
+		'sampler',
+		'schedule',
+		'segmented',
+		'number_box'
+	]);
+
 	for (const [type, component] of Object.entries(table)) {
-		registerFieldComponent(type, { component });
+		registerFieldComponent(type, { component, commits: commitsOwn.has(type) });
 	}
 
 	registerFieldComponent('cloud_options', { component: CloudOptionsField, ownsErrors: true });

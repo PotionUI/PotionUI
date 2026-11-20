@@ -90,6 +90,7 @@ from src.features.presets.templates import (
     ModeTemplate,
     PresetTemplate,
     default_form_name,
+    find_mode,
     sorted_forms,
 )
 
@@ -237,7 +238,7 @@ def bind_form(
         FormBindingError: any validation failure (required/range/options).
     """
     preset_id = preset_template.id
-    mode_data: Optional[ModeTemplate] = (preset_template.modes or {}).get(mode)
+    mode_data: Optional[ModeTemplate] = find_mode(preset_template, mode)
     if mode_data is None:
         raise FormNotFoundException(preset_id, mode, form_name, replacement_for(getattr(preset_template, 'vars', None), mode))
 
@@ -286,7 +287,7 @@ def bind_form(
             value = override_default
             admin_pinned.append(name)
         elif name in raw:
-            value = raw[name]
+            value = _unwrap_model_value(raw[name], spec)
         else:
             value = override_default
             reaction_candidates.add(name)
@@ -886,7 +887,7 @@ def _apply_reactions(
 def form_field_index(
     preset_template: PresetTemplate, mode: str, form_name: Optional[str] = None
 ) -> Dict[str, FieldTemplate]:
-    mode_data: Optional[ModeTemplate] = (preset_template.modes or {}).get(mode)
+    mode_data: Optional[ModeTemplate] = find_mode(preset_template, mode)
     if mode_data is None:
         raise FormNotFoundException(preset_template.id, mode, form_name, replacement_for(getattr(preset_template, 'vars', None), mode))
     form = _resolve_form(mode_data, preset_template.id, mode, form_name)
@@ -1108,6 +1109,13 @@ def _validate_field(
             allowed = {opt.get("value") for opt in static_options if isinstance(opt, dict)}
             if allowed and value not in allowed:
                 _fail(f"{value!r} is not one of the declared options")
+
+
+def _unwrap_model_value(value: Any, spec: FieldTemplate) -> Any:
+    if spec.type == "model" and isinstance(value, dict) and "modelPath" in value:
+        path = value["modelPath"]
+        return path if isinstance(path, str) else ""
+    return value
 
 
 def _reaction_validation(

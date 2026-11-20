@@ -1,0 +1,59 @@
+{
+  "editor_mode": "upscale",
+  "from": "upscale",
+  "preset_id": "01KXB7C553THYMSMKY1QSYESFM",
+  "preset_name": "SeedVR2",
+  "shown": [
+    {
+      "label": "Restoration Intent",
+      "name": "restoration_intent",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Diffusion Model (NaDiT)",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "VAE",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "Prompt Embedding",
+      "name": "prompt_embedding",
+      "type": "model"
+    },
+    {
+      "label": "Latent Noise Scale",
+      "name": "latent_noise_scale",
+      "type": "slider"
+    },
+    {
+      "label": "Input Noise Scale",
+      "name": "input_noise_scale",
+      "type": "slider"
+    },
+    {
+      "label": "Color Correction",
+      "name": "color_correction",
+      "type": "select"
+    },
+    {
+      "label": "Tile Size (px)",
+      "name": "tile_size",
+      "type": "number"
+    },
+    {
+      "label": "Tile Overlap (px)",
+      "name": "tile_overlap",
+      "type": "number"
+    }
+  ],
+  "task": "upscale"
+}

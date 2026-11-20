@@ -64,6 +64,7 @@
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
 	import { setGenerationAttachHost } from '$lib/generation/restore/attachHost';
+	import { ingestQueueSnapshot, startElsewhereWatch } from '$lib/generation/elsewhere/store';
 	import { onToolApplied } from '$lib/chat/pageContext';
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
@@ -907,6 +908,7 @@
 	}
 
 	onMount(() => startToolTabWatchers());
+	onMount(() => startElsewhereWatch({ api }));
 
 	onMount(async () => {
 		mounted = true;
@@ -1057,6 +1059,7 @@
 		} catch (error) {
 			console.warn('[RestoreGenerations] Could not fetch the live queue snapshot:', error);
 		}
+		ingestQueueSnapshot(snapshot);
 
 		await Promise.all(
 			currentTabs.map((tab) => {
@@ -1944,11 +1947,11 @@
 							{#snippet actions()}
 								{#if presetsEmptyState.showSetupLink}
 									{#if installModels}
-										<Button variant="primary" size="md" href={installModels.href} icon="download">
+										<Button variant="secondary" href={installModels.href} icon="download">
 											{installModels.label}
 										</Button>
 									{:else}
-										<Button variant="primary" size="md" href="/setup" icon="arrow-right">
+										<Button variant="secondary" href="/setup" icon="arrow-right">
 											Go to Setup
 										</Button>
 									{/if}

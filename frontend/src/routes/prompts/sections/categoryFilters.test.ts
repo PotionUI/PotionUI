@@ -25,7 +25,7 @@ const counts = new Map<string, number>([
 
 describe('categoryFilters URL round-trip', () => {
 	it('round-trips every non-default value', () => {
-		const filters: CategoryFilters = { q: 'cam', has: 'empty', sortBy: 'count' };
+		const filters: CategoryFilters = { q: 'cam', has: 'empty', sortBy: 'count', sortDir: 'desc' };
 		const params = categoryFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('cam');
 		expect(params.get('has')).toBe('empty');
@@ -68,7 +68,7 @@ describe('applyCategoryFilters', () => {
 		const tied = [...categories, category('zed', 'Alpha tie')];
 		const tiedCounts = new Map(counts);
 		tiedCounts.set('zed', 12);
-		const result = applyCategoryFilters(tied, tiedCounts, { ...DEFAULT_CATEGORY_FILTERS, sortBy: 'count' });
+		const result = applyCategoryFilters(tied, tiedCounts, { ...DEFAULT_CATEGORY_FILTERS, sortBy: 'count', sortDir: 'desc' });
 		expect(result.map((entry) => entry.id)).toEqual(['style', 'zed', 'cam', 'light', 'empty']);
 	});
 });

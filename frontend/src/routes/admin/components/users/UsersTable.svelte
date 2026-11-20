@@ -84,12 +84,12 @@
 		>
 			{#snippet emptyState()}
 				<EmptyState icon="group" title="No users yet" description="Accounts show up here once people sign up or you add them yourself." compact>
-					{#snippet actions()}<Button variant="primary" size="sm" icon="plus" onclick={onAdd}>Add user</Button>{/snippet}
+					{#snippet actions()}<Button size="sm" variant="secondary" icon="plus" onclick={onAdd}>Add user</Button>{/snippet}
 				</EmptyState>
 			{/snippet}
 			{#snippet filteredEmptyState()}
 				<EmptyState icon="search" title="No users match your search" description="Try a different name or email." compact>
-					{#snippet actions()}<Button variant="ghost" size="sm" onclick={onClearFilters}>Clear filters</Button>{/snippet}
+					{#snippet actions()}<Button size="sm" variant="secondary" onclick={onClearFilters}>Clear filters</Button>{/snippet}
 				</EmptyState>
 			{/snippet}
 			{#snippet card(u)}

@@ -1,8 +1,8 @@
-import { get, writable } from 'svelte/store';
+import { writable } from 'svelte/store';
 import {
 	loadMediaToolCatalog,
-	mediaToolCatalog,
-	mediaToolCatalogRevision
+	isMediaToolCatalogLoaded,
+	mediaToolCatalog
 } from '$lib/media-tools/catalog';
 import { toasts } from '$lib/stores/toast';
 import { syncCatalogTools } from './catalogTools';
@@ -25,7 +25,7 @@ function mirrorCatalog(): void {
 }
 
 function catalogLoaded(): boolean {
-	return get(mediaToolCatalogRevision) > 0;
+	return isMediaToolCatalogLoaded();
 }
 
 export async function loadPluginMediaTools(): Promise<void> {

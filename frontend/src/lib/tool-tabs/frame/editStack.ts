@@ -1,3 +1,8 @@
+export interface StepLayer {
+	opacity: number;
+	blend: 'normal';
+}
+
 export interface EditStep<P = unknown> {
 	id: string;
 	tool: string;
@@ -7,6 +12,7 @@ export interface EditStep<P = unknown> {
 	params: P;
 	hidden: boolean;
 	lane?: string;
+	layer?: StepLayer;
 }
 
 export type StepDraft<P = unknown> = Omit<EditStep<P>, 'id' | 'hidden'>;
@@ -15,11 +21,19 @@ export interface PendingEdit<P = unknown> extends StepDraft<P> {
 	target: string | null;
 }
 
+export type RevisionDraft<P = unknown> = StepDraft<P> & { hidden?: boolean };
+
+export interface StackSnapshot<P = unknown> {
+	steps: EditStep<P>[];
+	cursor: number;
+}
+
 export interface StepRevision<P = unknown> {
 	id: string;
 	at: number;
-	before: StepDraft<P>;
-	after: StepDraft<P>;
+	before: RevisionDraft<P>;
+	after: RevisionDraft<P>;
+	swap?: { before: StackSnapshot<P>; after: StackSnapshot<P> };
 }
 
 export interface LiveSession<P = unknown> {
@@ -35,6 +49,7 @@ export interface EditStackState<P = unknown> {
 	revisions?: StepRevision<P>[];
 	redoRevisions?: StepRevision<P>[];
 	live?: LiveSession<P> | null;
+	cleared?: { steps: EditStep<P>[]; cursor: number; label: string; after: EditStep<P>[] } | null;
 }
 
 export type LanePair = readonly [string, string];
@@ -44,7 +59,7 @@ export const DEFAULT_PINNED_LANES: readonly LanePair[] = [
 	['mask', 'geometry']
 ];
 
-export type StackRowStatus = 'original' | 'applied' | 'current' | 'undone' | 'pending';
+export type StackRowStatus = 'original' | 'applied' | 'current' | 'undone' | 'pending' | 'selected' | 'editing';
 
 export interface StackRow<P = unknown> {
 	key: string;
@@ -57,6 +72,7 @@ export interface StackRow<P = unknown> {
 }
 
 export const STACK_VERSION = 1;
+export const LAYER_STACK_VERSION = 2;
 
 export function createStack<P = unknown>(): EditStackState<P> {
 	return { steps: [], cursor: 0, pending: null, seq: 0 };
@@ -126,9 +142,10 @@ export function apply<P>(input: EditStackState<P>): EditStackState<P> {
 	const { target, ...draft } = pending;
 	if (target) {
 		const before = state.steps.find((step) => step.id === target);
-		if (before && JSON.stringify(draftOf(before)) === JSON.stringify(draft)) return { ...state, pending: null };
+		if (before && JSON.stringify(contentOf(before)) === JSON.stringify(draft)) return { ...state, pending: null };
 		const steps = state.steps.map((step) => (step.id === target ? { ...step, ...draft } : step));
-		const revisions = before ? [...(state.revisions ?? []), { id: target, at: state.cursor, before: draftOf(before), after: draft }] : (state.revisions ?? []);
+		const after: StepDraft<P> = before?.layer ? { ...draft, layer: before.layer } : draft;
+		const revisions = before ? [...(state.revisions ?? []), { id: target, at: state.cursor, before: draftOf(before), after }] : (state.revisions ?? []);
 		return { ...state, steps, pending: null, revisions, redoRevisions: [] };
 	}
 	const seq = state.seq + 1;
@@ -137,11 +154,6 @@ export function apply<P>(input: EditStackState<P>): EditStackState<P> {
 	const next: EditStackState<P> = { steps, cursor: steps.length, pending: null, seq };
 	if (state.revisions?.length) next.revisions = state.revisions;
 	return next;
-}
-
-function withoutHistory<P>(state: EditStackState<P>): EditStackState<P> {
-	const { revisions: _revisions, redoRevisions: _redoRevisions, live: _live, ...rest } = state;
-	return rest;
 }
 
 export function commitLive<P>(state: EditStackState<P>): EditStackState<P> {
@@ -184,8 +196,8 @@ export function liveEdit<P>(
 		const { live: _live, ...rest } = state;
 		return { ...rest, steps: state.steps.filter((step) => step.id !== found.id), cursor: index < state.cursor ? state.cursor - 1 : state.cursor, pending };
 	}
-	if (!found.hidden && pending === state.pending && JSON.stringify(draftOf(found)) === JSON.stringify(draft)) return state;
-	const steps = restyle(state, found.id, draft).map((step) => (step.id === found.id ? { ...step, hidden: false } : step));
+	if (!found.hidden && pending === state.pending && JSON.stringify(contentOf(found)) === JSON.stringify(draft)) return state;
+	const steps = restyle(state, found.id, found.layer && !draft.layer ? { ...draft, layer: found.layer } : draft).map((step) => (step.id === found.id ? { ...step, hidden: false } : step));
 	return { ...state, steps, pending, live: session };
 }
 
@@ -196,14 +208,21 @@ function settled<P>(state: EditStackState<P>): EditStackState<P> {
 function draftOf<P>(step: EditStep<P>): StepDraft<P> {
 	const draft: StepDraft<P> = { tool: step.tool, icon: step.icon, label: step.label, summary: step.summary, params: step.params };
 	if (step.lane) draft.lane = step.lane;
+	if (step.layer) draft.layer = step.layer;
 	return draft;
 }
 
-function restyle<P>(state: EditStackState<P>, id: string, draft: StepDraft<P>): EditStep<P>[] {
+function contentOf<P>(step: EditStep<P>): StepDraft<P> {
+	const { layer: _layer, ...content } = draftOf(step);
+	return content;
+}
+
+function restyle<P>(state: EditStackState<P>, id: string, draft: RevisionDraft<P>): EditStep<P>[] {
 	return state.steps.map((step) => {
 		if (step.id !== id) return step;
 		const next = { ...step, ...draft };
 		if (!draft.lane) delete next.lane;
+		if (!draft.layer) delete next.layer;
 		return next;
 	});
 }
@@ -213,7 +232,97 @@ function lastRevision<P>(list: StepRevision<P>[] | undefined): StepRevision<P> |
 }
 
 export function canUndo(state: EditStackState<unknown>): boolean {
-	return state.pending !== null || state.cursor > 0;
+	return state.pending !== null || state.cursor > 0 || removalToUndo(state) !== null;
+}
+
+function removalToUndo<P>(state: EditStackState<P>): NonNullable<EditStackState<P>['cleared']> | null {
+	const held = state.cleared;
+	return held && state.steps === held.after ? held : null;
+}
+
+export function clearAll<P>(input: EditStackState<P>): EditStackState<P> {
+	const state = settled(input);
+	if (state.steps.length === 0) return input;
+	return { ...rewritten({ ...state, pending: null }, [], 0, 'Remove all edits') };
+}
+
+function swapRevision<P>(state: EditStackState<P>, after: EditStep<P>[], cursor: number, label: string, beforeCursor = state.cursor): StepRevision<P> {
+	const stub: StepDraft<P> = { tool: 'swap', icon: '', label, summary: '', params: undefined as P };
+	return { id: '', at: cursor, before: stub, after: stub, swap: { before: { steps: state.steps, cursor: beforeCursor }, after: { steps: after, cursor } } };
+}
+
+function rewritten<P>(state: EditStackState<P>, after: EditStep<P>[], cursor: number, label: string, seq = state.seq, beforeCursor = state.cursor): EditStackState<P> {
+	const pending = state.pending?.target && !after.some((step) => step.id === state.pending?.target) ? null : state.pending;
+	const revisions = [...(state.revisions ?? []), swapRevision(state, after, cursor, label, beforeCursor)];
+	return { ...state, steps: after, cursor, pending, seq, revisions, redoRevisions: [], cleared: { steps: state.steps, cursor: beforeCursor, label, after } };
+}
+
+function swapped<P>(state: EditStackState<P>, snapshot: StackSnapshot<P>): EditStackState<P> {
+	const { cleared: _cleared, ...rest } = state;
+	return { ...rest, steps: [...snapshot.steps.slice(0, snapshot.cursor), ...undoneSteps(state)], cursor: snapshot.cursor };
+}
+
+export function duplicateStep<P>(input: EditStackState<P>, id: string, patch: Partial<StepDraft<P>> = {}): EditStackState<P> {
+	const state = settled(input);
+	const index = state.steps.findIndex((step) => step.id === id);
+	if (index < 0 || index >= state.cursor || state.pending?.target) return input;
+	const source = state.steps[index];
+	const seq = state.seq + 1;
+	const copy: EditStep<P> = { ...source, label: `${source.label} copy`, ...patch, id: `s${seq}`, hidden: false };
+	const after = [...state.steps.slice(0, index + 1), copy, ...state.steps.slice(index + 1)];
+	return rewritten(state, after, state.cursor + 1, `Duplicate ${source.label}`, seq);
+}
+
+export function insertSteps<P>(input: EditStackState<P>, drafts: RevisionDraft<P>[], afterId: string | null): EditStackState<P> {
+	const state = settled(input);
+	if (!drafts.length || state.pending?.target) return input;
+	const found = afterId ? state.steps.findIndex((step) => step.id === afterId) : -1;
+	const at = afterId === '' ? 0 : found >= 0 && found < state.cursor ? found + 1 : state.cursor;
+	let seq = state.seq;
+	const added = drafts.map((draft): EditStep<P> => {
+		seq += 1;
+		return { ...draft, id: `s${seq}`, hidden: draft.hidden === true };
+	});
+	const after = [...state.steps.slice(0, at), ...added, ...state.steps.slice(at)];
+	const label = added.length === 1 ? `Add ${added[0].label}` : `Add ${added.length} layers`;
+	return rewritten(state, after, state.cursor + added.length, label, seq);
+}
+
+export function renameStep<P>(input: EditStackState<P>, id: string, label: string, patch: Partial<StepDraft<P>> = {}): EditStackState<P> {
+	const state = settled(input);
+	const step = state.steps.find((entry) => entry.id === id);
+	const name = label.trim();
+	if (!step || !name) return input;
+	if (name === step.label && !Object.keys(patch).length) return input;
+	const revision: StepRevision<P> = {
+		id,
+		at: state.cursor,
+		before: { ...draftOf(step), hidden: step.hidden },
+		after: { ...draftOf(step), ...patch, label: name, hidden: step.hidden }
+	};
+	const steps = state.steps.map((entry) => (entry.id === id ? { ...entry, ...patch, label: name } : entry));
+	return { ...state, steps, revisions: [...(state.revisions ?? []), revision], redoRevisions: [] };
+}
+
+export function mergeInto<P>(input: EditStackState<P>, belowId: string, upperId: string, params: P, label?: string): EditStackState<P> {
+	const state = settled(input);
+	const lower = state.steps.findIndex((step) => step.id === belowId);
+	const upper = state.steps.findIndex((step) => step.id === upperId);
+	if (lower < 0 || upper !== lower + 1 || upper >= state.cursor || state.pending?.target) return input;
+	const below = state.steps[lower];
+	const { layer: _layer, ...rest } = below;
+	const merged: EditStep<P> = { ...rest, params, hidden: false, ...(label ? { label } : {}) };
+	const after = state.steps.flatMap((step, i) => (i === lower ? [merged] : i === upper ? [] : [step]));
+	return rewritten(state, after, state.cursor - 1, `Merge ${state.steps[upper].label} down`);
+}
+
+export function removeUndoable<P>(input: EditStackState<P>, id: string): EditStackState<P> {
+	const state = settled(input);
+	const index = state.steps.findIndex((step) => step.id === id);
+	if (index < 0) return input;
+	const after = state.steps.filter((step) => step.id !== id);
+	const cursor = index < state.cursor ? state.cursor - 1 : state.cursor;
+	return rewritten(state, after, cursor, `Remove ${state.steps[index].label}`);
 }
 
 function undoRevision<P>(state: EditStackState<P>): StepRevision<P> | undefined {
@@ -223,19 +332,20 @@ function undoRevision<P>(state: EditStackState<P>): StepRevision<P> | undefined 
 
 function redoRevision<P>(state: EditStackState<P>): StepRevision<P> | undefined {
 	const last = lastRevision(state.redoRevisions);
-	return last && last.at === state.cursor ? last : undefined;
+	if (!last) return undefined;
+	return (last.swap ? last.swap.before.cursor : last.at) === state.cursor ? last : undefined;
 }
 
 export function canRedo(state: EditStackState<unknown>): boolean {
 	return state.pending === null && (state.cursor < state.steps.length || !!redoRevision(state));
 }
 
-function untouched<P>(state: EditStackState<P>): boolean {
+export function untouched<P>(state: EditStackState<P>): boolean {
 	const pending = state.pending;
 	const step = pending?.target ? state.steps.find((entry) => entry.id === pending.target) : undefined;
 	if (!pending || !step) return false;
 	const { target: _target, ...draft } = pending;
-	return JSON.stringify(draftOf(step)) === JSON.stringify(draft);
+	return JSON.stringify(contentOf(step)) === JSON.stringify(draft);
 }
 
 export function undo<P>(input: EditStackState<P>): EditStackState<P> {
@@ -243,7 +353,10 @@ export function undo<P>(input: EditStackState<P>): EditStackState<P> {
 	if (state.pending && !untouched(state)) return { ...state, pending: null };
 	if (state.pending) return undo({ ...state, pending: null });
 	const revision = undoRevision(state);
-	if (revision) {
+	if (revision?.swap) {
+		return { ...swapped(state, revision.swap.before), revisions: (state.revisions ?? []).slice(0, -1), redoRevisions: [...(state.redoRevisions ?? []), revision] };
+	}
+	if (revision && !removalToUndo(state)) {
 		return {
 			...state,
 			steps: restyle(state, revision.id, revision.before),
@@ -251,6 +364,8 @@ export function undo<P>(input: EditStackState<P>): EditStackState<P> {
 			redoRevisions: [...(state.redoRevisions ?? []), revision]
 		};
 	}
+	const held = removalToUndo(state);
+	if (held) return { steps: held.steps, cursor: held.cursor, pending: null, seq: state.seq };
 	if (state.cursor === 0) return state;
 	return { ...state, cursor: state.cursor - 1 };
 }
@@ -259,6 +374,9 @@ export function redo<P>(input: EditStackState<P>): EditStackState<P> {
 	const state = settled(input);
 	if (!canRedo(state)) return input;
 	const revision = redoRevision(state);
+	if (revision?.swap) {
+		return { ...swapped(state, revision.swap.after), revisions: [...(state.revisions ?? []), revision], redoRevisions: (state.redoRevisions ?? []).slice(0, -1) };
+	}
 	if (revision) {
 		return {
 			...state,
@@ -273,6 +391,8 @@ export function redo<P>(input: EditStackState<P>): EditStackState<P> {
 export function undoLabel(input: EditStackState<unknown>): string | null {
 	const state = settled(input);
 	if (state.pending) return state.pending.label;
+	const held = removalToUndo(state);
+	if (held) return held.label;
 	const revision = undoRevision(state);
 	if (revision) return revision.after.label;
 	return state.cursor > 0 ? state.steps[state.cursor - 1].label : null;
@@ -289,7 +409,16 @@ export function seek<P>(input: EditStackState<P>, cursor: number): EditStackStat
 	const state = settled(input);
 	const next = Math.max(0, Math.min(state.steps.length, Math.trunc(cursor)));
 	if (next === state.cursor && !state.pending) return state;
-	return { ...withoutHistory(state), cursor: next, pending: null };
+	let walked: EditStackState<P> = { ...state, pending: null };
+	for (let guard = state.steps.length + (state.revisions?.length ?? 0) + (state.redoRevisions?.length ?? 0) + 1; walked.cursor !== next && guard > 0; guard -= 1) {
+		const before = walked;
+		walked = walked.cursor > next ? undo(walked) : redo(walked);
+		if (walked === before) break;
+	}
+	if (next > state.cursor) {
+		for (let guard = walked.redoRevisions?.length ?? 0; guard > 0 && redoRevision(walked); guard -= 1) walked = redo(walked);
+	}
+	return walked;
 }
 
 export function toggleHidden<P>(state: EditStackState<P>, id: string): EditStackState<P> {
@@ -298,14 +427,47 @@ export function toggleHidden<P>(state: EditStackState<P>, id: string): EditStack
 	return { ...state, steps };
 }
 
-export function remove<P>(input: EditStackState<P>, id: string): EditStackState<P> {
+export function toggleHiddenUndoable<P>(input: EditStackState<P>, id: string): EditStackState<P> {
 	const state = settled(input);
-	const index = state.steps.findIndex((step) => step.id === id);
-	if (index < 0) return input;
-	const steps = state.steps.filter((step) => step.id !== id);
-	const cursor = index < state.cursor ? state.cursor - 1 : state.cursor;
-	const pending = state.pending?.target === id ? null : state.pending;
-	return { ...withoutHistory(state), steps, cursor, pending };
+	const step = state.steps.find((entry) => entry.id === id);
+	if (!step) return input;
+	const revision: StepRevision<P> = {
+		id,
+		at: state.cursor,
+		before: { ...draftOf(step), hidden: step.hidden },
+		after: { ...draftOf(step), hidden: !step.hidden }
+	};
+	const steps = state.steps.map((entry) => (entry.id === id ? { ...entry, hidden: !entry.hidden } : entry));
+	return { ...state, steps, revisions: [...(state.revisions ?? []), revision], redoRevisions: [] };
+}
+
+export function opacityOf(step: Pick<EditStep, 'layer'>): number {
+	return step.layer ? step.layer.opacity : 1;
+}
+
+export function clampOpacity(value: number): number {
+	if (!Number.isFinite(value)) return 1;
+	return Math.round(Math.min(1, Math.max(0, value)) * 100) / 100;
+}
+
+export function setOpacity<P>(input: EditStackState<P>, id: string, opacity: number, live = false): EditStackState<P> {
+	const found = input.steps.find((entry) => entry.id === id);
+	if (!found) return input;
+	const value = clampOpacity(opacity);
+	if (opacityOf(found) === value) return live ? input : commitLive(input);
+	const state = input.live && input.live.id !== id ? commitLive(input) : input;
+	const session = state.live ?? { id, before: draftOf(found) };
+	const steps = state.steps.map((entry) => {
+		if (entry.id !== id) return entry;
+		const { layer: _layer, ...rest } = entry;
+		return value >= 1 ? rest : { ...rest, layer: { opacity: value, blend: 'normal' as const } };
+	});
+	const next: EditStackState<P> = { ...state, steps, live: session };
+	return live ? next : commitLive(next);
+}
+
+export function remove<P>(input: EditStackState<P>, id: string): EditStackState<P> {
+	return removeUndoable(input, id);
 }
 
 function laneOrder(steps: EditStep<unknown>[], pair: LanePair): string {
@@ -347,7 +509,54 @@ export function move<P>(
 	const state = settled(input);
 	const from = state.steps.findIndex((step) => step.id === id);
 	const steps = [...moved(appliedSteps(state), from, to), ...undoneSteps(state)];
-	return { ...withoutHistory(state), steps };
+	const { cleared: _cleared, ...rest } = state;
+	const revisions = [...(state.revisions ?? []), swapRevision(state, steps, state.cursor, `Move ${state.steps[from].label}`)];
+	return { ...rest, steps, revisions, redoRevisions: [] };
+}
+
+export function groupedFirst<P>(steps: readonly EditStep<P>[], first: (step: EditStep<P>) => boolean): boolean {
+	let other = false;
+	for (const step of steps) {
+		if (!first(step)) other = true;
+		else if (other) return false;
+	}
+	return true;
+}
+
+export function trailingAdded<P>(state: EditStackState<P>, first: (step: EditStep<P>) => boolean): number {
+	const applied = appliedSteps(state);
+	let tail = 0;
+	while (tail < applied.length && first(applied[applied.length - 1 - tail])) tail += 1;
+	if (tail === 0 || tail === applied.length) return 0;
+	return groupedFirst(applied.slice(0, applied.length - tail), first) ? tail : 0;
+}
+
+export function bringFirst<P>(input: EditStackState<P>, first: (step: EditStep<P>) => boolean, label?: string): EditStackState<P> {
+	if (groupedFirst(appliedSteps(input), first)) return input;
+	const state = settled(input);
+	const applied = appliedSteps(state);
+	const after = [...applied.filter(first), ...applied.filter((step) => !first(step)), ...undoneSteps(state)];
+	if (label) return rewritten(state, after, state.cursor, label);
+	const tail = trailingAdded(state, first);
+	if (!tail) return { ...state, steps: after };
+	const moved = applied.slice(applied.length - tail);
+	const name = tail === 1 ? moved[0].label : `Add ${tail} layers`;
+	return rewritten(state, after, state.cursor, name, state.seq, state.cursor - tail);
+}
+
+export function moveWithin<P>(
+	state: EditStackState<P>,
+	id: string,
+	offset: number,
+	same: (a: EditStep<P>, b: EditStep<P>) => boolean
+): number | null {
+	const applied = appliedSteps(state);
+	const from = applied.findIndex((step) => step.id === id);
+	if (from < 0 || !Number.isInteger(offset) || offset === 0) return null;
+	const group = applied.flatMap((step, index) => (same(step, applied[from]) ? [index] : []));
+	const at = group.indexOf(from) + offset;
+	if (at < 0 || at >= group.length) return null;
+	return group[at];
 }
 
 export function previewSteps<P>(state: EditStackState<P>): EditStep<P>[] {
@@ -398,7 +607,7 @@ export function stackRows<P>(state: EditStackState<P>): StackRow<P>[] {
 	});
 	appliedSteps(state).forEach((step, i) => {
 		const current = i === state.cursor - 1 && !state.pending;
-		rows.push(row(step, i + 1, step.id === reopened ? 'pending' : current ? 'current' : 'applied'));
+		rows.push(row(step, i + 1, step.id === reopened ? (untouched(state) ? 'selected' : 'editing') : current ? 'current' : 'applied'));
 	});
 	if (state.pending && !reopened) {
 		rows.push({
@@ -416,7 +625,7 @@ export function stackRows<P>(state: EditStackState<P>): StackRow<P>[] {
 }
 
 export interface SerializedStack {
-	v: number;
+	v: 1 | 2;
 	steps: EditStep<unknown>[];
 	cursor: number;
 	pending: PendingEdit<unknown> | null;
@@ -425,13 +634,20 @@ export interface SerializedStack {
 
 export function serialize(input: EditStackState<unknown>): SerializedStack {
 	const state = settled(input);
+	const v = state.steps.some((step) => step.layer) ? LAYER_STACK_VERSION : STACK_VERSION;
 	return JSON.parse(
-		JSON.stringify({ v: STACK_VERSION, steps: state.steps, cursor: state.cursor, pending: state.pending, seq: state.seq })
+		JSON.stringify({ v, steps: state.steps, cursor: state.cursor, pending: state.pending, seq: state.seq })
 	);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readLayer(value: unknown): StepLayer | null {
+	if (!isRecord(value) || typeof value.opacity !== 'number' || !Number.isFinite(value.opacity)) return null;
+	const opacity = clampOpacity(value.opacity);
+	return opacity >= 1 ? null : { opacity, blend: 'normal' };
 }
 
 function readDraft(value: Record<string, unknown>): StepDraft<unknown> | null {
@@ -445,6 +661,8 @@ function readDraft(value: Record<string, unknown>): StepDraft<unknown> | null {
 		params: value.params ?? null
 	};
 	if (typeof lane === 'string' && lane) draft.lane = lane;
+	const layer = readLayer(value.layer);
+	if (layer) draft.layer = layer;
 	return draft;
 }
 
@@ -455,7 +673,8 @@ function seqOf(id: string): number {
 
 export function deserialize<P = unknown>(input: unknown): EditStackState<P> {
 	const empty = createStack<P>();
-	if (!isRecord(input) || input.v !== STACK_VERSION || !Array.isArray(input.steps)) return empty;
+	const version = isRecord(input) ? (input.v ?? STACK_VERSION) : null;
+	if (!isRecord(input) || (version !== STACK_VERSION && version !== LAYER_STACK_VERSION) || !Array.isArray(input.steps)) return empty;
 	const seen = new Set<string>();
 	const steps: EditStep<unknown>[] = [];
 	const rawCursor = typeof input.cursor === 'number' && Number.isFinite(input.cursor) ? Math.trunc(input.cursor) : 0;

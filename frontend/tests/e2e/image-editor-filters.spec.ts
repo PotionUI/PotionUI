@@ -1,7 +1,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
 import { pickFieldTool } from './mediaFieldHelpers';
-import { SIZES, expectEditorReady, openEditField, stagePixel, visibleText } from './imageEditorHelpers';
+import { SIZES, expectEditorReady, footerSave, panelApply, openEditField, stagePixel, visibleText } from './imageEditorHelpers';
 
 const JOURNEY = 'image-editor-filters';
 
@@ -42,13 +42,10 @@ for (const size of SIZES) {
 		const original = await stagePixel(canvas, 0.5, 0.5);
 
 		await page.keyboard.press('r');
-		await expect(dialog.getByRole('button', { name: 'Filters', exact: true }).first()).toHaveAttribute(
-			'aria-pressed',
-			'true'
-		);
+		await expect(dialog.getByText('Apply a filter', { exact: true }).first()).toBeVisible();
 		await expect(dialog.getByRole('radiogroup', { name: 'Filters' })).toBeVisible();
 		await expect(dialog.getByRole('radio', { name: 'None', exact: true })).toHaveAttribute('aria-checked', 'true');
-		await expect(dialog.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
+		await expect(panelApply(dialog)).toBeDisabled();
 		await screenshot(page, JOURNEY, `strip-none-${size.tag}`);
 
 		await chooseFilter(dialog, 'Ember');
@@ -114,17 +111,14 @@ for (const size of SIZES) {
 
 		await chooseFilter(dialog, 'Ember');
 		await setIntensity(dialog, 70);
-		await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
+		await panelApply(dialog).click();
 		await expect(dialog.getByRole('button', { name: /^Undo Filter: Ember 70%/ })).toBeEnabled();
 		await expect(dialog.getByRole('radio', { name: 'None', exact: true })).toHaveAttribute('aria-checked', 'true');
 		expect(distance(await stagePixel(canvas, 0.5, 0.5), original)).toBeGreaterThan(6);
 
-		await dialog.getByRole('button', { name: /Save as new/ }).click();
-		const popover = page.getByRole('group', { name: 'Save as new upload' });
-		await expect(popover).toBeVisible();
 		const [saved] = await Promise.all([
 			page.waitForResponse((r) => r.url().includes('/api/media/upload') && r.request().method() === 'POST'),
-			popover.getByRole('button', { name: 'Save and use' }).click()
+			footerSave(dialog).click()
 		]);
 		expect(saved.ok()).toBeTruthy();
 		await expect(dialog).toBeHidden({ timeout: 15000 });

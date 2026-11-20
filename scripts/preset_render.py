@@ -46,7 +46,8 @@ from src.features.presets.loader import PresetTemplateLoader, plugin_preset_root
 from src.features.presets.processor import PresetProcessor  # noqa: E402
 from src.platform.plugins.loader import PluginLoader  # noqa: E402
 from src.platform.templating.processor import TemplateProcessor  # noqa: E402
-from src.features.presets.templates import PresetTemplate, ModeTemplate
+from src.features.presets.editor_modes import shown_fields
+from src.features.presets.templates import PresetTemplate, ModeTemplate, find_mode
 from src.features.presets.fixture_form import bind_fixture_form, build_default_form_data
 from src.platform.filesystem.yaml_io import load_yaml
 
@@ -234,7 +235,7 @@ def build_fixture_form_data(preset: PresetTemplate, mode: str) -> Dict[str, Any]
     image/video/audio/media/file containment check (logged) in that case,
     per its own docstring; that's fine for a read-only rendering harness.
     """
-    mode_data = preset.modes[mode]
+    mode_data = find_mode(preset, mode)
     form_data, _ = build_default_form_data(preset, mode, GOLDEN_TAG)
 
     form_data.setdefault("quantity", 1)
@@ -415,7 +416,7 @@ def render_preset_mode(
         if form_data is None:
             form_data = build_fixture_form_data(preset, mode)
 
-        generation_data = build_generation_data(mode, form_data, preset.modes.get(mode))
+        generation_data = build_generation_data(mode, form_data, find_mode(preset, mode))
         pipes = processor.process(preset, generation_data)
 
         rendered_pipes = []
@@ -469,11 +470,36 @@ def print_render(record: Dict[str, Any]) -> None:
 
 def golden_filename(preset: PresetTemplate, mode: str) -> str:
     safe_id = preset.id.replace("/", "_")
-    return f"{safe_id}__{mode}.json"
+    return f"{safe_id}__{mode.replace(':', '-')}.json"
 
 
-def run_golden_all(out_dir: Path, presets_root: Optional[Path] = None) -> Dict[str, Any]:
+EDITOR_FORMS_DIR = ROOT / "tests" / "golden" / "editor_forms"
+
+
+def editor_form_record(preset: PresetTemplate, name: str) -> Dict[str, Any]:
+    mode = preset.editor_modes[name]
+    return {
+        "preset_id": preset.id,
+        "preset_name": preset.name,
+        "editor_mode": name,
+        "from": mode.editor.from_mode,
+        "task": mode.editor.task,
+        "shown": shown_fields(mode),
+    }
+
+
+def write_json(path: Path, record: Dict[str, Any]) -> None:
+    with open(path, "w") as f:
+        json.dump(record, f, indent=2, sort_keys=True, ensure_ascii=True)
+        f.write("\n")
+
+
+def run_golden_all(
+    out_dir: Path, presets_root: Optional[Path] = None, forms_dir: Optional[Path] = None
+) -> Dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
+    forms_dir = EDITOR_FORMS_DIR if forms_dir is None else forms_dir
+    forms_written = []
     presets, load_errors = load_all_presets(presets_root=presets_root, include_plugins=False)
     processor = build_processor()
 
@@ -482,7 +508,7 @@ def run_golden_all(out_dir: Path, presets_root: Optional[Path] = None) -> Dict[s
     total_values = 0
 
     for preset in sorted(presets, key=lambda p: p.id):
-        for mode in sorted(preset.modes.keys()):
+        for mode in [*sorted(preset.modes.keys()), *(f"editor:{name}" for name in sorted(preset.editor_modes))]:
             record = render_preset_mode(processor, preset, mode)
             if "error" in record:
                 errored.append((preset.name, preset.id, mode, record["error"]))
@@ -497,7 +523,14 @@ def run_golden_all(out_dir: Path, presets_root: Optional[Path] = None) -> Dict[s
                 f.write("\n")
             written.append(str(path))
 
+        for name in sorted(preset.editor_modes):
+            forms_dir.mkdir(parents=True, exist_ok=True)
+            form_path = forms_dir / golden_filename(preset, f"editor:{name}")
+            write_json(form_path, editor_form_record(preset, name))
+            forms_written.append(str(form_path))
+
     return {
+        "forms_written": forms_written,
         "written": written,
         "preset_count": len(presets),
         "snapshot_count": len(written),
@@ -516,6 +549,7 @@ def main() -> int:
     parser.add_argument("--golden-all", action="store_true", help="Render every preset x mode and write golden snapshots")
     parser.add_argument("--golden", action="store_true", help="Write this single preset+mode's render as a golden snapshot instead of printing it; leaves every other golden file untouched")
     parser.add_argument("--out", type=Path, default=ROOT / "tests" / "golden" / "preset_renders", help="Output directory for --golden-all / --golden")
+    parser.add_argument("--forms-out", type=Path, default=EDITOR_FORMS_DIR, help="Output directory for the shown-fields golden of each editor mode written by --golden-all")
     parser.add_argument(
         "--plugin-dir", type=Path, action="append", default=None,
         help="Render with exactly these plugin directories enabled instead of every plugin found on disk "
@@ -529,10 +563,11 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.golden_all:
-        summary = run_golden_all(args.out, presets_root=args.root)
+        summary = run_golden_all(args.out, presets_root=args.root, forms_dir=args.forms_out)
         print(f"Wrote {summary['snapshot_count']} golden files "
               f"({summary['preset_count']} presets) to {args.out}")
         print(f"Total captured values (enabled + config leaves): {summary['total_values']}")
+        print(f"Wrote {len(summary['forms_written'])} editor-mode shown-fields goldens to {args.forms_out}")
         if summary["errored"]:
             print(f"Presets/modes that error-render ({len(summary['errored'])}):")
             for name, pid, mode, err in summary["errored"]:
@@ -555,7 +590,7 @@ def main() -> int:
     if preset is None:
         print(f"No preset found matching {args.preset!r}", file=sys.stderr)
         return 1
-    if args.mode not in preset.modes:
+    if find_mode(preset, args.mode) is None:
         print(f"Preset {preset.name!r} has no mode {args.mode!r} (available: {sorted(preset.modes.keys())})", file=sys.stderr)
         return 1
 

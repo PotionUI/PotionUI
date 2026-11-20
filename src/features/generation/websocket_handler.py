@@ -28,6 +28,15 @@ class WebSocketHandler:
             # Task was cancelled, exit gracefully
             pass
 
+    @staticmethod
+    async def _replay_previews(websocket: WebSocket, status_tracker, generation_id: str, user) -> None:
+        try:
+            replay = status_tracker.replay_previews(generation_id, GenerationPolicy.is_admin(user))
+            for message in replay:
+                await websocket.send_text(json.dumps(message))
+        except Exception:
+            logging.exception(f"Failed to replay the last preview of generation {generation_id}")
+
     async def handle_websocket(self, websocket: WebSocket, client_id: str, status_tracker, user=None):
         """Handle WebSocket connection for real-time updates.
 
@@ -122,6 +131,7 @@ class WebSocketHandler:
                                     'type': 'status_update',
                                     'data': scope_status(status.model_dump(), GenerationPolicy.is_admin(user))
                                 }))
+                                await self._replay_previews(websocket, status_tracker, generation_id, user)
                             else:
                                 # Send error message to client
                                 await websocket.send_text(json.dumps({

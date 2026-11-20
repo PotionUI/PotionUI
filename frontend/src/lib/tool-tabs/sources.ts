@@ -11,12 +11,17 @@ export function sameMedia(a: MediaRef | null | undefined, b: MediaRef | null | u
 	return key !== null && key === mediaRefKey(b);
 }
 
+export function nameStem(name: string | null | undefined): string | null {
+	const base = (name ?? '').split(/[\\/]/).pop()?.split('?')[0].trim() ?? '';
+	const stem = base.replace(/\.[A-Za-z0-9]{1,5}$/, '');
+	return stem && !/^\d+$/.test(stem) ? stem : null;
+}
+
 export function mediaFileStem(ref: MediaRef | null | undefined): string | null {
 	if (!ref) return null;
-	const raw = ref.name || ref.relative_path || ref.path || ref.url || '';
-	const base = raw.split(/[\\/]/).pop()?.split('?')[0] ?? '';
-	const stem = base.includes('.') ? base.slice(0, base.lastIndexOf('.')) : base;
-	return stem || null;
+	const title = (ref.title ?? '').trim();
+	if (title) return title;
+	return nameStem(ref.name) ?? nameStem(ref.name ? null : ref.relative_path || ref.path || ref.url);
 }
 
 export function findToolTabFor(tabs: Tab[], source: MediaRef | null | undefined, tool?: string): ToolTab | null {

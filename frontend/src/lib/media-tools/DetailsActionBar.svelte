@@ -251,7 +251,9 @@
 	export function triggerShortcut(key: string): boolean {
 		const letter = key.toLowerCase();
 		if (letter === 'e') {
-			const entry = model.edit.find((candidate) => candidate.action === 'edit-image');
+			const entry =
+				model.edit.find((candidate) => candidate.action === 'continue-edit') ??
+				model.edit.find((candidate) => candidate.action === 'edit-image');
 			if (!entry?.enabled) return false;
 			run(entry);
 			return true;
@@ -489,11 +491,12 @@
 
 {#snippet toolRows(entries: RowTool[], close: (restoreFocus?: boolean) => void)}
 	{@const firstPlugin = entries.findIndex((entry) => entry.plugin)}
+	{@const hasContinue = entries.some((entry) => entry.action === 'continue-edit')}
 	{#each entries as entry, index (entry.id)}
-		{#if index > 0 && (index === firstPlugin || entry.action === 'edit-image')}
+		{#if index > 0 && (index === firstPlugin || entry.action === 'continue-edit' || (entry.action === 'edit-image' && entries[index - 1]?.action !== 'continue-edit'))}
 			<div class="my-1 h-px bg-line" role="separator" data-bar-divider-row></div>
 		{/if}
-		{@render menuRow({ ...toolRow(entry), kbd: entry.action === 'edit-image' ? 'E' : undefined }, close)}
+		{@render menuRow({ ...toolRow(entry), kbd: entry.action === 'continue-edit' || (entry.action === 'edit-image' && !hasContinue) ? 'E' : undefined }, close)}
 	{/each}
 	<TabFooter targets={uniqueTargets(entries.map((entry) => entry.opens))} count={items.length} />
 {/snippet}

@@ -330,3 +330,45 @@ class TestUncachedPathStillWorks:
             )
         assert codes.shape == (NUM_RESIDUAL_CODEBOOKS,)
         assert depth_hidden.shape == (1, NUM_RESIDUAL_CODEBOOKS * lm.cfg.hidden_size)
+
+
+class TestGraphReplayBoundary:
+    def test_step_boundary_is_marked_once_per_frame_after_the_cache_exists(self, monkeypatch):
+        lm = _build_lm(pruned=True, seed=3)
+        llm_hidden = _seed_hidden(lm)
+        events: list[str] = []
+        decoder = lm.model.audio_decoder
+        real_allocate = decoder.allocate_cache
+
+        def allocate(cache, like):
+            events.append("allocate")
+            real_allocate(cache, like)
+
+        monkeypatch.setattr(decoder, "allocate_cache", allocate)
+        monkeypatch.setattr(torch.compiler, "cudagraph_mark_step_begin", lambda: events.append("mark"))
+
+        with torch.inference_mode(), depth_kv_cache() as cache:
+            for _ in range(3):
+                generate_depth_codes(lm, llm_hidden, torch.tensor(1), torch.Generator().manual_seed(1), 1.0, 5, cache=cache)
+                events.append("frame")
+
+        assert events == ["allocate", "mark", "frame", "mark", "frame", "mark", "frame"]
+
+    def test_cache_buffers_are_allocated_before_the_decoder_runs_and_reused(self):
+        lm = _build_lm(pruned=True, seed=3)
+        llm_hidden = _seed_hidden(lm)
+        decoder = lm.model.audio_decoder
+        seen: list[int] = []
+        original_forward = decoder.forward
+
+        def spy(token_embeds, cache=None):
+            seen.append(len(cache.keys))
+            return original_forward(token_embeds, cache)
+
+        decoder.forward = spy
+        with torch.inference_mode(), depth_kv_cache() as cache:
+            generate_depth_codes(lm, llm_hidden, torch.tensor(1), torch.Generator().manual_seed(1), 1.0, 5, cache=cache)
+            first = [t.data_ptr() for t in cache.keys]
+            generate_depth_codes(lm, llm_hidden, torch.tensor(1), torch.Generator().manual_seed(1), 1.0, 5, cache=cache)
+            assert [t.data_ptr() for t in cache.keys] == first
+        assert seen and all(n == len(decoder.layers) for n in seen)

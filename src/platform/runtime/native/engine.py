@@ -64,6 +64,7 @@ from src.platform.runtime.system_memory import get_system_memory
 from src.platform.observability.profiling import get_profiler, profiling_enabled, read_process_rss_gb
 from src.platform.settings.runtime_flags import runtime_flag
 from .memory.tiering import (
+    CALIBRATION_PATCH,
     ComponentPlacement,
     PlacementPlan,
     activation_headroom_gb,
@@ -1365,15 +1366,53 @@ class NativeGenerator:
             "text_encoder": self._te_size_gb(),
             "vae": self.vae.estimated_vram_gb or 0.0,
         }
-        headroom = sampling_headroom_gb(
-            (latents_shape[-2], latents_shape[-1]), latent_frames=_latent_frames(latents_shape)
-        )
-        headroom += ref_latents_headroom_gb(self._ref_hw_frames(ref_latents))
-        headroom += max(0.0, float(preview_reserve_gb))
+        headroom = self._sampling_headroom_gb(latents_shape, ref_latents, preview_reserve_gb)
         return plan_placement(
             budget, sizes, self.dit.quant_format, self.device_plan,
             working_headroom_gb=headroom,
         )
+
+    def _sampling_headroom_gb(self, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> float:
+        patch = self._dit_spatial_patch()
+        headroom = sampling_headroom_gb(
+            (latents_shape[-2], latents_shape[-1]), latent_frames=_latent_frames(latents_shape), patch=patch,
+        )
+        headroom += ref_latents_headroom_gb(self._ref_hw_frames(ref_latents), patch=patch)
+        headroom += max(0.0, float(preview_reserve_gb))
+        return headroom
+
+    def _dit_spatial_patch(self) -> int:
+        patch = getattr(getattr(self.dit, "module", None), "patch_size", None)
+        if isinstance(patch, (tuple, list)):
+            patch = patch[-1] if patch else None
+        try:
+            patch = int(patch)
+        except (TypeError, ValueError):
+            return CALIBRATION_PATCH
+        return patch if patch > 0 else CALIBRATION_PATCH
+
+    def _run_cache_reserve_gb(self, latents_shape, cond: dict | None, uncond: dict | None, cfg_scale: float) -> float:
+        """VRAM the DiT's per-run cache will hold through sampling (Qwen-Image-2.1's
+        prefix K/V), read from the module's optional ``run_cache_reserve_gb``.
+        One entry per conditioning branch the sampler runs: the uncond branch
+        only counts when CFG actually runs it."""
+        estimate = getattr(getattr(self.dit, "module", None), "run_cache_reserve_gb", None)
+        if not callable(estimate):
+            return 0.0
+        branches = [cond]
+        if uncond is not None and abs(float(cfg_scale) - 1.0) >= 1e-6:
+            branches.append(uncond)
+        itemsize = torch.empty((), dtype=self.dit.compute_dtype).element_size()
+        total = 0.0
+        for branch in branches:
+            if not branch:
+                continue
+            context = branch.get("context")
+            shape = tuple(getattr(context, "shape", ()))
+            context_tokens = int(shape[1]) if len(shape) >= 2 else 0
+            refs = self._ref_hw_frames(branch.get("ref_latents"))
+            total += float(estimate(latents_shape, refs, context_tokens, itemsize) or 0.0)
+        return max(0.0, total)
 
     @staticmethod
     def _ref_hw_frames(ref_latents) -> list[tuple[tuple[int, int], int]]:
@@ -1549,7 +1588,7 @@ class NativeGenerator:
         if offloaded and torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def _move_dit_to_gpu(self, device: str) -> None:
+    def _move_dit_to_gpu(self, device: str, headroom_gb: float = 0.0) -> None:
         """Move the DiT onto ``device`` for sampling, making room first.
 
         Frees foreign residents up front (``_ensure_room_for``); if the move still
@@ -1559,7 +1598,7 @@ class NativeGenerator:
         """
         need = float(getattr(self.dit, "estimated_vram_gb", None) or 0.0)
         if need > 0.0:
-            need += minimum_inference_memory_gb()
+            need += max(minimum_inference_memory_gb(), float(headroom_gb))
         self._ensure_room_for(need, device)
         try:
             self.dit.move_to(device)
@@ -1609,11 +1648,7 @@ class NativeGenerator:
         free = free_vram_gb(device) or 0.0
         # Sampling headroom only — decode frees the weights and tiles if needed,
         # so its spike must not be charged against the resident-weights budget.
-        headroom = sampling_headroom_gb(
-            (latents_shape[-2], latents_shape[-1]), latent_frames=_latent_frames(latents_shape)
-        )
-        headroom += ref_latents_headroom_gb(self._ref_hw_frames(ref_latents))
-        headroom += max(0.0, float(preview_reserve_gb))
+        headroom = self._sampling_headroom_gb(latents_shape, ref_latents, preview_reserve_gb)
         return max(0.0, free - headroom)
 
     def _stream_dit_to_gpu(self, device: str, latents_shape, ref_latents=None, preview_reserve_gb: float = 0.0) -> None:
@@ -1907,7 +1942,9 @@ class NativeGenerator:
         # Resolution-aware placement drives phase residency (esp. whether the DiT
         # must be offloaded before decode to make room for the decode spike).
         hooks = list(hooks or ())
-        preview_gb = preview_reserve_gb(hooks, latents_shape)
+        preview_gb = preview_reserve_gb(hooks, latents_shape) + self._run_cache_reserve_gb(
+            latents_shape, cond_dict, uncond_dict, cfg_scale,
+        )
         self.placement = self._build_placement(latents_shape, ref_latents=ref_latents, preview_reserve_gb=preview_gb)
         device = self.device_plan.dit_device
         dtype = self.dit.compute_dtype
@@ -1917,7 +1954,9 @@ class NativeGenerator:
         # residency (as many leaves resident as fit, the rest streamed from pinned
         # CPU RAM) instead of the old all-or-nothing move that would OOM.
         if self._resident("dit"):
-            self._move_dit_to_gpu(device)
+            self._move_dit_to_gpu(
+                device, headroom_gb=self._sampling_headroom_gb(latents_shape, ref_latents, preview_gb),
+            )
             # Resident placement only: regionally torch.compile the DiT blocks
             # (opt-in, gated). Streaming placement is deliberately excluded — the
             # per-forward weight swap is incompatible with a compiled graph.

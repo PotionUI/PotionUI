@@ -107,13 +107,15 @@ describe('History filters model picker', () => {
 		await settle();
 		expect(currentFilters().modelName).toBe('dreamshaper.safetensors');
 		expect(document.body.textContent).not.toContain('Filter history by model');
-		const chip = document.querySelector<HTMLElement>('[aria-label="Clear model filter"]')!;
-		expect(chip.textContent).toContain('Dream Shaper');
-		expect(chip.textContent).not.toContain('.safetensors');
+		byText('button', 'Filters')!.click();
+		await settle();
+		const chip = document.querySelector<HTMLElement>('[aria-label="Remove Dream Shaper"]')!;
+		expect(chip.parentElement?.textContent).toContain('Dream Shaper');
+		expect(chip.parentElement?.textContent).not.toContain('.safetensors');
 		chip.click();
 		await settle();
 		expect(currentFilters().modelName).toBeUndefined();
-		expect(document.querySelector('[aria-label="Clear model filter"]')).toBeNull();
+		expect(document.querySelector('[aria-label="Remove Dream Shaper"]')).toBeNull();
 	});
 
 	it('shows the facet display name, or a cleaned stem, never the file name', async () => {
@@ -132,7 +134,7 @@ describe('History filters model picker', () => {
 		byText('button', 'Filters')!.click();
 		await settle();
 		expect(document.getElementById('history-filter-model')!.textContent).toContain('Tuned Model v2');
-		expect(document.querySelector('[aria-label="Clear model filter"]')!.textContent).toContain('Tuned Model v2');
+		expect(document.querySelector('[aria-label="Remove Tuned Model v2"]')!.parentElement?.textContent).toContain('Tuned Model v2');
 		expect(currentFilters().modelName).toBe('tuned_v2_fp8.safetensors');
 	});
 

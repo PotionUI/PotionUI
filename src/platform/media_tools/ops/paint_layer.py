@@ -3,6 +3,7 @@ from __future__ import annotations
 from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
+from src.platform.media_tools.layer_opacity import OPACITY_PARAM, read_opacity, with_opacity
 from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.media_tools.types import EDITOR_SCOPE, ToolMedia, ToolSpec, UnsupportedMedia
 
@@ -24,6 +25,7 @@ SPEC = dict(
             "description": "Transparent PNG of the strokes",
             "accepts": ["image"],
         },
+        OPACITY_PARAM,
     ],
 )
 
@@ -37,6 +39,7 @@ class PaintLayer(MediaTool):
             layer = opened.convert("RGBA")
         if layer.size != image.size:
             layer = layer.resize(image.size, Image.Resampling.LANCZOS)
+        layer = with_opacity(layer, read_opacity(params))
         keep_alpha = has_alpha_mode(image)
         painted = Image.alpha_composite(image.convert("RGBA"), layer)
         result = painted if keep_alpha else painted.convert("RGB")

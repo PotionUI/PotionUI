@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { rerunFromCanonicalCwd } from './canonicalCwd';
+import { existsSync } from 'node:fs';
+import { devWatchIgnored } from './devWatchIgnore';
 
 rerunFromCanonicalCwd();
 
@@ -24,8 +26,17 @@ const viteHost: string | boolean =
 const e2eBackendPort = process.env.E2E_BACKEND_PORT || backendPort;
 const previewPort = parseInt(process.env.E2E_PREVIEW_PORT || '4173', 10);
 
+const kitSynced = existsSync(new URL('./.svelte-kit/tsconfig.json', import.meta.url));
+
+const withoutKitDevServer = async (plugins: ReturnType<typeof sveltekit>) =>
+	(await plugins).map((plugin) =>
+		plugin.name === 'vite-plugin-sveltekit-compile' ? { ...plugin, configureServer: undefined } : plugin
+	);
+
 export default defineConfig({
-	plugins: [sveltekit()],
+	plugins: [
+		process.env.VITEST && kitSynced ? withoutKitDevServer(sveltekit()) : sveltekit()
+	],
 	css: {
 		postcss: './postcss.config.cjs'
 	},
@@ -41,6 +52,7 @@ export default defineConfig({
 	server: {
 		host: viteHost,
 		port: frontendPort,
+		watch: process.env.VITEST ? undefined : { ignored: devWatchIgnored },
 		proxy: {
 			// 127.0.0.1, NOT `localhost`: Node may resolve `localhost` to IPv6
 			// ::1 first, and the backend listens on IPv4 only — plain HTTP

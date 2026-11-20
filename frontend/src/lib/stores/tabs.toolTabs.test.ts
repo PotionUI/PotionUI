@@ -109,6 +109,27 @@ describe('openToolTab', () => {
 	});
 });
 
+describe('openToolTab with a state to start from', () => {
+	beforeEach(() => tabsStore.reset());
+
+	it('opens a new tab holding the state even when another tab already shows the same picture', () => {
+		const first = tabsStore.openToolTab('image', dusk);
+		const second = tabsStore.openToolTab('image', dusk, { state: { v: 1, edit: { id: 'ed_1', revision: 2 } }, fresh: true });
+		expect(second).not.toBe(first);
+		expect(tabById(first)).toMatchObject({ state: null });
+		expect(tabById(second)).toMatchObject({ source: dusk, state: { v: 1, edit: { id: 'ed_1', revision: 2 } } });
+		expect(state().activeTabId).toBe(second);
+	});
+
+	it('fills an empty active tab of that tool instead of adding one', () => {
+		const empty = tabsStore.openToolTab('image', null);
+		const filled = tabsStore.openToolTab('image', fox, { state: { v: 1 }, fresh: true, activeTool: 'resize' });
+		expect(filled).toBe(empty);
+		expect(tabById(filled)).toMatchObject({ source: fox, state: { v: 1 }, activeTool: 'resize' });
+		expect(toolTabs()).toHaveLength(1);
+	});
+});
+
 describe('tool tabs and generation-only helpers', () => {
 	beforeEach(() => tabsStore.reset());
 
@@ -391,5 +412,35 @@ describe('tool tab persistence', () => {
 		expect(tab.kind).toBe('generation');
 		expect(tab.selectedPreset).toBe('p');
 		expect(tab.generation.isGenerating).toBe(false);
+	});
+});
+
+describe('restoreToolTab', () => {
+	beforeEach(() => tabsStore.reset());
+
+	it('loads a saved picture and its state into the tab and remounts it', () => {
+		const id = tabsStore.openToolTab('image', null);
+		const before = (tabById(id) as ToolTab).epoch ?? 0;
+		const saved = { v: 1, stack: [], edit: { id: 'e1', revision: 3 } };
+
+		tabsStore.restoreToolTab(id, { source: dusk, state: saved, activeTool: 'effects' });
+
+		expect(tabById(id)).toMatchObject({ source: dusk, state: saved, activeTool: 'effects', dirty: 0, name: 'observatory-dusk', epoch: before + 1 });
+	});
+
+	it('leaves other tabs alone', () => {
+		const id = tabsStore.openToolTab('image', null);
+		const other = tabsStore.openToolTab('video', clip);
+		expect(other).not.toBe(id);
+		tabsStore.restoreToolTab(id, { source: dusk, state: { v: 1 } });
+		expect(tabById(other)).toMatchObject({ source: clip });
+		expect(tabById(id)).toMatchObject({ source: dusk });
+	});
+
+	it('does nothing for a tab that is not a tool tab', () => {
+		const generationId = state().tabs[0].id;
+		const snapshot = state().tabs[0];
+		tabsStore.restoreToolTab(generationId, { source: dusk, state: {} });
+		expect(state().tabs[0]).toEqual(snapshot);
 	});
 });

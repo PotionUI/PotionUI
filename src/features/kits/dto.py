@@ -1,8 +1,16 @@
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 from src.features.kits.rules import MAX_ITEMS_PER_KIT
+
+
+class KitSortBy(str, Enum):
+    manual = "manual"
+    name = "name"
+    created = "created"
+    updated = "updated"
 
 
 class CreateKitRequest(BaseModel):

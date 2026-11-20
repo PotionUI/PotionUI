@@ -1,5 +1,6 @@
 import asyncio
-from typing import TYPE_CHECKING, Optional
+import logging
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from fastapi import APIRouter, Depends, File, Header, Query, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -15,15 +16,18 @@ from src.features.media_tools.dto import (
     StartRunRequest,
     StartRunResponse,
 )
+from src.features.media_tools.pool_limits import POOL_SETTING_KEYS, cpu_cores
 from src.features.media_tools.service import MediaToolService
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.media_tools import FfmpegUnavailable, ToolFailed
 from src.platform.security.api_scopes import ApiScope, key_access, key_scope
-from src.platform.security.current_user import get_current_active_user, require_media_viewer
+from src.platform.security.current_user import get_current_active_user, get_current_admin_user, require_media_viewer
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
+
+logger = logging.getLogger(__name__)
 
 _TOOL_ERRORS = {
     FfmpegUnavailable: Fail("ffmpeg_unavailable", status=500),
@@ -153,6 +157,58 @@ class MediaToolController(BaseController):
         data = await file.read()
         artifact = await self.service.upload_artifact(current_user, data, file.filename, file.content_type)
         return self.success_response(data=artifact.model_dump())
+
+
+class MediaToolAdminController(BaseController):
+
+    def __init__(self, service: MediaToolService, user_lookup: Callable[[str], Any]):
+        super().__init__()
+        self.service = service
+        self.user_lookup = user_lookup
+
+    def _usernames(self, user_ids) -> Dict[str, Optional[str]]:
+        names: Dict[str, Optional[str]] = {}
+        for user_id in set(user_ids):
+            try:
+                found = self.user_lookup(user_id)
+            except Exception:
+                found = None
+            names[user_id] = getattr(found, "username", None)
+        return names
+
+    @guarded(fallback=Fail("media_tool_pool_failed", "Failed to read the media tool pool", 500))
+    async def pool(self, current_user) -> APIResponse:
+        overview = await asyncio.to_thread(self.service.pool_overview)
+        names = await asyncio.to_thread(self._usernames, [job["user_id"] for job in overview["jobs"]])
+        for job in overview["jobs"]:
+            job["username"] = names.get(job["user_id"])
+        overview["cpu_cores"] = cpu_cores()
+        overview["setting_keys"] = dict(POOL_SETTING_KEYS)
+        return self.success_response(data=overview)
+
+    @guarded(fallback=Fail("media_tool_run_failed", "Failed to cancel the media tool run", 500))
+    async def cancel(self, run_id: str, current_user) -> APIResponse:
+        run = await asyncio.to_thread(self.service.admin_cancel_run, run_id)
+        logger.info("Admin %s cancelled media tool run %s (%s)", current_user.id, run_id, run.status)
+        return self.success_response(data=run.model_dump())
+
+
+def build_admin_router(container: "AppContainer") -> APIRouter:
+    controller = MediaToolAdminController(container.media_tool_service, container.user_repository.get_by_id)
+    router = APIRouter(
+        prefix="/api/admin/media-tools", tags=["Media Tools"],
+        dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)],
+    )
+
+    @router.get("/pool", response_model=APIResponse, summary="Get Media Tool Pool State")
+    async def get_pool(current_user=Depends(get_current_admin_user)) -> APIResponse:
+        return await controller.pool(current_user)
+
+    @router.post("/jobs/{run_id}/cancel", response_model=APIResponse, summary="Cancel Any Media Tool Job")
+    async def cancel_job(run_id: str, current_user=Depends(get_current_admin_user)) -> APIResponse:
+        return await controller.cancel(run_id, current_user)
+
+    return router
 
 
 def build_router(container: "AppContainer") -> APIRouter:

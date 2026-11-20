@@ -4,9 +4,14 @@ Session DTOs for API requests and responses.
 These Pydantic models define the contract between the API layer and clients.
 They are used throughout the application as the single model type (no separate dataclass models).
 """
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
+
+SessionKind = Literal["generation", "editor"]
+SessionKindFilter = Literal["generation", "editor", "any"]
+GENERATION_KIND = "generation"
+EDITOR_KIND = "editor"
 
 
 class Session(BaseModel):
@@ -22,6 +27,7 @@ class Session(BaseModel):
     pinned_at: Optional[datetime] = None
     version: int = 1
     last_origin: Optional[Dict[str, Any]] = None
+    kind: str = GENERATION_KIND
 
 
 class SessionResponse(BaseModel):
@@ -46,6 +52,7 @@ class SaveSessionRequest(BaseModel):
     data: Dict[str, Any]
     mode: Optional[str] = None  # Optional mode to specify which mode data is being updated
     base_version: Optional[int] = None
+    kind: Optional[SessionKind] = None
 
 
 class UpdateSessionRequest(BaseModel):
@@ -54,6 +61,7 @@ class UpdateSessionRequest(BaseModel):
     data: Dict[str, Any]
     mode: Optional[str] = None  # Optional mode to specify which mode data is being updated
     base_version: Optional[int] = None
+    kind: Optional[SessionKind] = None
 
 
 # A `SessionVersion` is an immutable snapshot appended every time a session is

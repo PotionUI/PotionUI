@@ -17,7 +17,7 @@
 	import { ensureGenerationTabActive } from '$lib/tool-tabs/open';
 	import { libraryTabVariables } from '$lib/prompts/libraryTabVariables';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
-	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryListHeader from '$lib/components/library/LibraryListHeader.svelte';
 	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
 	import { LIBRARY_SECTIONS, sectionHref, withSection } from '../library/librarySection';
 	import SegmentCard from './SegmentCard.svelte';
@@ -26,6 +26,7 @@
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
 	import {
 		SEGMENT_SORT_OPTIONS,
+		SEGMENT_SORT_DEFAULT_DIR,
 		applySegmentFilters,
 		segmentCountsByCategory,
 		segmentFilterChips,
@@ -459,26 +460,37 @@
 	sectionCounts={$libraryCounts}
 	count={visible.length}
 	{detailOpen}
-	filterChips={chips}
-	onRemoveChip={(key) => updateFilters(segmentFilters.clearChip(filters, key))}
-	onClearFilters={() => updateFilters(segmentFilters.clearAll(filters))}
 	loadedCount={visible.length}
 	total={segments.length}
 >
-	{#snippet toolbar()}
-		<LibraryFilterBar
+	{#snippet header(sectionSelect)}
+		<LibraryListHeader
+			title="Segments"
+			count={visible.length}
+			total={$libraryCounts.segments ?? null}
+			unit="segments"
+			unitOne="segment"
+			chips={chips}
+			onRemoveChip={(key) => updateFilters(segmentFilters.clearChip(filters, key))}
+			onClearFilters={() => updateFilters(segmentFilters.clearAll(filters))}
+			filterCount={filterCount}
 			q={filters.q}
 			onQueryChange={(value) => updateFilters({ ...filters, q: value })}
 			searchPlaceholder="Search segments…"
-			sortBy={filters.sortBy}
 			sortOptions={SEGMENT_SORT_OPTIONS}
-			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as SegmentSortBy })}
-			{filterCount}
+			sortBy={filters.sortBy}
+			sortDir={filters.sortDir ?? SEGMENT_SORT_DEFAULT_DIR[filters.sortBy]}
+			onSortChange={(value) => updateFilters({ ...filters, sortBy: value as SegmentSortBy, sortDir: SEGMENT_SORT_DEFAULT_DIR[value as SegmentSortBy] })}
+			onSortDirChange={(dir) => updateFilters({ ...filters, sortDir: dir })}
+			onRefresh={loadAll}
+			primaryLabel="New segment"
+			onPrimary={startNew}
+			{sectionSelect}
 		>
 			{#snippet popover(close)}
 				<SegmentFiltersPopover {filters} {categories} tags={tagVocabulary} onChange={updateFilters} onClose={close} />
 			{/snippet}
-		</LibraryFilterBar>
+		</LibraryListHeader>
 	{/snippet}
 
 	{#snippet sidebarTree()}
@@ -507,10 +519,6 @@
 		</div>
 	{/snippet}
 
-	{#snippet primary()}
-		<Button size="sm" variant="primary" icon="plus" onclick={startNew}>New segment</Button>
-	{/snippet}
-
 	{#if detailOpen}
 		<SegmentDetailView
 			{mode}
@@ -537,31 +545,30 @@
 		/>
 	{:else}
 		<div class="flex h-full flex-col overflow-hidden">
-			<div class="min-h-0 flex-1 overflow-y-auto p-4">
+			<div class="min-h-0 flex-1 overflow-y-auto dot-grid bg-canvas {!loading && visible.length === 0 ? '' : 'p-4'}">
 				{#if loading}
 					<div class="flex h-40 items-center justify-center">
 						<Spinner size="lg" />
 					</div>
 				{:else if visible.length === 0}
-					<div class="flex h-full items-center justify-center">
-						<EmptyState
-							icon="list"
-							title={filtersActive ? 'No segments match these filters' : 'No segments yet'}
-							description={filtersActive
-								? 'Try clearing a filter or broadening the search.'
-								: 'Save reusable prompt fragments to insert into any prompt.'}
-						>
-							{#snippet actions()}
-								{#if filtersActive}
-									<Button size="sm" variant="ghost" onclick={() => updateFilters({ ...segmentFilters.clearAll(filters), q: '' })}>
-										Clear filters
-									</Button>
-								{:else}
-									<Button size="sm" variant="primary" icon="plus" onclick={startNew}>Create a segment</Button>
-								{/if}
-							{/snippet}
-						</EmptyState>
-					</div>
+					<EmptyState
+						page
+						icon="list"
+						title={filtersActive ? 'No segments match these filters' : 'No segments yet'}
+						description={filtersActive
+							? 'Try clearing a filter or broadening the search.'
+							: 'Save reusable prompt fragments to insert into any prompt.'}
+					>
+						{#snippet actions()}
+							{#if filtersActive}
+								<Button variant="secondary" onclick={() => updateFilters({ ...segmentFilters.clearAll(filters), q: '' })}>
+									Clear filters
+								</Button>
+							{:else}
+								<Button variant="secondary" icon="plus" onclick={startNew}>Create a segment</Button>
+							{/if}
+						{/snippet}
+					</EmptyState>
 				{:else}
 					<div
 						bind:this={gridEl}

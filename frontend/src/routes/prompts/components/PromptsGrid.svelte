@@ -105,29 +105,28 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 <div class="flex h-full flex-col overflow-hidden">
-	<div class="min-h-0 flex-1 overflow-y-auto p-4">
+	<div class="min-h-0 flex-1 overflow-y-auto dot-grid bg-canvas {!loading && prompts.length === 0 ? '' : 'p-4'}">
 		{#if loading}
 			<div class="flex h-40 items-center justify-center">
 				<Spinner size="lg" />
 			</div>
 		{:else if prompts.length === 0}
-			<div class="flex h-full items-center justify-center">
-				<EmptyState
-					icon="document"
-					title={filtered ? 'No prompts match these filters' : 'No prompts yet'}
-					description={filtered
-						? 'Try clearing a filter or broadening the search.'
-						: 'Save your first prompt to start the library.'}
-				>
-					{#snippet actions()}
-						{#if filtered}
-							<Button size="sm" variant="ghost" onclick={clearAll}>Clear filters</Button>
-						{:else}
-							<Button size="sm" variant="primary" icon="plus" onclick={onNewPrompt}>Create a prompt</Button>
-						{/if}
-					{/snippet}
-				</EmptyState>
-			</div>
+			<EmptyState
+				page
+				icon="document"
+				title={filtered ? 'No prompts match these filters' : 'No prompts yet'}
+				description={filtered
+					? 'Try clearing a filter or broadening the search.'
+					: 'Save your first prompt to start the library.'}
+			>
+				{#snippet actions()}
+					{#if filtered}
+						<Button variant="secondary" onclick={clearAll}>Clear filters</Button>
+					{:else}
+						<Button variant="secondary" icon="plus" onclick={onNewPrompt}>Create a prompt</Button>
+					{/if}
+				{/snippet}
+			</EmptyState>
 		{:else}
 			<div
 				bind:this={gridEl}

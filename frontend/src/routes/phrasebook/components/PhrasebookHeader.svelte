@@ -1,9 +1,22 @@
 <script lang="ts">
 	import dismiss from '$lib/actions/dismiss';
 	import { api, type PhrasebookStateFilter } from '$lib/services/api/index';
-	import { PageHeader, PageTitle, Alert, Badge, Button, IconButton, Kbd, Spinner, Switch } from '$lib/components/ui';
+	import { Alert, Button, Kbd, Menu, Spinner, Switch } from '$lib/components/ui';
+	import {
+		ListPageHeader,
+		HeaderTitle,
+		HeaderSearch,
+		HeaderToggle,
+		HeaderFilters,
+		HeaderSort,
+		HeaderViewOptions,
+		HeaderDropdown,
+		HeaderAction,
+		type HeaderStage,
+		type FilterChip
+	} from '$lib/components/page-header';
+	import { phrasebookSort, PHRASEBOOK_SORT_DEFAULT_DIR, type PhrasebookSortBy } from '$lib/stores/phrasebookSort';
 	import Icon from '$lib/components/Icon.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
@@ -95,12 +108,6 @@
 		}
 	}
 
-	const modes: { id: PhrasebookFindMode; label: string }[] = [
-		{ id: 'contains', label: 'Contains' },
-		{ id: 'word', label: 'Word' },
-		{ id: 'regex', label: 'Regex' }
-	];
-
 	const scopes: { id: PhrasebookFindScope; label: string }[] = [
 		{ id: 'all', label: 'All' },
 		{ id: 'values', label: 'Values' },
@@ -120,7 +127,13 @@
 
 	let inputEl: HTMLInputElement | undefined = $state();
 	let active = $derived(isSearching(filters.query));
-	let filterCount = $derived(nonDefaultFilterCount(filters, current.stateFilter));
+	let stage = $state<HeaderStage>('full');
+	let filtersOpen = $state(false);
+	let moreWrap: HTMLDivElement | undefined = $state();
+
+	let filterCount = $derived(
+		nonDefaultFilterCount(filters, current.stateFilter) - (filters.caseSensitive ? 1 : 0)
+	);
 
 	function handleWindowKeydown(e: KeyboardEvent) {
 		if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -138,36 +151,19 @@
 	}
 
 	const toggleClass = (pressed: boolean) =>
-		`px-2 py-1 text-xs rounded-sm transition-colors duration-100 ${
+		`px-2 py-1 text-sm rounded-sm transition-colors duration-100 ${
 			pressed ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'
 		}`;
 
-	// Filters popover
-	let filtersOpen = $state(false);
-	let filtersTrigger: HTMLDivElement | undefined = $state();
-	let filtersPopoverEl: HTMLDivElement | undefined = $state();
-	let popoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: 0 });
+	let subtreeOptions = $derived([
+		{ value: '', label: 'Everywhere', pinned: true },
+		...topLevel.map((category) => ({ value: category.path, label: category.name, description: category.path }))
+	]);
 
-	const POPOVER_WIDTH = 288;
-	const POPOVER_HEIGHT_ESTIMATE = 340;
-	const POPOVER_GAP = 6;
+	const labelClass = 'block font-mono text-sm uppercase tracking-[0.07em] text-fg-subtle mb-1.5';
 
-	function updatePopoverPosition() {
-		if (!filtersTrigger) return;
-		const heightEstimate = filtersPopoverEl?.getBoundingClientRect().height || POPOVER_HEIGHT_ESTIMATE;
-		popoverPos = computeFlippedMenuPosition(filtersTrigger, {
-			width: POPOVER_WIDTH,
-			heightEstimate,
-			gap: POPOVER_GAP
-		});
-	}
-
-	function toggleFilters() {
-		filtersOpen = !filtersOpen;
-	}
-
-	function closeFilters() {
-		filtersOpen = false;
+	function toggleMode(mode: 'word' | 'regex') {
+		onChange({ mode: filters.mode === mode ? 'contains' : mode });
 	}
 
 	// Import popover
@@ -176,13 +172,15 @@
 	let importPopoverEl: HTMLDivElement | undefined = $state();
 	let importPopoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: 0 });
 
+	const POPOVER_GAP = 6;
 	const IMPORT_POPOVER_WIDTH = 320;
 	const IMPORT_POPOVER_HEIGHT_ESTIMATE = 280;
 
 	function updateImportPopoverPosition() {
-		if (!importTrigger) return;
+		const anchor = importTrigger ?? moreWrap;
+		if (!anchor) return;
 		const heightEstimate = importPopoverEl?.getBoundingClientRect().height || IMPORT_POPOVER_HEIGHT_ESTIMATE;
-		importPopoverPos = computeFlippedMenuPosition(importTrigger, {
+		importPopoverPos = computeFlippedMenuPosition(anchor, {
 			width: IMPORT_POPOVER_WIDTH,
 			heightEstimate,
 			gap: POPOVER_GAP
@@ -197,9 +195,12 @@
 		importOpen = false;
 	}
 
+	function openImport() {
+		importOpen = true;
+	}
+
 	function resetFilters() {
 		onChange({
-			caseSensitive: false,
 			inLabel: true,
 			inValue: true,
 			scope: 'all',
@@ -212,21 +213,7 @@
 		return `left: ${pos.left}px; ${pos.top !== undefined ? `top: ${pos.top}px;` : `bottom: ${pos.bottom}px;`}`;
 	}
 
-	let popoverStyle = $derived(styleFor(popoverPos));
 	let importPopoverStyle = $derived(styleFor(importPopoverPos));
-
-	$effect(() => {
-		if (!filtersOpen) return;
-		updatePopoverPosition();
-		const raf = requestAnimationFrame(updatePopoverPosition);
-		window.addEventListener('resize', updatePopoverPosition);
-		window.addEventListener('scroll', updatePopoverPosition, true);
-		return () => {
-			cancelAnimationFrame(raf);
-			window.removeEventListener('resize', updatePopoverPosition);
-			window.removeEventListener('scroll', updatePopoverPosition, true);
-		};
-	});
 
 	$effect(() => {
 		if (!importOpen) return;
@@ -240,219 +227,312 @@
 			window.removeEventListener('scroll', updateImportPopoverPosition, true);
 		};
 	});
+	let chips = $derived.by(() => {
+		const list: FilterChip[] = [];
+		if (current.stateFilter !== 'all') {
+			list.push({
+				id: 'show',
+				label: current.stateFilter === 'active' ? 'Active only' : 'Inactive only',
+				onremove: () => setStateFilter('all')
+			});
+		}
+		if (filters.inLabel !== true || filters.inValue !== true) {
+			list.push({
+				id: 'fields',
+				label: filters.inLabel ? 'Label only' : 'Value only',
+				onremove: () => onChange({ inLabel: true, inValue: true })
+			});
+		}
+		if (filters.scope !== 'all') {
+			list.push({
+				id: 'scope',
+				label: `Scope: ${scopes.find((scope) => scope.id === filters.scope)?.label ?? filters.scope}`,
+				onremove: () => onChange({ scope: 'all' })
+			});
+		}
+		if (!filters.includeInactive) {
+			list.push({ id: 'inactive', label: 'Hide inactive', onremove: () => onChange({ includeInactive: true }) });
+		}
+		if (filters.pathPrefix) {
+			const name = topLevel.find((category) => category.path === filters.pathPrefix)?.name ?? filters.pathPrefix;
+			list.push({ id: 'subtree', label: `In ${name}`, onremove: () => onChange({ pathPrefix: '' }) });
+		}
+		return list;
+	});
+
+	function clearAllFilters() {
+		resetFilters();
+		if (current.stateFilter !== 'all') setStateFilter('all');
+	}
+
+	const sortOptions = [
+		{ value: 'path', label: 'Path' },
+		{ value: 'name', label: 'Name' },
+		{ value: 'updated', label: 'Updated' }
+	];
+
+	function pickSort(value: string) {
+		phrasebookSort.set({ by: value as PhrasebookSortBy, dir: PHRASEBOOK_SORT_DEFAULT_DIR[value as PhrasebookSortBy] });
+	}
+
+	function pickSortDir(dir: 'asc' | 'desc') {
+		phrasebookSort.update((sort) => ({ ...sort, dir }));
+	}
+
+	async function refresh() {
+		await phrasebookStore.loadRootCategories();
+		await phrasebookStore.loadAllCategories();
+	}
+
+	let moreItems = $derived([
+		...(stage !== 'full' ? [{ id: 'import', label: 'Import YAML…', icon: 'upload' }] : []),
+		...(stage === 'narrow'
+			? [
+					{ id: 'refresh', label: 'Refresh', icon: 'refresh' },
+					...sortOptions.map((option) => ({
+						id: `sort-${option.value}`,
+						label: `Sort by ${option.label.toLowerCase()}`,
+						icon: $phrasebookSort.by === option.value ? 'check' : undefined
+					})),
+					{
+						id: 'sort-dir',
+						label: $phrasebookSort.dir === 'desc' ? 'Descending. Switch to ascending' : 'Ascending. Switch to descending',
+						icon: $phrasebookSort.dir === 'desc' ? 'arrow-down' : 'arrow-up'
+					}
+				]
+			: [])
+	]);
+
+	function handleMore(id: string) {
+		if (id === 'import') openImport();
+		else if (id === 'refresh') void refresh();
+		else if (id === 'sort-dir') pickSortDir($phrasebookSort.dir === 'desc' ? 'asc' : 'desc');
+		else if (id.startsWith('sort-')) pickSort(id.slice(5));
+	}
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-<PageHeader sticky={false}>
-	<div class="flex items-center gap-3 w-full" data-phrasebook-header>
-		<PageTitle title="Phrasebook Management">
-			{#snippet leading()}
-				<svg class="w-5 h-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
-				</svg>
-			{/snippet}
-		</PageTitle>
+{#snippet titleZone(s: HeaderStage)}
+	<div data-phrasebook-header class="contents">
+		<HeaderTitle
+			title="Phrasebook"
+			count={current.allCategories.length}
+			unit="categories"
+			unitOne="category"
+			filterCount={chips.length}
+			onOpenFilters={() => (filtersOpen = true)}
+			showUnit={s === 'full'}
+			narrow={s === 'narrow'}
+		/>
+	</div>
+{/snippet}
 
-		<div class="relative flex-1 min-w-[16rem] max-w-2xl">
-			<Icon
-				name="search"
-				className="w-4 h-4 text-fg-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+{#snippet searchZone(s: HeaderStage)}
+	<HeaderSearch
+		value={filters.query}
+		placeholder="Find in phrasebook…"
+		label="Find in phrasebook"
+		{error}
+		oninput={(value) => onChange({ query: value })}
+		onclear={onClear}
+		onkeydown={handleInputKeydown}
+		bind:inputEl
+		inputAttrs={{ 'data-find-input': '' }}
+		narrow={s === 'narrow'}
+	>
+		{#snippet modifiers()}
+			{#if searching}
+				<Spinner size="sm" />
+			{:else if !active && s !== 'narrow'}
+				<Kbd keys="/" />
+			{/if}
+			<HeaderToggle
+				text="Aa"
+				label="Match case"
+				tooltip={filters.caseSensitive ? 'Match case on' : 'Match case'}
+				pressed={filters.caseSensitive}
+				onclick={() => onChange({ caseSensitive: !filters.caseSensitive })}
 			/>
-			<input
-				bind:this={inputEl}
-				type="text"
-				class="input text-sm py-1.5 pl-8 pr-16 bg-surface-2/50 w-full {error ? 'border-danger focus:ring-danger' : ''}"
-				placeholder="Find in phrasebook…"
-				aria-label="Find in phrasebook"
-				aria-invalid={!!error}
-				data-find-input
-				value={filters.query}
-				oninput={(e) => onChange({ query: e.currentTarget.value })}
-				onkeydown={handleInputKeydown}
+			<HeaderToggle
+				text="ab"
+				label="Whole word"
+				tooltip={filters.mode === 'word' ? 'Whole word on' : 'Match whole words'}
+				pressed={filters.mode === 'word'}
+				onclick={() => toggleMode('word')}
 			/>
-			<div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-				{#if searching}
-					<Spinner size="sm" />
-				{:else if !active}
-					<Kbd keys="/" />
-				{:else}
-					<Tooltip text="Clear" kbd="Esc" position="bottom">
-						<IconButton icon="close" label="Clear search" size="sm" onclick={onClear} />
-					</Tooltip>
-				{/if}
+			<HeaderToggle
+				icon="regex"
+				label="Regular expression"
+				pressed={filters.mode === 'regex'}
+				onclick={() => toggleMode('regex')}
+			/>
+		{/snippet}
+	</HeaderSearch>
+{/snippet}
+
+{#snippet filtersZone(s: HeaderStage)}
+	<HeaderFilters
+		bind:open={filtersOpen}
+		activeCount={filterCount}
+		{chips}
+		onClear={clearAllFilters}
+		iconOnly={s === 'narrow'}
+		label="Search filters"
+	>
+		{#snippet children()}
+			<div class="col-span-2">
+				<span class={labelClass}>Show</span>
+				<div class="flex items-center gap-0.5 bg-surface-3/50 rounded p-0.5" role="group" aria-label="Show">
+					{#each stateFilters as stateOption (stateOption.id)}
+						<button
+							type="button"
+							class="flex-1 {toggleClass(current.stateFilter === stateOption.id)}"
+							aria-pressed={current.stateFilter === stateOption.id}
+							onclick={() => setStateFilter(stateOption.id)}
+						>
+							{stateOption.label}
+						</button>
+					{/each}
+				</div>
 			</div>
-		</div>
 
-		<div class="flex items-center gap-0.5 bg-surface-2/50 rounded p-0.5 flex-shrink-0" role="group" aria-label="Match mode">
-			{#each modes as mode (mode.id)}
-				<button
-					type="button"
-					class={toggleClass(filters.mode === mode.id)}
-					aria-pressed={filters.mode === mode.id}
-					onclick={() => onChange({ mode: mode.id })}
-				>
-					{mode.label}
-				</button>
-			{/each}
-		</div>
-
-		<div class="relative flex-shrink-0" bind:this={filtersTrigger} data-filters-trigger>
-			<Button
-				size="sm"
-				variant="secondary"
-				icon="sliders"
-				ariaExpanded={filtersOpen}
-				ariaHaspopup="dialog"
-				onclick={toggleFilters}
-			>
-				Filters
-				{#if filterCount > 0}
-					<span data-filters-count><Badge variant="signal" size="sm" class="font-mono tabular-nums">{filterCount}</Badge></span>
-				{/if}
-			</Button>
-
-			{#if filtersOpen}
-				<div
-					use:portal
-					use:overlayLayer
-					bind:this={filtersPopoverEl}
-					use:dismiss={{ onDismiss: closeFilters, ignore: [filtersTrigger] }}
-					class="fixed z-overlay w-72 bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-3 flex flex-col gap-3"
-					style={popoverStyle}
-					role="dialog"
-					aria-label="Search filters"
-					data-filters-popover
-				>
-					<div>
-						<span class="block font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5">Show</span>
-						<div class="flex items-center gap-0.5 bg-surface-2/50 rounded p-0.5" role="group" aria-label="Show">
-							{#each stateFilters as stateOption (stateOption.id)}
-								<button
-									type="button"
-									class={toggleClass(current.stateFilter === stateOption.id)}
-									aria-pressed={current.stateFilter === stateOption.id}
-									onclick={() => setStateFilter(stateOption.id)}
-								>
-									{stateOption.label}
-								</button>
-							{/each}
-						</div>
-					</div>
-
-					<div class="pt-2 border-t border-line flex flex-col gap-3">
-						<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Search</span>
-
-						<div class="flex items-center justify-between">
-							<span class="text-xs font-medium text-fg">Case-sensitive</span>
-							<Switch
-								checked={filters.caseSensitive}
-								label="Match case"
-								size="sm"
-								onchange={(v) => onChange({ caseSensitive: v })}
+			{#if filters.scope !== 'categories'}
+				<div class="col-span-2">
+					<span class={labelClass}>Fields</span>
+					<div class="flex items-center gap-3 text-sm text-fg" role="group" aria-label="Value fields">
+						<label class="flex items-center gap-1.5 cursor-pointer select-none">
+							<input
+								type="checkbox"
+								class="accent-accent"
+								checked={filters.inLabel}
+								disabled={filters.inLabel && !filters.inValue}
+								onchange={(e) => onChange({ inLabel: e.currentTarget.checked })}
 							/>
-						</div>
-
-						{#if filters.scope !== 'categories'}
-							<div>
-								<span class="block font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5">Fields</span>
-								<div class="flex items-center gap-3 text-xs text-fg" role="group" aria-label="Value fields">
-									<label class="flex items-center gap-1.5 cursor-pointer select-none">
-										<input
-											type="checkbox"
-											class="accent-accent"
-											checked={filters.inLabel}
-											disabled={filters.inLabel && !filters.inValue}
-											onchange={(e) => onChange({ inLabel: e.currentTarget.checked })}
-										/>
-										Label
-									</label>
-									<label class="flex items-center gap-1.5 cursor-pointer select-none">
-										<input
-											type="checkbox"
-											class="accent-accent"
-											checked={filters.inValue}
-											disabled={filters.inValue && !filters.inLabel}
-											onchange={(e) => onChange({ inValue: e.currentTarget.checked })}
-										/>
-										Value
-									</label>
-								</div>
-							</div>
-						{/if}
-
-						<div>
-							<span class="block font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5">Scope</span>
-							<div class="flex items-center gap-0.5 bg-surface-2/50 rounded p-0.5" role="group" aria-label="Scope">
-								{#each scopes as scope (scope.id)}
-									<button
-										type="button"
-										class={toggleClass(filters.scope === scope.id)}
-										aria-pressed={filters.scope === scope.id}
-										onclick={() => onChange({ scope: scope.id })}
-									>
-										{scope.label}
-									</button>
-								{/each}
-							</div>
-						</div>
-
-						<div class="flex items-center justify-between">
-							<span class="text-xs font-medium text-fg">Include inactive</span>
-							<Switch
-								checked={filters.includeInactive}
-								label="Include inactive"
-								size="sm"
-								onchange={(v) => onChange({ includeInactive: v })}
+							Label
+						</label>
+						<label class="flex items-center gap-1.5 cursor-pointer select-none">
+							<input
+								type="checkbox"
+								class="accent-accent"
+								checked={filters.inValue}
+								disabled={filters.inValue && !filters.inLabel}
+								onchange={(e) => onChange({ inValue: e.currentTarget.checked })}
 							/>
-						</div>
-
-						<div>
-							<label class="block font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5" for="phrasebook-filters-subtree">
-								Subtree
-							</label>
-							<select
-								id="phrasebook-filters-subtree"
-								class="input text-xs py-1 w-full"
-								value={filters.pathPrefix}
-								onchange={(e) => onChange({ pathPrefix: e.currentTarget.value })}
-							>
-								<option value="">Everywhere</option>
-								{#each topLevel as category (category.id)}
-									<option value={category.path}>{category.name}</option>
-								{/each}
-							</select>
-						</div>
-
-						<div class="pt-1 flex justify-end">
-							<Button variant="ghost" size="sm" disabled={nonDefaultFilterCount(filters) === 0} onclick={resetFilters}>
-								Reset filters
-							</Button>
-						</div>
+							Value
+						</label>
 					</div>
 				</div>
 			{/if}
-		</div>
 
-		<div class="ml-auto flex items-center gap-3 flex-shrink-0">
-			<div class="relative flex-shrink-0" bind:this={importTrigger} data-import-trigger>
-				<Button
+			<div class="col-span-2">
+				<span class={labelClass}>Scope</span>
+				<div class="flex items-center gap-0.5 bg-surface-3/50 rounded p-0.5" role="group" aria-label="Scope">
+					{#each scopes as scope (scope.id)}
+						<button
+							type="button"
+							class="flex-1 {toggleClass(filters.scope === scope.id)}"
+							aria-pressed={filters.scope === scope.id}
+							onclick={() => onChange({ scope: scope.id })}
+						>
+							{scope.label}
+						</button>
+					{/each}
+				</div>
+			</div>
+
+			<div class="col-span-2 flex items-center justify-between">
+				<span class="text-sm font-medium text-fg">Include inactive</span>
+				<Switch
+					checked={filters.includeInactive}
+					label="Include inactive"
 					size="sm"
-					variant="secondary"
-					icon="upload"
-					ariaExpanded={importOpen}
-					ariaHaspopup="dialog"
-					onclick={toggleImport}
-				>
-					Import
-				</Button>
+					onchange={(v) => onChange({ includeInactive: v })}
+				/>
+			</div>
 
-				{#if importOpen}
-					<div
+			<div class="col-span-2">
+				<span class={labelClass}>Subtree</span>
+				<HeaderDropdown
+					block
+					ariaLabel="Subtree"
+					value={filters.pathPrefix}
+					options={subtreeOptions}
+					onchange={(value) => onChange({ pathPrefix: value })}
+				/>
+			</div>
+		{/snippet}
+	</HeaderFilters>
+{/snippet}
+
+{#snippet sortZone()}
+	<HeaderSort
+		options={sortOptions}
+		value={$phrasebookSort.by}
+		dir={$phrasebookSort.dir}
+		onchange={pickSort}
+		ondir={pickSortDir}
+	/>
+{/snippet}
+
+{#snippet viewZone()}
+	<HeaderViewOptions onrefresh={refresh} />
+{/snippet}
+
+{#snippet secondaryZone(s: HeaderStage)}
+	{#if s === 'full'}
+		<div class="relative flex-shrink-0" bind:this={importTrigger} data-import-trigger>
+			<Button
+				size="sm"
+				variant="secondary"
+				icon="upload"
+				class="h-8"
+				ariaExpanded={importOpen}
+				ariaHaspopup="dialog"
+				onclick={toggleImport}
+			>
+				Import
+			</Button>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet primaryZone(s: HeaderStage)}
+	<HeaderAction
+		primary
+		icon="plus"
+		label="New category"
+		compact={s === 'narrow'}
+		onclick={() => phrasebookStore.handleNewCategory()}
+	/>
+{/snippet}
+
+{#snippet moreZone()}
+	<div bind:this={moreWrap} class="flex-none">
+		<Menu label="More actions" tooltip="More actions" items={moreItems} onselect={handleMore} width={220} />
+	</div>
+{/snippet}
+
+<ListPageHeader
+	bind:stage
+	midBelow={1000}
+	tightBelow={900}
+	title={titleZone}
+	search={searchZone}
+	filters={filtersZone}
+	sort={sortZone}
+	view={viewZone}
+	secondary={secondaryZone}
+	primary={primaryZone}
+	more={moreZone}
+/>
+
+{#if importOpen}
+									<div
 						use:portal
 						use:overlayLayer
 						bind:this={importPopoverEl}
-						use:dismiss={{ onDismiss: closeImport, ignore: [importTrigger] }}
+						use:dismiss={{ onDismiss: closeImport, ignore: [importTrigger, moreWrap] }}
 						class="fixed z-overlay w-80 bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-3 flex flex-col gap-3"
 						style={importPopoverStyle}
 						role="dialog"
@@ -460,7 +540,7 @@
 						data-import-popover
 					>
 						<div>
-							<span class="block font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5">File</span>
+							<span class="block font-mono text-sm uppercase tracking-[0.07em] text-fg-subtle mb-1.5">File</span>
 							<label
 								class="flex flex-col items-center justify-center gap-1 px-3 py-4 rounded-lg border border-dashed border-line-strong text-center cursor-pointer hover:border-line-hover hover:bg-surface-2/50 transition-colors {isLoading
 									? 'opacity-50 pointer-events-none'
@@ -469,11 +549,11 @@
 								ondrop={handleImportDrop}
 							>
 								<Icon name="upload" className="w-5 h-5 text-fg-subtle" />
-								<span class="text-xs text-fg" data-import-file-name>
+								<span class="text-sm text-fg" data-import-file-name>
 									{selectedFile ? selectedFile.name : 'Drop a .yaml file, or choose one'}
 								</span>
 								{#if !selectedFile}
-									<span class="text-2xs text-fg-subtle underline">Choose .yaml file</span>
+									<span class="text-sm text-fg-subtle underline">Choose .yaml file</span>
 								{/if}
 								<input
 									bind:this={fileInputEl}
@@ -485,13 +565,13 @@
 								/>
 							</label>
 							{#if fileError}
-								<p class="mt-1.5 text-xs text-danger" data-import-file-error>{fileError}</p>
+								<p class="mt-1.5 text-sm text-danger" data-import-file-error>{fileError}</p>
 							{/if}
 						</div>
 
 						<div>
 							<label
-								class="block font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5"
+								class="block font-mono text-sm uppercase tracking-[0.07em] text-fg-subtle mb-1.5"
 								for="phrasebook-import-root"
 							>
 								Nest under a new root category
@@ -499,11 +579,11 @@
 							<input
 								id="phrasebook-import-root"
 								type="text"
-								class="input text-xs w-full"
+								class="input text-sm w-full"
 								placeholder="e.g. Imported"
 								bind:value={rootCategoryName}
 							/>
-							<p class="mt-1 text-2xs text-fg-subtle">Leave empty to import at the top level.</p>
+							<p class="mt-1 text-sm text-fg-subtle">Leave empty to import at the top level.</p>
 						</div>
 
 						<div class="pt-1 border-t border-line flex justify-end gap-2">
@@ -514,17 +594,9 @@
 						</div>
 					</div>
 				{/if}
-			</div>
-
-			<Button size="sm" variant="primary" icon="plus" onclick={() => phrasebookStore.handleNewCategory()}>
-				New Category
-			</Button>
-		</div>
-	</div>
-</PageHeader>
 
 {#if error}
-	<p class="px-6 pt-1.5 text-xs text-danger" data-find-error role="alert">{error}</p>
+	<p class="px-6 pt-1.5 text-sm text-danger" data-find-error role="alert">{error}</p>
 {/if}
 
 {#if uploadStatus}

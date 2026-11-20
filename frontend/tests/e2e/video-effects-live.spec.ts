@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { entry, openTool, setField } from './video-helpers';
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, scopedStorageKey, screenshot } from './helpers';
 import { solidPng } from './mediaToolMocks';
@@ -64,7 +65,7 @@ async function mockApi(page: Page): Promise<Mocks> {
 
 const GRAIN = { tool: 'film_grain', params: { amount: 100, size: 1, color: true, seed: 7 } };
 
-function seeded(steps: Array<{ tool: string; params: Json }>, tool = 'effects'): Json {
+function seeded(steps: Array<{ tool: string; params: Json }>, tool = 'film_grain'): Json {
 	const list = steps.map((step, i) => ({ id: `s${i + 1}`, tool: step.tool, icon: 'editor-effects', label: step.tool, summary: '', params: step.params, hidden: false }));
 	return {
 		v: 1,
@@ -164,7 +165,7 @@ test.describe('live effect preview on desktop', () => {
 		const still = await sample(page);
 		expect(meanDiff(still.canvas, still.video)).toBeGreaterThan(4);
 		await expect(editor.locator('[data-preview-clip]')).toHaveCount(0);
-		await expect(editor.locator('[data-effect-card="film_grain"]')).toBeVisible();
+		await expect(entry(editor, 'film_grain')).toBeVisible();
 		await screenshot(page, JOURNEY, 'effects-live-1440');
 
 		await page.keyboard.press('\\');
@@ -193,19 +194,19 @@ test.describe('live effect preview on desktop', () => {
 	test('measures fix colours before it previews, and lists plugin effects with no source label', async ({ page }) => {
 		const mocks = await mockApi(page);
 		const editor = await openEditor(page, seeded([{ tool: 'trim', params: { start: 0.2, end: 1.8 } }]));
-		const panel = editor.locator('[data-options-body]');
-		await expect(panel.locator('[data-effect-card]')).toHaveCount(4);
-		await expect(panel).not.toContainText(/plugin|retro-tape/i);
-		await editor.locator('[data-tray-item="fix_colors"]').click();
-		await editor.locator('[data-options-apply]').click();
+		const rail = editor.locator('[data-tool-rail]');
+		await expect(rail).not.toContainText(/plugin|retro-tape/i);
+		await expect(rail.locator('button[data-tool="retro-tape.wobble"], button[data-group-members~="retro-tape.wobble"]')).toHaveCount(1);
+		await openTool(page, editor, 'fix_colors');
+		await setField(editor, 'fix_colors', 'strength', '80');
 		await expect.poll(() => mocks.analysis.length, { timeout: 5000 }).toBe(1);
 		expect(mocks.analysis[0]).toMatchObject({ input: { item_id: 'item-1' }, step_index: 1 });
 		expect((mocks.analysis[0].steps as Array<{ tool: string }>).map((step) => step.tool)).toEqual(['trim', 'fix_colors']);
 		await expect(editor.locator('[data-live-preview]')).toBeVisible();
 		await expect(editor.locator('[data-live-chips]')).not.toContainText('Measuring');
 
-		await editor.locator('[data-tray-item="retro-tape.wobble"]').click();
-		await editor.locator('[data-options-apply]').click();
+		await openTool(page, editor, 'retro-tape.wobble');
+		await setField(editor, 'retro-tape.wobble', 'amount', '70');
 		await expect(editor.locator('[data-live-chips]')).toContainText('Tape wobble shows when paused');
 		await expect(editor.locator('[data-preview-clip]')).toBeVisible();
 		await expect.poll(() => mocks.frames.length, { timeout: 5000 }).toBeGreaterThan(0);
@@ -243,8 +244,8 @@ test.describe('the Effects panel on a phone', () => {
 	test('picks effects from the strip and previews live', async ({ page }) => {
 		await mockApi(page);
 		const editor = await openEditor(page, seeded([GRAIN]));
-		await expect(editor.locator('[data-effect-strip]')).toBeVisible();
-		await expect(editor.locator('[data-effect-chip]')).toHaveCount(4);
+		await expect(editor.locator('[data-tool-rail="strip"]')).toBeVisible();
+		await expect(entry(editor, 'film_grain')).toBeVisible();
 		await expect(editor.locator('[data-live-preview]')).toBeVisible();
 		await expect(editor.locator('[data-preview-clip]')).toHaveCount(0);
 		const overflowX = await page.evaluate(() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth);

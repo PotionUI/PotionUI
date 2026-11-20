@@ -2,50 +2,40 @@ import { describe, expect, it } from 'vitest';
 import { OPS_BY_ID } from '$lib/filters/engine';
 import { apply, beginEdit, commitLive, createStack, effectiveSteps, redo, undo, type EditStackState } from '$lib/tool-tabs/frame/editStack';
 import {
-	ADJUST_SECTIONS,
-	adjustEditedCount,
 	adjustStepFor,
 	adjustSummaryOf,
 	adjustValues,
-	isAdjustStep,
+	isAdjustParams,
 	opDefaults,
 	resetAdjustOp,
-	sectionEdited,
 	setAdjustToggle,
 	setAdjustValue,
 	toggleIsOn
 } from './adjustSections';
+import { GRADE_ENTRIES, OP_ENTRIES, OP_TO_ENTRY } from './entries';
 import { ADJUST_OPS, cropDraft, lookDraft, type AdjustParams } from './steps';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 
 const tone = OPS_BY_ID.tone;
 const exposure = OPS_BY_ID.exposure;
 const grayscale = OPS_BY_ID.grayscale;
-const lookup = (op: string) => OPS_BY_ID[op];
 
 function params(stack: EditStackState<unknown>, op: string): AdjustParams {
 	return adjustStepFor(stack, op)!.params as AdjustParams;
 }
 
-describe('adjust sections', () => {
-	it('only reference known ops and params', () => {
-		for (const section of ADJUST_SECTIONS) {
-			for (const control of section.controls) {
-				const spec = OPS_BY_ID[control.op];
-				expect(spec, control.op).toBeDefined();
-				if (control.kind === 'slider') expect(spec.params.map((param) => param.id)).toContain(control.param);
-			}
+describe('adjust ops and entries', () => {
+	it('every adjustment op is reachable from an entry, so nothing became unreachable', () => {
+		for (const op of ADJUST_OPS) expect(OP_TO_ENTRY[op], op).toBeDefined();
+	});
+
+	it('every entry control names a known op and param', () => {
+		for (const entry of Object.values(GRADE_ENTRIES)) {
+			for (const control of entry.controls) expect(OPS_BY_ID[control.op].params.map((param) => param.id), `${entry.id}.${control.op}`).toContain(control.param);
 		}
-	});
-
-	it('cover every adjustment op of the old picker, so nothing became unreachable', () => {
-		const covered = new Set(ADJUST_SECTIONS.flatMap((section) => section.controls.map((control) => control.op)));
-		expect([...covered].sort()).toEqual([...ADJUST_OPS].sort());
-	});
-
-	it('lists each slider param once', () => {
-		const keys = ADJUST_SECTIONS.flatMap((section) => section.controls.filter((control) => control.kind === 'slider').map((control) => `${control.op}.${'param' in control ? control.param : ''}`));
-		expect(new Set(keys).size).toBe(keys.length);
+		for (const entry of Object.values(OP_ENTRIES)) {
+			for (const control of entry.controls ?? []) expect(OPS_BY_ID[entry.op].params.map((param) => param.id)).toContain(control.param);
+		}
 	});
 });
 
@@ -98,7 +88,7 @@ describe('writing adjustments live', () => {
 		stack = setAdjustValue(stack, tone, 'contrast', 10);
 		stack = setAdjustValue(stack, exposure, 'stops', 0.9);
 		expect(stack.steps.map((step) => (step.params as AdjustParams).op)).toEqual(['exposure', 'tone']);
-		expect(adjustEditedCount(stack)).toBe(2);
+		expect(stack.steps).toHaveLength(2);
 	});
 
 	it('leaves a pending geometry step alone and applies it after the live steps', () => {
@@ -114,8 +104,8 @@ describe('writing adjustments live', () => {
 		const base = apply(beginEdit(createStack<unknown>(), lookDraft({ kind: 'look', filter: 'reel', name: 'Reel', intensity: 60 }) as never));
 		const next = setAdjustValue(base, tone, 'contrast', 12);
 		expect(next.steps).toHaveLength(2);
-		expect(isAdjustStep(next.steps[0])).toBe(false);
-		expect(isAdjustStep(next.steps[1])).toBe(true);
+		expect(isAdjustParams(next.steps[0].params)).toBe(false);
+		expect(isAdjustParams(next.steps[1].params)).toBe(true);
 	});
 
 	it('reads values back for the sliders', () => {
@@ -124,19 +114,10 @@ describe('writing adjustments live', () => {
 		expect(adjustValues(stack, 'exposure', opDefaults('exposure', exposure))).toEqual({ stops: 0 });
 	});
 
-	it('reports which sections hold edits', () => {
-		const stack = setAdjustValue(createStack(), tone, 'saturation', -6);
-		const [light, colour, effects] = ADJUST_SECTIONS;
-		expect(sectionEdited(light, stack, lookup)).toBe(true);
-		expect(sectionEdited(colour, stack, lookup)).toBe(true);
-		expect(sectionEdited(effects, stack, lookup)).toBe(false);
-	});
-
 	it('resets an op to its defaults as an undoable edit', () => {
 		let stack = commitLive(setAdjustValue(createStack(), tone, 'contrast', 20));
 		stack = resetAdjustOp(stack, tone);
 		expect(params(stack, 'tone').values.contrast).toBe(0);
-		expect(sectionEdited(ADJUST_SECTIONS[0], stack, lookup)).toBe(false);
 		expect(params(undo(stack), 'tone').values.contrast).toBe(20);
 		expect(resetAdjustOp(createStack(), tone).steps).toEqual([]);
 	});

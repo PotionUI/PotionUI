@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Tuple
 
 from PIL import Image
 
-from src.features.presets.templates import default_form_name
+from src.features.presets.templates import default_form_name, find_mode
 
 STYLE_PREVIEW_LONG_EDGE_DEFAULT = 320
 STYLE_PREVIEW_SEED_DEFAULT = 1
@@ -27,7 +27,7 @@ def preview_rel_path(style_id: str) -> str:
 
 
 def form_has_field(preset, mode: str, field_name: str) -> bool:
-    mode_template = preset.modes.get(mode)
+    mode_template = find_mode(preset, mode)
     if mode_template is None or not mode_template.forms:
         return False
     form_name = default_form_name(mode_template)

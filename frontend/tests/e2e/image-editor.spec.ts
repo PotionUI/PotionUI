@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
 import { pickFieldTool } from './mediaFieldHelpers';
 import {
@@ -12,6 +12,9 @@ import {
 } from './imageEditorHelpers';
 
 const JOURNEY = 'image-editor';
+
+const toolButton = (dialog: Locator, mobile: boolean, tool: string) =>
+	mobile ? dialog.getByRole('button', { name: new RegExp(`^Paint, ${tool}$`) }) : dialog.getByRole('button', { name: tool, exact: true });
 
 for (const size of SIZES) {
 	test(`image editor draws, undoes and saves a new upload at ${size.tag}`, async ({ page }) => {
@@ -56,16 +59,12 @@ for (const size of SIZES) {
 		const redo = dialog.getByRole('button', { name: 'Redo' });
 		await expect(undo).toBeDisabled();
 
-		if (!mobile) {
-			await dialog.getByRole('button', { name: 'Use colour #ffffff' }).click();
-			await dialog.locator('#paint-size').fill('20');
-		} else {
-			await dialog.locator('input[type="range"][aria-label="Size"]').fill('20');
-			await dialog.locator('input[type="color"]:visible').evaluate((el: HTMLInputElement) => {
-				el.value = '#ffffff';
-				el.dispatchEvent(new Event('input', { bubbles: true }));
-			});
-		}
+		await dialog.locator('[data-colour-swatch]').click();
+		const picker = page.locator('[data-colour-picker]');
+		await picker.getByRole('button', { name: 'Use colour #ffffff' }).click();
+		await page.keyboard.press('Escape');
+		await expect(picker).toHaveCount(0);
+		await dialog.locator('#paint-size').fill('20');
 
 		await strokeAcross(page, canvas, [0.3, 0.5], [0.7, 0.5]);
 		await expect(undo).toBeEnabled();
@@ -80,19 +79,17 @@ for (const size of SIZES) {
 		await expect(redo).toBeDisabled();
 
 		await page.keyboard.press('e');
-		await expect(dialog.getByRole('button', { name: 'Eraser', exact: true })).toHaveAttribute('aria-pressed', 'true');
+		await expect(toolButton(dialog, mobile, 'Eraser')).toHaveAttribute('aria-pressed', 'true');
 		await page.keyboard.press('b');
-		await expect(dialog.getByRole('button', { name: 'Brush', exact: true })).toHaveAttribute('aria-pressed', 'true');
+		await expect(toolButton(dialog, mobile, 'Brush')).toHaveAttribute('aria-pressed', 'true');
 
-		await dialog.getByRole('button', { name: /Save as new/ }).click();
-		const popover = page.getByRole('group', { name: 'Save as new upload' });
-		await expect(popover).toBeVisible();
-		await expect(popover.locator('#paint-save-name')).toHaveValue('sample-edit');
+		await expect(dialog.locator('#paint-save-name')).toHaveValue('sample-edit');
+		await screenshot(page, JOURNEY, `paint-modal-${size.tag}`);
 		await screenshot(page, JOURNEY, `saving-${size.tag}`);
 
 		const [saved] = await Promise.all([
 			page.waitForResponse((r) => r.url().includes('/api/media/upload') && r.request().method() === 'POST'),
-			popover.getByRole('button', { name: 'Save and use' }).click()
+			dialog.getByRole('button', { name: 'Save', exact: true }).click()
 		]);
 		expect(saved.ok()).toBeTruthy();
 		await expect(dialog).toBeHidden({ timeout: 15000 });

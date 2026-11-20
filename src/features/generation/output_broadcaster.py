@@ -3,6 +3,7 @@ from typing import Optional
 
 from src.features.generation.failure import is_video_request, scope_error_payload, scope_live_message, scope_status
 from src.features.generation.handlers.error_handler import admin_error_fields
+from src.features.generation.preview_clip_message import PREVIEW_CLIP_MESSAGE
 from src.features.generation.output_serializer import GenerationOutputSerializer
 from src.features.generation.output_types import output_type_registry
 from src.features.generation.repository import generation_repo
@@ -10,6 +11,9 @@ from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.generation.status_tracker import GenerationStatusTracker
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput
 from src.platform.websocket.connection_hub import ConnectionHub
+
+
+RETAINED_PREVIEW_TYPES = frozenset({'workbench_update', PREVIEW_CLIP_MESSAGE})
 
 
 class GenerationOutputBroadcaster:
@@ -89,7 +93,10 @@ class GenerationOutputBroadcaster:
             except Exception:
                 logging.exception(f"Failed to record run report output for {generation_id}")
 
-            if not has_subscribers or self._report_only(output, message):
+            if self._report_only(output, message):
+                return
+            is_preview = message.get('type') in RETAINED_PREVIEW_TYPES
+            if not has_subscribers and not is_preview:
                 return
 
             privileged_message = None
@@ -99,7 +106,10 @@ class GenerationOutputBroadcaster:
             elif (viewer_message := scope_live_message(message, False)) is not message:
                 privileged_message, message = message, viewer_message
 
-            await self.connection_hub.broadcast_to_generation(generation_id, message, privileged_message)
+            if is_preview:
+                self.status_tracker.retain_preview(generation_id, message, privileged_message)
+            if has_subscribers:
+                await self.connection_hub.broadcast_to_generation(generation_id, message, privileged_message)
 
         except Exception as e:
             logging.error(f"Failed to broadcast generation output: {str(e)}")

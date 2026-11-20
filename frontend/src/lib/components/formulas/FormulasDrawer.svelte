@@ -7,7 +7,7 @@
 	import DrawerGroupHead from '$lib/components/drawer/DrawerGroupHead.svelte';
 	import DrawerRow from '$lib/components/drawer/DrawerRow.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Menu, Spinner } from '$lib/components/ui';
+	import { Button, EmptyState, Menu, Spinner } from '$lib/components/ui';
 	import FormulaSaveView from './FormulaSaveView.svelte';
 	import FormulaApplyView from './FormulaApplyView.svelte';
 	import FormulaAppliedBar from './FormulaAppliedBar.svelte';
@@ -21,6 +21,7 @@
 	import type {
 		Formula,
 		FormulaDeclaration,
+		FormulaHost,
 		LoraMode,
 		MenuAction,
 		ServerPlan
@@ -41,6 +42,7 @@
 		presetName,
 		presetVersion,
 		modeLabel,
+		host,
 		onClose,
 		onApplied
 	}: {
@@ -49,6 +51,7 @@
 		presetName: string;
 		presetVersion: string;
 		modeLabel: string;
+		host?: FormulaHost;
 		onClose: () => void;
 		onApplied?: () => void;
 	} = $props();
@@ -216,6 +219,7 @@
 		try {
 			const response = await api.planFormula(formula.id, {
 				form_name: tab.selectedVariant ?? null,
+				mode: tab.selectedMode ?? null,
 				current_values: tab.formData ?? {},
 				lora_mode: loraMode
 			});
@@ -284,15 +288,19 @@
 		if (!plan || !applying || planStale) return;
 		const result = applyPlan(tab.formData ?? {}, plan, selected);
 		if (Object.keys(result.changed).length === 0) return;
-		tabsStore.updateTab(tab.id, { formData: result.formData });
-		formulaApplied.set(tab.id, {
+		const applied = {
 			formulaId: applying.id,
 			name: applying.name,
 			key: appliedKey(tab),
 			changed: result.changed,
 			skipped: plan.skips.length,
 			snapshot: result.snapshot
-		});
+		};
+		if (host) host.apply({ formData: result.formData, applied });
+		else {
+			tabsStore.updateTab(tab.id, { formData: result.formData });
+			formulaApplied.set(tab.id, applied);
+		}
 		if (keepOpen) {
 			backToList();
 			return;
@@ -413,7 +421,7 @@
 		{:else}
 			<DrawerSearch bind:value={query} bind:el={searchEl} placeholder="Search formulas for this preset and mode" label="Search formulas" />
 
-			{#if keepOpen}<FormulaAppliedBar {tab} compact />{/if}
+			{#if keepOpen && !host}<FormulaAppliedBar {tab} compact />{/if}
 
 			{#if schemaError}
 				<div class="mx-3 mb-2 flex items-center justify-between gap-3 rounded-lg border border-danger/25 bg-danger/10 px-3 py-2" role="alert">
@@ -448,10 +456,12 @@
 						<Button variant="secondary" size="sm" onclick={() => loadFormulas(tab.selectedPreset ?? '', tab.selectedMode ?? '')}>Try again</Button>
 					</div>
 				{:else if filtered.length === 0}
-					<div class="px-6 py-8 text-center text-sm text-fg-muted">
-						<b class="mb-1 block font-semibold text-fg">{query ? `No formulas match “${query}”` : 'No formulas for this mode yet'}</b>
-						{query ? 'Only formulas for this preset and mode are searched.' : 'Save the settings you like and reuse them in any session.'}
-					</div>
+					<EmptyState
+						compact
+						icon={query ? 'search' : 'sliders'}
+						title={query ? `No formulas match “${query}”` : 'No formulas for this mode yet'}
+						description={query ? 'Only formulas for this preset and mode are searched.' : 'Save the settings you like and reuse them in any session.'}
+					/>
 				{:else}
 					<DrawerGroupHead label="Your formulas" count={filtered.length} />
 					<ul class="m-0 list-none p-0">

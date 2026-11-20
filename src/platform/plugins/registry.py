@@ -26,6 +26,7 @@ from src.platform.plugins.router_mounter import (
 from src.platform.media_tools import MediaTool, ToolSpec
 from src.platform.media_tools.types import DEFAULT_SCOPES
 from src.platform.media_tools.effects.loader import EffectLoader, register_effects
+from src.platform.plugins.editor_schema import EditorSchemaError, read_tool_schema, validate_tool_schema
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry
 from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.plugins.automation_nodes import NodeField, NodeTypeSpec
@@ -183,6 +184,7 @@ _SOURCE_REGISTRY_ATTRS = (
     "recipe_step_kind_registry",
     "llm_provider_registry",
     "media_tool_registry",
+    "editor_task_registry",
 )
 
 
@@ -219,6 +221,7 @@ class PluginRegistry:
         limit_kind_registry: Optional[LimitKindRegistry] = None,
         media_tool_registry=None,
         effect_runtime=None,
+        editor_task_registry=None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -268,6 +271,7 @@ class PluginRegistry:
         self.recipe_step_kind_registry = recipe_step_kind_registry
         self.llm_provider_registry = llm_provider_registry
         self.media_tool_registry = media_tool_registry
+        self.editor_task_registry = editor_task_registry
         self.effect_runtime = effect_runtime
         self.organize_registry = organize_registry if organize_registry is not None else _shared_organize_registry
         self.limit_kind_registry = (
@@ -553,10 +557,12 @@ class PluginRegistry:
         for register_step in (
             self._register_plugin_hooks,
             self._register_plugin_field_types,
+            self._validate_editor_tool_schemas,
             self._register_plugin_model_metadata_fields,
             self._register_plugin_tools,
             self._register_plugin_media_tools,
             self._register_plugin_effects,
+            self._register_plugin_editor_tasks,
             self._register_plugin_chat_modes,
             self._register_plugin_resources,
             self._register_plugin_automation_nodes,
@@ -690,6 +696,27 @@ class PluginRegistry:
             if error:
                 return error
 
+        return None
+
+    def _validate_editor_tool_schemas(self, manifest: PluginManifest) -> Optional[str]:
+        """
+        Read every `editor_tools[].schema` file and check its field list.
+
+        Runs after the plugin's own field types are registered, so a tool may
+        use them. Returns an error message naming the tool and the field when
+        a file is missing, unreadable, or declares a field type nobody
+        registered; None when every declared schema is sound.
+        """
+        known = None if self.field_registry is None else [defn.type_name for defn in self.field_registry.all()]
+        for tool in manifest.editor_tools:
+            relative = tool.get("schema_file")
+            if not relative:
+                continue
+            where = f"editor_tools '{tool.get('id')}'"
+            try:
+                validate_tool_schema(read_tool_schema(manifest.plugin_dir, relative), known, where)
+            except EditorSchemaError as exc:
+                return str(exc) if str(exc).startswith(where) else f"{where}: {exc}"
         return None
 
     def _register_plugin_model_metadata_fields(self, manifest: PluginManifest) -> Optional[str]:
@@ -1284,6 +1311,19 @@ class PluginRegistry:
                 return "; ".join(f"Effect {name}: {message}" for name, message in loaded.errors)
             try:
                 register_effects(self.media_tool_registry, loaded.effects, self.effect_runtime)
+            except ValueError as exc:
+                return str(exc)
+        return None
+
+    def _register_plugin_editor_tasks(self, manifest: PluginManifest) -> Optional[str]:
+        skip, error = self._require_registry(
+            manifest.editor_tasks, self.editor_task_registry, "editor_tasks", "editor task"
+        )
+        if skip:
+            return error
+        for entry in manifest.editor_tasks:
+            try:
+                self.editor_task_registry.register_manifest_entry(manifest.id, entry)
             except ValueError as exc:
                 return str(exc)
         return None

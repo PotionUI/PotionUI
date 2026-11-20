@@ -51,6 +51,8 @@ export interface WireThumbnail {
 	url: string | null;
 	thumbnail_small: string | null;
 	thumbnail_medium: string | null;
+	width?: number | null;
+	height?: number | null;
 }
 
 export interface WireKit {
@@ -100,8 +102,8 @@ function previewFrom(wire: WireKit, kitId: string): KitItem[] {
 		text: null,
 		url: thumb.url,
 		thumbnail_url: thumb.thumbnail_medium ?? thumb.thumbnail_small ?? (thumb.kind === 'image' ? thumb.url : null),
-		width: null,
-		height: null,
+		width: thumb.width ?? null,
+		height: thumb.height ?? null,
 		duration_seconds: null,
 		missing: false,
 		created_at: ''
@@ -168,6 +170,10 @@ export function kitListParams(query: KitListQuery): Record<string, string | numb
 	const params: Record<string, string | number> = {};
 	if (query.label) params.label = query.label;
 	if (query.search?.trim()) params.search = query.search.trim();
+	if (query.sort_by && query.sort_by !== 'manual') {
+		params.sort_by = query.sort_by;
+		if (query.sort_dir) params.sort_dir = query.sort_dir;
+	}
 	const size = query.page_size;
 	if (size) params.limit = size;
 	if (size && query.page && query.page > 1) params.offset = (query.page - 1) * size;

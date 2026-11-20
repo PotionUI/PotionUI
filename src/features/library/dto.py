@@ -6,9 +6,24 @@ collections). It carries no generation fields even when it started life as a
 copy of one - see `src.features.library.operations.copy_generation_file`.
 """
 
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
+
+
+class LibrarySortBy(str, Enum):
+    added = "added"
+    name = "name"
+    size = "size"
+
+
+class MadeInEditor(BaseModel):
+    edit_id: str
+    tool: Optional[str] = None
+    revision: Optional[int] = None
+    available: bool = False
+    continuable: bool = False
 
 
 class LibraryItem(BaseModel):
@@ -35,6 +50,7 @@ class LibraryItem(BaseModel):
     has_audio: Optional[bool] = None
     source_generation_id: Optional[str] = None
     provenance: Optional[Dict[str, Any]] = None
+    made_in_editor: Optional[MadeInEditor] = None
 
 
 class LibraryListResult(BaseModel):

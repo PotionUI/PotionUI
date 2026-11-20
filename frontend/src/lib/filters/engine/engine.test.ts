@@ -258,7 +258,7 @@ describe('golden: .cube files', () => {
 
 describe('tone op against the legacy Adjust kernel', () => {
 	const kernels = Object.values(
-		import.meta.glob('../../components/imageEditor/{filters,adjustments}/kernels.ts', {
+		import.meta.glob('../../paint/{filters,adjustments}/kernels.ts', {
 			eager: true
 		})
 	)[0] as { applyTone: (data: Uint8ClampedArray, params: Record<string, number>) => void };

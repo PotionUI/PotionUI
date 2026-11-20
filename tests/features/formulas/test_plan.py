@@ -6,7 +6,7 @@ from src.features.formulas import operations
 from src.features.formulas.dto import CreateFormulaRequest, PlanFormulaRequest
 from src.features.formulas.errors import FormulaError
 from src.features.formulas.sources import DeclaredGroup
-from tests.features.formulas.conftest import make_user
+from tests.features.formulas.conftest import build_form, make_user
 
 
 def save(collaborators, groups, values, name="F", signatures=None):
@@ -418,6 +418,22 @@ def test_plan_loads_the_requested_form_variant(collaborators, forms):
     operations.plan_formula(collaborators, make_user(), formula.id, PlanFormulaRequest(form_name="alt", current_values={}))
 
     assert forms.requested[-1] == ("preset-a", "video", "alt")
+
+
+def test_plan_against_another_mode_uses_that_modes_form_and_skips_what_it_lacks(collaborators, forms):
+    formula = save(collaborators, ["speed", "size"], {"steps": 4, "resolution": "832x480"})
+    editor = build_form()
+    fields = {name: spec for name, spec in editor.fields.items() if name != "resolution"}
+    groups = [DeclaredGroup("speed", "Speed and sampling", ["speed_profile", "steps", "sampler"])]
+    forms.forms[("preset-a", "editor:edit")] = dataclasses.replace(editor, fields=fields, groups=groups)
+
+    result = operations.plan_formula(
+        collaborators, make_user(), formula.id, PlanFormulaRequest(mode="editor:edit", current_values={})
+    )
+
+    assert forms.requested[-1][1] == "editor:edit"
+    assert change_names(result) == ["steps"]
+    assert skip_codes(result) == {("resolution", "field_removed")}
 
 
 def test_plan_for_a_form_that_cannot_load_is_refused(collaborators, forms):

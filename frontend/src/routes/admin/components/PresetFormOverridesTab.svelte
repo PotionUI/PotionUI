@@ -248,7 +248,7 @@
 
 	{#if modesError}
 		<EmptyState title="Modes unavailable" description={modesError} icon="warning" compact>
-			{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={loadModes}>Try again</Button>{/snippet}
+			{#snippet actions()}<Button size="sm" variant="secondary" icon="refresh" onclick={loadModes}>Try again</Button>{/snippet}
 		</EmptyState>
 	{:else if overridesLoading}
 		<div class="flex items-center justify-center py-10">
@@ -256,7 +256,7 @@
 		</div>
 	{:else if overridesError}
 		<EmptyState title="Form overrides unavailable" description={overridesError} icon="warning" compact>
-			{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={loadOverrides}>Try again</Button>{/snippet}
+			{#snippet actions()}<Button size="sm" variant="secondary" icon="refresh" onclick={loadOverrides}>Try again</Button>{/snippet}
 		</EmptyState>
 	{:else if fields.length === 0}
 		<EmptyState title="No fields on this form" description="This mode's form doesn't declare any fields to override." icon="sliders" compact />

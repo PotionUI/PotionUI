@@ -538,10 +538,10 @@
 						compact
 					>
 						{#snippet actions()}
-							<Button variant="primary" icon="plus" size="sm" onclick={() => (showCreateModal = true)}>
+							<Button size="sm" variant="secondary" icon="plus" onclick={() => (showCreateModal = true)}>
 								Create new automation
 							</Button>
-							<Button variant="secondary" icon="copy" size="sm" onclick={() => selectSection('templates')}>
+							<Button size="sm" variant="secondary" icon="copy" onclick={() => selectSection('templates')}>
 								Browse templates
 							</Button>
 						{/snippet}
@@ -555,7 +555,7 @@
 						compact
 					>
 						{#snippet actions()}
-							<Button variant="ghost" size="sm" onclick={() => updateFilters(DEFAULT_AUTOMATIONS_FILTERS)}>
+							<Button size="sm" variant="secondary" onclick={() => updateFilters(DEFAULT_AUTOMATIONS_FILTERS)}>
 								Clear search
 							</Button>
 						{/snippet}

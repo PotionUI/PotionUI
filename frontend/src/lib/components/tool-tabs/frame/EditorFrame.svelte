@@ -2,9 +2,14 @@
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { pageOwnsKeys } from '$lib/utils/shortcutGuard';
+	import { settingsPaneWidth } from '$lib/stores/generationLayout';
+	import { viewportWidth } from '$lib/stores/viewport';
 	import { setFrameContext } from '$lib/tool-tabs/frame/context';
+	import { CANVAS_BAR_RESERVE } from '$lib/tool-tabs/frame/viewport';
 	import { resolveFrameKey, targetActivatesOn } from '$lib/tool-tabs/frame/keymap';
 	import type { StackVariant } from '$lib/tool-tabs/frame/types';
+	import type { CanvasAction } from '$lib/editors/railTools';
+	import CanvasActionBar from './CanvasActionBar.svelte';
 	import FrameSheet from './FrameSheet.svelte';
 
 	let {
@@ -15,7 +20,10 @@
 		editCount = 0,
 		stackOpen = $bindable(false),
 		phoneChips = 'top',
+		panelSide = 'left',
 		barVisible = true,
+		phoneSize = null,
+		canvasActions = [],
 		onundo,
 		onredo,
 		onsave,
@@ -25,6 +33,7 @@
 		rail,
 		canvas,
 		below,
+		dock,
 		panelTop,
 		bar,
 		options,
@@ -37,7 +46,10 @@
 		editCount?: number;
 		stackOpen?: boolean;
 		phoneChips?: 'top' | 'bottom';
+		panelSide?: 'left' | 'right';
 		barVisible?: boolean;
+		phoneSize?: string | null;
+		canvasActions?: CanvasAction[];
 		onundo: () => void;
 		onredo: () => void;
 		onsave: () => void;
@@ -47,6 +59,7 @@
 		rail?: Snippet;
 		canvas: Snippet;
 		below?: Snippet;
+		dock?: Snippet;
 		panelTop?: Snippet;
 		bar?: Snippet;
 		options?: Snippet;
@@ -55,6 +68,7 @@
 
 	let root = $state<HTMLElement | null>(null);
 	let spaceHeld = $state(false);
+	let drawing = $state(false);
 
 	setFrameContext({
 		get spaceHeld() {
@@ -62,6 +76,12 @@
 		},
 		get sheetHost() {
 			return root;
+		},
+		get canvasReserve() {
+			return !phone && canvasActions.length ? CANVAS_BAR_RESERVE : 0;
+		},
+		get panelSide() {
+			return panelSide;
 		}
 	});
 
@@ -94,6 +114,15 @@
 		if (!active) spaceHeld = false;
 	});
 
+	function pointerDown(event: PointerEvent) {
+		if (event.button !== 0 || (event.target instanceof Element && event.target.closest('[data-canvas-actions-host], [data-canvas-actions]'))) return;
+		drawing = true;
+	}
+
+	function pointerUp() {
+		drawing = false;
+	}
+
 	function hold(on: boolean) {
 		if (canCompare) compare = on;
 	}
@@ -106,12 +135,20 @@
 	}
 </script>
 
-<svelte:window onkeydowncapture={onkeydown} onkeyup={onkeyup} onblur={() => (spaceHeld = false)} />
+<svelte:window onkeydowncapture={onkeydown} onkeyup={onkeyup} onblur={() => (spaceHeld = false)} onpointerupcapture={pointerUp} onpointercancelcapture={pointerUp} />
+
+{#snippet panel()}
+	<aside class="flex min-h-0 flex-none flex-col border-line bg-surface-1 {panelSide === 'left' ? 'border-r' : 'border-l'}" style="width: {settingsPaneWidth($viewportWidth)}px" aria-label="Tool options and edits" data-frame-panel={panelSide}>
+		{@render panelTop?.()}
+		{@render options?.()}
+		{@render stack?.('panel')}
+	</aside>
+{/snippet}
 
 {#if phone}
 	<div bind:this={root} class="relative flex h-full min-h-0 flex-col bg-canvas" data-editor-frame="phone">
 		{@render toolbar()}
-		<div class="relative flex min-h-0 flex-1">
+		<div class="relative flex min-h-0 flex-1" onpointerdowncapture={pointerDown} role="presentation">
 			{@render canvas()}
 			<div class="pointer-events-none absolute inset-x-2.5 flex items-center justify-between {phoneChips === 'top' ? 'top-2.5' : 'bottom-2.5'}">
 				<div class="pointer-events-auto flex items-center gap-1.5">
@@ -126,7 +163,7 @@
 							data-frame-edits
 						>
 							<Icon name="editor-layers" className="h-3.5 w-3.5" />
-							{editCount} {editCount === 1 ? 'edit' : 'edits'}
+							{editCount} {editCount === 1 ? 'edit' : 'edits'}{#if phoneSize}<span aria-hidden="true">·</span><span data-frame-size>{phoneSize}</span>{/if}
 							<Icon name="chevron-down" className="h-3.5 w-3.5" />
 						</button>
 					{:else}
@@ -156,6 +193,7 @@
 			</div>
 		</div>
 		{@render below?.()}
+		<CanvasActionBar actions={canvasActions} hidden={drawing} variant="strip" />
 		{#if bar && barVisible}
 			<div class="flex h-12 flex-none items-center gap-2.5 border-t border-line bg-surface-1 px-3" data-options-bar="phone">
 				{@render bar()}
@@ -170,21 +208,25 @@
 		{/if}
 	</div>
 {:else}
-	<div bind:this={root} class="relative flex h-full min-h-0 flex-col bg-canvas" data-editor-frame="desktop">
+	<div bind:this={root} class="relative flex h-full min-h-0 bg-canvas" data-editor-frame="desktop">
+		<div class="h-full w-3 flex-shrink-0 border-r border-line bg-surface-3" aria-hidden="true" data-frame-divider></div>
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col" data-frame-column>
 		{@render toolbar()}
 		<div class="flex min-h-0 flex-1">
 			{@render rail?.()}
+			{#if panelSide === 'left'}{@render panel()}{/if}
 			<div class="flex min-w-0 flex-1 flex-col">
-				<div class="relative flex min-h-0 flex-1">
+				<div class="relative flex min-h-0 flex-1" onpointerdowncapture={pointerDown} role="presentation" data-frame-canvas>
 					{@render canvas()}
+					<CanvasActionBar actions={canvasActions} hidden={drawing} />
 				</div>
 				{@render below?.()}
+				{#if dock}
+					<div class="flex-none" data-frame-dock>{@render dock()}</div>
+				{/if}
 			</div>
-			<aside class="flex min-h-0 w-[312px] flex-none flex-col border-l border-line bg-surface-1" aria-label="Tool options and edits" data-frame-panel>
-				{@render panelTop?.()}
-				{@render options?.()}
-				{@render stack?.('panel')}
-			</aside>
+			{#if panelSide === 'right'}{@render panel()}{/if}
 		</div>
+	</div>
 	</div>
 {/if}

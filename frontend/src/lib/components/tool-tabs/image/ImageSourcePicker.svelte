@@ -6,7 +6,7 @@
 	import type { LibraryItem } from '$lib/services/api/library';
 	import { historyFileRef, libraryItemRef } from '$lib/tool-tabs/image/sourceRefs';
 	import type { SourceEntryId } from '$lib/tool-tabs/sourceEntries';
-	import type { GenerationFile } from '$lib/types/history';
+	import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 	import type { MediaRef } from '$lib/types/tabs';
 
 	let {
@@ -25,9 +25,9 @@
 		else input?.click();
 	}
 
-	function fromHistory(_generation: unknown, file: GenerationFile) {
+	function fromHistory(generation: GenerationHistoryItem, file: GenerationFile) {
 		picking = null;
-		if (file?.file_path) onpick(historyFileRef(file));
+		if (file?.file_path) onpick(historyFileRef(file, generation));
 	}
 
 	function fromLibrary(item: LibraryItem) {

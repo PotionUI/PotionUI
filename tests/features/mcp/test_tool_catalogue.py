@@ -32,6 +32,7 @@ WRITES = {
     "manage_collections", "organize_gallery", "start_generation", "run_media_tool",
     "manage_prompt_variables", "cancel_generation", "upload_media",
     "run_elixir", "run_automation", "download_model", "delete_generation", "delete_library_item", "publish_inspiration", "mark_notifications_read",
+    "manage_kits",
 }
 
 CANNOT_RUN = {

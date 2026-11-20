@@ -234,7 +234,9 @@ def world(mcp_db):
             media_indexer=indexer,
             collection_repository=CollectionRepository(),
             tag_repository=TagRepository(),
-            library_collaborators=SimpleNamespace(repository=LibraryRepository(), tag_repository=TagRepository()),
+            library_collaborators=SimpleNamespace(
+                repository=LibraryRepository(), tag_repository=TagRepository(), edit_repository=None,
+            ),
             generation_history_facade=history,
             plugin_registry=_Registry(),
             tab_drafts=drafts,

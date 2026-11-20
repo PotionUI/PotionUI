@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Tuple
 
-from src.features.presets.templates import PresetTemplate
+from src.features.presets.templates import ModeTemplate, PresetTemplate
 
 MIRROR_OK = "ok"
 MIRROR_SOURCE_MISSING = "source_missing"
@@ -64,6 +64,14 @@ def mirror_modes(source: PresetTemplate, offered: Optional[Tuple[str, ...]], fir
     return ordered
 
 
+def _mirror_editor_modes(source: PresetTemplate, modes: List[str]) -> Dict[str, ModeTemplate]:
+    return {
+        name: mode
+        for name, mode in (source.editor_modes or {}).items()
+        if mode.editor is None or mode.editor.from_mode is None or mode.editor.from_mode in modes
+    }
+
+
 def _mirror(source: PresetTemplate, row: RowOverlay, modes: List[str]) -> PresetTemplate:
     return replace(
         source,
@@ -72,6 +80,7 @@ def _mirror(source: PresetTemplate, row: RowOverlay, modes: List[str]) -> Preset
         description=row.display_description or source.description,
         media=_with_cover(source.media, row.display_cover),
         modes={mode: source.modes[mode] for mode in modes},
+        editor_modes=_mirror_editor_modes(source, modes),
         requirements=[spec for spec in source.requirements if spec.get("mode") in (None, *modes)],
         source_preset_id=source.id,
         file_name=source.file_name,

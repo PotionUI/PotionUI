@@ -225,3 +225,27 @@
     & .generate-button { transition: none !important; }
   }
 }
+
+.generate-mark-host {
+  --mark-size: 70px;
+  --mark-glyph: 60px;
+  display: inline-flex;
+
+  & .generate-button { width: var(--mark-size); height: var(--mark-size); display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: rgb(var(--surface-2)); color: rgb(var(--accent)); cursor: pointer; transition: background-color 150ms ease; }
+
+  & .generate-button:hover:not(:disabled) { background: rgb(var(--surface-3)); }
+
+  & .generate-button:disabled { cursor: not-allowed; opacity: .4; }
+
+  & .generate-mark { width: var(--mark-glyph); height: var(--mark-glyph); display: block; }
+
+  & .mark-orbit { transform-box: view-box; transform-origin: 24px 24px; }
+
+  & .generate-button.is-cancel .mark-orbit { animation: mark-orbit 3.2s linear infinite; }
+
+  @media (prefers-reduced-motion: reduce) {
+    & .mark-orbit { animation: none !important; }
+
+    & .generate-button { transition: none !important; }
+  }
+}

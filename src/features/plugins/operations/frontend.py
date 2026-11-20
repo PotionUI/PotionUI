@@ -3,10 +3,12 @@ Manifest/registry-derived reads for the frontend: quick actions, sidebar
 widgets, renderer/extension-slot contributions, and the hooks catalog.
 """
 import hashlib
+import logging
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterator, List, Optional
 
 from src.features.plugins.repository import PluginRepository
+from src.platform.plugins.editor_schema import EditorSchemaError, read_tool_schema
 from src.platform.plugins.registry import PluginRegistry
 from src.platform.plugins.hooks import hooks_registry
 
@@ -111,6 +113,9 @@ def _revision_inputs(manifest) -> Iterator[Path]:
         return
 
 
+logger = logging.getLogger(__name__)
+
+
 def plugin_frontend_revision(manifest) -> str:
     """Identity of a plugin's frontend surface: its declared version, its
     manifest file, and the compiled bundles a browser imports.
@@ -167,6 +172,7 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
     renderers: List[Dict[str, Any]] = []
     contributions: List[Dict[str, Any]] = []
     tool_tabs: List[Dict[str, Any]] = []
+    editor_sections: Dict[str, List[Dict[str, Any]]] = {name: [] for name in _EDITOR_SECTIONS}
     enabled_db_plugins = repo.get_enabled_plugins()
 
     for plugin in enabled_db_plugins:
@@ -200,13 +206,78 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
         for tool_tab_def in manifest.tool_tabs:
             tool_tabs.append(_tool_tab_entry(manifest.id, tool_tab_def))
 
+        for section, shape in _EDITOR_SECTIONS.items():
+            for entry_def in getattr(manifest, section, None) or []:
+                entry = _editor_entry(manifest.id, entry_def, shape)
+                if section == "editor_tools":
+                    declared = _tool_schema(manifest, entry_def)
+                    if declared is not None:
+                        entry["schema"] = declared
+                editor_sections[section].append(entry)
+
     contributions.sort(key=lambda c: c["order"])
     return {
         "renderers": renderers,
         "contributions": contributions,
         "tool_tabs": tool_tabs,
+        **editor_sections,
         "revisions": revisions,
     }
+
+
+_DIST_PREFIX = "frontend/dist/"
+
+_EDITOR_SECTIONS: Dict[str, Dict[str, Any]] = {
+    "editor_steps": {
+        "fields": ("id", "editor", "label", "icon", "lane"),
+        "paths": ("module",),
+    },
+    "editor_tools": {
+        "fields": ("id", "editor", "group", "label", "icon", "order", "keys", "overlay", "task", "ai"),
+        "paths": ("options", "bar"),
+    },
+    "editor_groups": {
+        "fields": ("id", "editor", "label", "order"),
+        "paths": (),
+    },
+    "editor_overlays": {
+        "fields": ("id", "editor", "cursor", "produces"),
+        "paths": ("component",),
+    },
+    "editor_menu": {
+        "fields": ("id", "editor", "menu", "group", "order", "label", "icon", "keys", "menu_label"),
+        "paths": ("module",),
+    },
+    "editor_tasks": {
+        "fields": ("id", "editors", "label", "icon", "region", "prompt", "produces", "tool", "step_kind", "fallback"),
+        "paths": (),
+    },
+}
+
+
+def _dist_relative(value: Any) -> Any:
+    if isinstance(value, str) and value.startswith(_DIST_PREFIX):
+        return value[len(_DIST_PREFIX):]
+    return value
+
+
+def _tool_schema(manifest: Any, entry_def: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    relative = entry_def.get("schema_file")
+    if not relative:
+        return None
+    try:
+        return read_tool_schema(manifest.plugin_dir, relative)
+    except EditorSchemaError as exc:
+        logger.error("Plugin %s: editor tool %s schema skipped: %s", manifest.id, entry_def.get("id"), exc)
+        return None
+
+def _editor_entry(plugin_id: str, entry_def: Dict[str, Any], shape: Dict[str, Any]) -> Dict[str, Any]:
+    entry: Dict[str, Any] = {"plugin_id": plugin_id}
+    for name in shape["fields"]:
+        entry[name] = entry_def.get(name)
+    for name in shape["paths"]:
+        entry[name] = _dist_relative(entry_def.get(name))
+    return entry
 
 
 def _tool_tab_entry(plugin_id: str, tool_tab_def: Dict[str, Any]) -> Dict[str, Any]:

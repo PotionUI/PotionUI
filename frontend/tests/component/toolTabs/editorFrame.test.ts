@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { get } from 'svelte/store';
 import { targetActivatesOn } from '$lib/tool-tabs/frame/keymap';
+import { settingsPaneWidth } from '$lib/stores/generationLayout';
+import { viewportWidth } from '$lib/stores/viewport';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
 
@@ -20,15 +23,91 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe('EditorFrame layout', () => {
-	it('lays out toolbar, rail, canvas and a 312px panel with options above the stack on desktop', () => {
+	it('lays out toolbar, rail, canvas and a left panel sized like the settings pane with options above the stack on desktop', () => {
 		const { q } = render();
 		const frame = q('[data-editor-frame="desktop"]')!;
-		const panel = q('[data-frame-panel]')!;
-		expect(frame.firstElementChild?.hasAttribute('data-host-toolbar')).toBe(true);
-		expect(panel.className).toContain('w-[312px]');
+		const panel = q<HTMLElement>('[data-frame-panel]')!;
+		expect(frame.querySelector('[data-frame-column]')!.firstElementChild?.hasAttribute('data-host-toolbar')).toBe(true);
+		expect(panel.style.width).toBe(`${settingsPaneWidth(get(viewportWidth))}px`);
 		expect(panel.children[0].hasAttribute('data-host-options')).toBe(true);
 		expect(q('[data-host-stack]')?.getAttribute('data-host-stack')).toBe('panel');
 		expect(q('[data-frame-edits]')).toBeNull();
+	});
+
+	function desktopOrder(q: <T extends Element = HTMLElement>(sel: string) => T | null) {
+		const row = q('[data-frame-panel]')!.parentElement!;
+		return Array.from(row.children).map((el) => (el.hasAttribute('data-host-rail') ? 'rail' : el.hasAttribute('data-frame-panel') ? 'panel' : 'canvas'));
+	}
+
+	it('puts the panel between the rail and the canvas by default, with one line on its canvas edge', () => {
+		const { q } = render();
+		const panel = q<HTMLElement>('[data-frame-panel]')!;
+		expect(desktopOrder(q)).toEqual(['rail', 'panel', 'canvas']);
+		expect(panel.getAttribute('data-frame-panel')).toBe('left');
+		expect(panel.classList.contains('border-r')).toBe(true);
+		expect(panel.classList.contains('border-l')).toBe(false);
+		expect(panel.classList.contains('border-line')).toBe(true);
+	});
+
+	it('puts the panel after the canvas when panelSide is right, with one line on its canvas edge', () => {
+		const { q } = render({ panelSide: 'right' });
+		const panel = q<HTMLElement>('[data-frame-panel]')!;
+		expect(desktopOrder(q)).toEqual(['rail', 'canvas', 'panel']);
+		expect(panel.getAttribute('data-frame-panel')).toBe('right');
+		expect(panel.classList.contains('border-l')).toBe(true);
+		expect(panel.classList.contains('border-r')).toBe(false);
+		expect(panel.classList.contains('border-line')).toBe(true);
+	});
+
+	it.each([{}, { panelSide: 'right' }])('has no handle strip between the panel and the canvas, and the panel stays open: %j', (props) => {
+		const { q } = render(props);
+		expect(q('[data-frame-panel-handle]')).toBeNull();
+		expect(q('[data-frame-panel]')!.classList.contains('hidden')).toBe(false);
+	});
+
+	it('makes the rail and a left panel one unit: a 2px line on the right edge of the rail, a strong outer divider, the selected tool keeping its selected look inside the line', () => {
+		const { q } = render();
+		const rail = q<HTMLElement>('[data-tool-rail]')!;
+		const selected = q<HTMLElement>('button[data-tool="crop"]')!;
+		const other = q<HTMLElement>('button[data-tool="rotate"]')!;
+		expect(rail.hasAttribute('data-rail-joined')).toBe(true);
+		expect(rail.classList.contains('border-r-2')).toBe(true);
+		expect(rail.classList.contains('border-line')).toBe(true);
+		expect(rail.classList.contains('border-l')).toBe(false);
+		expect(rail.classList.contains('bg-surface-1/50')).toBe(true);
+		expect(selected.classList.contains('bg-surface-1')).toBe(true);
+		expect(selected.classList.contains('rounded-r-none')).toBe(false);
+		expect(selected.classList.contains('w-11')).toBe(true);
+		for (const cls of ['pl-1.5', 'pr-0', 'pr-1.5', 'ml-auto', 'mr-0', '-mr-px', 'rounded-r-none']) expect(rail.classList.contains(cls) || selected.classList.contains(cls)).toBe(false);
+		expect(rail.classList.contains('px-[3px]')).toBe(true);
+		expect(other.classList.contains('w-11')).toBe(true);
+		expect(rail.style.width).toBe('52px');
+		expect(3 + 44 + 3 + 2).toBe(52);
+		expect(other.classList.contains('bg-surface-1')).toBe(false);
+	});
+
+	it('keeps the plain bordered rail when the panel is on the right', () => {
+		const { q } = render({ panelSide: 'right' });
+		const rail = q<HTMLElement>('[data-tool-rail]')!;
+		expect(rail.hasAttribute('data-rail-joined')).toBe(false);
+		expect(rail.classList.contains('border-r')).toBe(true);
+		expect(rail.classList.contains('border-l')).toBe(false);
+	});
+
+	it.each([{}, { panelSide: 'right' }])('puts a purely visual divider the full height before the toolbar and the rail: %j', (props) => {
+		const { q } = render(props);
+		const frame = q('[data-editor-frame="desktop"]')!;
+		const divider = frame.firstElementChild as HTMLElement;
+		expect(divider.hasAttribute('data-frame-divider')).toBe(true);
+		for (const cls of ['w-3', 'h-full', 'flex-shrink-0', 'border-r', 'border-line', 'bg-surface-3']) expect(divider.classList.contains(cls)).toBe(true);
+		expect(divider.getAttribute('aria-hidden')).toBe('true');
+		expect(divider.tagName).toBe('DIV');
+		expect(divider.children).toHaveLength(0);
+		expect(divider.getAttribute('tabindex')).toBeNull();
+		const column = frame.children[1] as HTMLElement;
+		expect(column.firstElementChild!.hasAttribute('data-host-toolbar')).toBe(true);
+		expect(column.contains(q('[data-host-rail]'))).toBe(true);
+		expect(frame.querySelectorAll('[data-frame-rail-handle]')).toHaveLength(0);
 	});
 
 	it('docks the options above the tool strip on a phone and opens the stack as a sheet', () => {
@@ -63,6 +142,64 @@ describe('EditorFrame layout', () => {
 	it('hides Hold when there is nothing to compare', () => {
 		const { q } = render({ phone: true, canCompare: false });
 		expect(q('[data-frame-hold]')).toBeNull();
+	});
+});
+
+describe('EditorFrame dock', () => {
+	it('has no dock region unless the tool supplies one', () => {
+		const { q } = render();
+		expect(q('[data-frame-dock]')).toBeNull();
+	});
+
+	it('docks the region under the canvas in the canvas column, below the zoom and status chrome, not under the panel', () => {
+		const { q } = render({ withDock: true });
+		const dock = q('[data-frame-dock]')!;
+		const column = dock.parentElement!;
+		expect(dock.querySelector('[data-host-dock]')).not.toBeNull();
+		expect(column.contains(q('[data-canvas-zoom]'))).toBe(true);
+		expect(q('[data-frame-panel]')!.contains(dock)).toBe(false);
+		const kids = Array.from(column.children);
+		expect(kids.indexOf(dock)).toBe(kids.length - 1);
+		expect(kids.find((child) => child.contains(q('[data-canvas-zoom]')))).not.toBe(dock);
+		expect(dock.previousElementSibling?.contains(q('[data-canvas-zoom]'))).toBe(true);
+	});
+
+	it('is not drawn on a phone, where the prompt stays a sheet', () => {
+		const { q } = render({ withDock: true, phone: true });
+		expect(q('[data-frame-dock]')).toBeNull();
+	});
+
+	it('leaves the canvas one resize to refit when the dock appears, and refits once', () => {
+		const callbacks: Array<() => void> = [];
+		const original = globalThis.ResizeObserver;
+		globalThis.ResizeObserver = class {
+			constructor(callback: () => void) {
+				callbacks.push(callback);
+			}
+			observe() {}
+			unobserve() {}
+			disconnect() {}
+		} as never;
+		let height = 300;
+		const widthSpy = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+		const heightSpy = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+		Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 1000 });
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => height });
+		try {
+			const { q } = render();
+			const before = q('[data-canvas-zoom]')?.closest('[data-zoom]')?.getAttribute('data-zoom');
+			height = 180;
+			const calls = callbacks.length;
+			callbacks.forEach((callback) => callback());
+			flushSync();
+			const after = q('[data-canvas-zoom]')?.closest('[data-zoom]')?.getAttribute('data-zoom');
+			expect(callbacks.length).toBe(calls);
+			expect(Number(after)).toBeLessThan(Number(before));
+		} finally {
+			globalThis.ResizeObserver = original;
+			if (widthSpy) Object.defineProperty(HTMLElement.prototype, 'clientWidth', widthSpy);
+			if (heightSpy) Object.defineProperty(HTMLElement.prototype, 'clientHeight', heightSpy);
+		}
 	});
 });
 

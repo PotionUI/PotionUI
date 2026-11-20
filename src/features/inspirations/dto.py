@@ -7,12 +7,20 @@ avatar-url formula `User.to_dict()` uses - neither of which the record
 itself should know about.
 """
 
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 from src.features.inspirations.records import Inspiration, InspirationComment, InspirationCollection
 from src.platform.database.rows import dt_iso
+
+
+class InspirationSortBy(str, Enum):
+    created = "created"
+    title = "title"
+    saved = "saved"
+    comments = "comments"
 
 
 class PublishInspirationRequest(BaseModel):

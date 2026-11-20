@@ -1,0 +1,9 @@
+schema_version: 1
+task: find_subject
+from: remove_background
+region: whole
+inputs:
+  source: input_image
+size:
+  area: 4194304
+  multiple: 8

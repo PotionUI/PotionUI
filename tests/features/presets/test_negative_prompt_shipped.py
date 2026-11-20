@@ -17,6 +17,7 @@ EXPECTED = {
     ("Krea2", "txt2img"), ("Krea2", "enhance"),
     ("Krea2", "edit"), ("Krea2", "upscale"),
     ("LTX-2", "video"), ("LTX-2", "upscale"), ("LTX-2", "motion_transfer"), ("LTX-2", "follow_motion"),
+    ("LTX-2.5", "txt2video"), ("LTX-2.5", "img2video"), ("LTX-2.5", "first_last"),
     ("LTX-2.5", "video"), ("LTX-2.5", "upscale"), ("LTX-2.5", "restore"), ("LTX-2.5", "colorize"),
     ("LTX-2.5", "add_water"), ("LTX-2.5", "remove_object"), ("LTX-2.5", "layout_to_render"), ("LTX-2.5", "motion_transfer"), ("LTX-2.5", "extend"), ("LTX-2.5", "refine_faces"),
     ("LTX-2.5", "day_to_night"), ("LTX-2.5", "cinemagraph"), ("LTX-2.5", "transition"), ("LTX-2.5", "follow_motion"), ("LTX-2.5", "ingredients"),

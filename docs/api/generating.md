@@ -196,7 +196,7 @@ When authentication fails the server accepts the connection and closes it at onc
 {"type": "subscribe_generation", "generation_id": "01M784T12AM8PB480H6B8CTY66"}
 ```
 
-The server answers `subscribed`, followed by a `status_update` with the current status, so you do not miss anything that happened before you subscribed. Check that snapshot: a generation that already ended produces no further messages. Asking for a generation that does not exist or is not yours gives `subscription_error` with a message and no details of whose it is.
+The server answers `subscribed`, followed by a `status_update` with the current status, so you do not miss anything that happened before you subscribed. Check that snapshot: a generation that already ended produces no further messages. While the generation is still running, the server then sends the most recent `workbench_update` it has, and for a video the most recent `workbench_preview_clip`, each with `"replayed": true` added so you can tell them from live ones. A generation that has finished replays nothing; its result is in History. Asking for a generation that does not exist or is not yours gives `subscription_error` with a message and no details of whose it is.
 
 | Message `type` | When | Main fields |
 | --- | --- | --- |
@@ -207,8 +207,8 @@ The server answers `subscribed`, followed by a `status_update` with the current 
 | `generation_status` | Progress of a step | `generation_id`, `pipe_id`, `pipe_name`, `status`, `current_step`, `message`, `progress` |
 | `timer_update` | A step or the whole run was timed | `generation_id`, `timer_name`, `timer_value`, `timer_unit` (`s`), `formatted_time` |
 | `generation_update` | A step reported a parameter | `generation_id`, `pipe_id`, `pipe_name`, `output_type` |
-| `workbench_update` | An in-progress preview image | `generation_id`, `pipe_id`, the preview image |
-| `workbench_preview_clip` | A video preview of the sampling so far | `generation_id`, `pipe_id` |
+| `workbench_update` | An in-progress preview image | `generation_id`, `pipe_id`, the preview image, `replayed` (`true` only when sent on subscribe) |
+| `workbench_preview_clip` | A video preview of the sampling so far | `generation_id`, `pipe_id`, `replayed` (`true` only when sent on subscribe) |
 | `gallery_update` | The final images | `generation_id`, `pipe_id`, `images`: base64 data |
 | `pipe_artifact` | An artifact such as the seed or the models used | `generation_id`, `pipe_id` |
 | `queue_update` | The generation's place in the queue changed | `generation_id`, `status`, `queue_position` (`null` once running) |
@@ -228,15 +228,29 @@ When all slots are busy a new generation waits. The answer to `POST /api/generat
 {
   "success": true,
   "data": {
-    "pending": [{"generation_id": "01M783XQGEYRY6P8FXGXMEE198", "backend_id": "ed479d79-2d17-4ad9-976f-5d0c7b71f56e", "tab_id": null, "queue_position": 0}],
-    "running": [{"generation_id": "01M783XPYMB1EFRM6DY0GCWQHY", "backend_id": "ed479d79-2d17-4ad9-976f-5d0c7b71f56e", "preset_id": "01M3SVA35XT0E7CG5JZTS9P21S", "tab_id": null, "progress": null}]
+    "pending": [{"generation_id": "01M783XQGEYRY6P8FXGXMEE198", "backend_id": "ed479d79-2d17-4ad9-976f-5d0c7b71f56e", "tab_id": null, "queue_position": 0, "status": "pending", "preset_id": "01M3SVA35XT0E7CG5JZTS9P21S", "preset_name": "SDXL", "mode": "txt2img", "form_name": "default", "has_tab": false, "created_at": "2026-11-17T09:00:00+00:00", "started_at": null, "origin": {"kind": "mcp", "key_id": "01M7KEY", "key_name": "claude desktop", "key_current_name": "claude desktop"}}],
+    "running": [{"generation_id": "01M783XPYMB1EFRM6DY0GCWQHY", "backend_id": "ed479d79-2d17-4ad9-976f-5d0c7b71f56e", "preset_id": "01M3SVA35XT0E7CG5JZTS9P21S", "tab_id": null, "progress": null, "status": "running", "preset_name": "SDXL", "mode": "txt2img", "form_name": "default", "has_tab": false, "created_at": "2026-11-17T08:59:00+00:00", "started_at": "2026-11-17T08:59:02+00:00", "origin": null}]
   },
   "message": null,
   "error": null
 }
 ```
 
-How many generations run at once depends on the backend that serves the preset. `GET /api/generations/list` shows your active generations.
+How many generations run at once depends on the backend that serves the preset. `GET /api/generations/list` shows your active generations; each also carries `origin`.
+
+Every queue item says what it is without a second request: `status`, `preset_id` and `preset_name`, `mode`, `form_name`, `created_at` and `started_at` (`null` until it starts), `has_tab` (whether a tab id is set) and `origin`.
+
+### Where a generation came from
+
+`origin` is `null` for a generation started in a tab or over the HTTP API. Otherwise it is an object whose `kind` says how it started:
+
+| `kind` | Started by | Other fields |
+| --- | --- | --- |
+| `editor` | A task run in the Image editor | `edit_id`, `step_id`, `task`, `run_id` |
+| `mcp` | An MCP tool call (`start_generation`) | `key_id`, `key_name` (the name when it started), `key_current_name` (the name now, or `null` if the key no longer exists) |
+| `chat` | The assistant in a chat | none |
+
+Plugins may record other kinds. The secret or prefix of the key is never stored. The same object appears on the queue and active-list items, on History list items and on the single generation (`GET /api/generations/history/{generation_id}`), and you only see the origin of your own generations. Clients cannot set it: an `origin` in a request body or in tool arguments is ignored.
 
 ## Cancel
 
@@ -420,6 +434,7 @@ Starting a generation can be refused with:
 | 403 | `limit_exceeded` | A plan limit was reached. See below. |
 | 404 | `preset_not_found`, `form_not_found`, `model_not_found` | The preset, its form or a chosen model is not available to you. A model you may not use answers the same as one that does not exist. |
 | 409 | `idempotency_key_conflict` | The `idempotency_key` was used for a different request. |
+| 422 | `mode_is_editor` | The `mode` is an editor mode (`editor:<name>`). Those are for the Image editor's runs; send the mode of the preset's Generate page. |
 | 422 | `form_validation_failed` | `form_data` does not fit the form. `field_errors` names each field and what is wrong; `stripped` lists keys the form does not have. |
 | 422 | `validation_error` | The body does not fit the schema. |
 

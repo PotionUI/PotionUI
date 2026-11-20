@@ -11,6 +11,7 @@ import {
 	isVideoOp,
 	playbackPreview,
 	settlePending,
+	normalizeTool,
 	railToolOf,
 	summarize,
 	type VideoOp,
@@ -124,12 +125,14 @@ describe('playback preview', () => {
 });
 
 describe('step helpers', () => {
-	it('names the rail tool of an op, with every effect under Effects', () => {
-		expect(railToolOf('film_grain')).toBe('effects');
-		expect(railToolOf('retro-tape.scanlines')).toBe('effects');
+	it('names the rail entry of an op, one entry per op', () => {
+		expect(railToolOf('film_grain')).toBe('film_grain');
+		expect(railToolOf('retro-tape.scanlines')).toBe('retro-tape.scanlines');
 		expect(isVideoOp('retro-tape.scanlines')).toBe(true);
 		expect(isVideoOp('rotate')).toBe(false);
-		expect(railToolOf('replace_audio')).toBe('replace');
+		expect(railToolOf('replace_audio')).toBe('replace_audio');
+		expect(normalizeTool('replace')).toBe('replace_audio');
+		expect(normalizeTool('effects')).toBe('look');
 		expect(railToolOf('trim')).toBe('trim');
 		expect(railToolOf('rotate')).toBeNull();
 	});

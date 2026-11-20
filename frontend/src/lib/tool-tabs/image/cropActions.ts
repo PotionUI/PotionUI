@@ -1,4 +1,4 @@
-import { clampCropRect, fitAspect, mirrorCropRect, rotateCropRect, turn } from '$lib/media/editors/cropGeometry';
+import { clampCropRect, fitAspect, mirrorCropRect, rotateCropRect, turn } from '$lib/media/cropGeometry';
 import type { CropParams } from './steps';
 
 export const ORIENTATION = [

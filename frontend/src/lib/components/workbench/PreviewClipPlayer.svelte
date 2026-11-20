@@ -18,13 +18,17 @@
 		progress = 0,
 		liveStep = 0,
 		isAdmin = false,
-		ruler = true
+		ruler = true,
+		chip = true,
+		controls = true
 	}: {
 		clip: PreviewClip;
 		progress?: number;
 		liveStep?: number;
 		isAdmin?: boolean;
 		ruler?: boolean;
+		chip?: boolean;
+		controls?: boolean;
 	} = $props();
 
 	let canvas: HTMLCanvasElement | undefined = $state();
@@ -134,6 +138,7 @@
 >
 	<canvas bind:this={canvas} class="h-full w-full object-contain" style="image-rendering: auto" aria-hidden="true"></canvas>
 
+	{#if chip}
 	<div class="pointer-events-none absolute left-3 top-3 z-20 flex items-center gap-2" data-preview-chip>
 		<span
 			class="inline-flex items-center gap-1.5 rounded border border-white/20 bg-black/70 px-2 py-1 font-mono text-xs font-medium uppercase tracking-[0.07em] text-white tabular-nums"
@@ -142,6 +147,7 @@
 			{chipLabel(clip.step)}
 		</span>
 	</div>
+	{/if}
 
 	{#if isAdmin && clip.admin_detail}
 		<span
@@ -152,7 +158,7 @@
 		</span>
 	{/if}
 
-	{#if !reducedMotion}
+	{#if controls && !reducedMotion}
 		<div
 			class="absolute bottom-16 right-4 z-20 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/clip:opacity-100 [@media(hover:none)]:opacity-100"
 			data-preview-control

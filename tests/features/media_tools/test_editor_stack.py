@@ -101,6 +101,21 @@ class TestSaveModes(EditorStackTestBase):
         self.save_ok([step("padpx", width=9, height=7)], {"generation_file_id": record.id}, "update", first.items[0].id)
         self.assertEqual(self.size_of(first.items[0].id), (9, 7))
 
+    def test_save_names_the_copy_from_the_name_hint_not_the_stored_file_number(self):
+        record, _ = self.generation_file(size=(32, 24))
+        body = save_body([step("rot")], {"generation_file_id": record.id})
+        body["output"]["name"] = "Mr. Harbor / dawn?"
+        response = self.client.post("/api/media-tools/runs", json=body)
+        self.assertEqual(response.status_code, 202, response.text)
+        run = self.wait_run(response.json()["data"]["run_id"])
+        self.assertEqual(run.status, "completed", run.error)
+        self.assertEqual(run.items[0].original_filename, "Mr. Harbor dawn.png")
+
+    def test_save_without_a_name_hint_keeps_the_source_filename(self):
+        record, _ = self.generation_file(size=(32, 24))
+        run = self.save_ok([step("rot")], {"generation_file_id": record.id})
+        self.assertEqual(run.items[0].original_filename, "0.png")
+
     def test_save_needs_a_copy_to_update(self):
         item = self.image_item()
         detail = self.refused(self.save([step("rot")], {"item_id": item.id}, mode="update"), 400, "invalid_params")

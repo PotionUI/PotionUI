@@ -22,6 +22,7 @@ from typing import List, Optional, Tuple
 from src.features.media.records import Upload
 from src.platform.database.collection_tree import membership_clause, unsorted_clause
 from src.platform.database import get_cursor
+from src.platform.http.sorting import resolve_direction
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,19 @@ logger = logging.getLogger(__name__)
 # (`GenerationRepository.find_by_criteria`) so `datetime(...)` comparisons
 # against 'YYYY-MM-DD HH:MM:SS' stay correct.
 _TIMESTAMP_FMT = '%Y-%m-%d %H:%M:%S'
+
+
+_SORT_EXPRESSIONS = {
+    "added": ("u.created_at", "DESC"),
+    "name": ("LOWER(COALESCE(u.original_filename, u.filename))", "ASC"),
+    "size": ("COALESCE(u.file_size, 0)", "DESC"),
+}
+
+
+def _order_by(sort_by: str, sort_dir: Optional[str]) -> str:
+    expression, default_dir = _SORT_EXPRESSIONS[sort_by]
+    direction = resolve_direction(sort_dir, default_dir)
+    return f"{expression} {direction}, u.id {direction}"
 
 
 class LibraryRepository:
@@ -106,8 +120,10 @@ class LibraryRepository:
         include_descendants: bool = True,
         unsorted: bool = False,
         favorites_only: bool = False,
+        sort_by: str = "added",
+        sort_dir: Optional[str] = None,
     ) -> List[Upload]:
-        """One page of the user's library, newest first."""
+        """One page of the user's library, newest first unless sorted."""
         where, params = self._filters(
             user_id, media_type, tag_ids, collection_id, search,
             include_descendants, unsorted, favorites_only,
@@ -117,7 +133,7 @@ class LibraryRepository:
             cursor.execute(f"""
                 SELECT u.* FROM uploads u
                 WHERE {where}
-                ORDER BY u.created_at DESC, u.id DESC
+                ORDER BY {_order_by(sort_by, sort_dir)}
                 LIMIT ? OFFSET ?
             """, (*params, limit, offset))
             return [Upload.from_row(row) for row in cursor.fetchall()]

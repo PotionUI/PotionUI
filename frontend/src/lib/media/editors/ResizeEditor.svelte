@@ -1,7 +1,7 @@
 <script lang="ts">
 	import EditorShell from './EditorShell.svelte';
 	import EditorSaveControls from './EditorSaveControls.svelte';
-	import { describeRejection, type EditOperation, type ResizeQuality } from './editOperations';
+	import { describeRejection, type EditOperation, type ResizeQuality } from '$lib/media/editOperations';
 	import {
 		deriveMediaSizeOptions,
 		isKnownSize,
@@ -12,7 +12,7 @@
 		SOURCE_TIER,
 		type MediaSize,
 		type MediaSizeOption
-	} from './mediaSizeOptions';
+	} from '$lib/media/mediaSizeOptions';
 	import type { EditorCommitFn, MediaEditorSource } from './types';
 
 	export let source: MediaEditorSource;

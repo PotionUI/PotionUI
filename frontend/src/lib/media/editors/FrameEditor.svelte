@@ -21,10 +21,10 @@
 		frameDuration,
 		lastFrameTime,
 		safeFps
-	} from './frameTiming';
+	} from '$lib/media/frameTiming';
 	import { formatPreciseTime, formatTimecode } from './timecode';
 	import { fractionOfTime, safeDuration, timeAtFraction } from './trimPoints';
-	import { seekVideo } from './seekVideo';
+	import { seekVideo } from '$lib/media/seekVideo';
 	import type { EditorCommitFn, MediaEditorSource } from './types';
 
 	export let source: MediaEditorSource;

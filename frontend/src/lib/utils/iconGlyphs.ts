@@ -170,6 +170,153 @@ const panel: Record<string, Paths> = {
 	extension: 'M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z'
 };
 
+const editor: Record<string, Paths> = {
+	crop: ['M7 3v11a3 3 0 0 0 3 3h11', 'M3 7h11a3 3 0 0 1 3 3v11'],
+	resize: ['M14 4h6v6', 'M20 4l-7 7', 'M10 20H4v-6', 'M4 20l7-7'],
+	canvas: [
+		'M8 8h8v8H8z',
+		'M3 8.5V3h5.5M15.5 3H21v5.5M21 15.5V21h-5.5M8.5 21H3v-5.5'
+	],
+	slice: [
+		'M3 3h7v7H3z',
+		'M14 3h7v7h-7z',
+		'M3 14h7v7H3z',
+		'M14 21l7-7'
+	],
+	brush: [
+		'm9 13.5 9.5-9.5a1.6 1.6 0 0 1 2.3 2.3L11.3 15.8',
+		'M9 13.5l2.3 2.3c0 3.2-2.5 5.2-7.3 5 1.4-1 1.8-2.3 2-3.6a3 3 0 0 1 3-3.7z'
+	],
+	eraser: ['M4.5 14.5 14 5l5 5-9.5 9.5z', 'M8.3 10.7l5 5', 'M13 20.5h8'],
+	fill: [
+		'M19 12 12 5l-7 7 5.5 5.5a2 2 0 0 0 2.8 0z',
+		'M12 5V3.5a2 2 0 0 0-3.4-1.4L7 3.5',
+		'M5 12h14',
+		'M21 15.5c1 1.4 1.5 2.2 1.5 3a1.5 1.5 0 0 1-3 0c0-.8.5-1.6 1.5-3z'
+	],
+	eyedropper: [
+		'm13.5 5.5 5 5',
+		'M15.5 3.5a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L18.5 10.5',
+		'M13.5 8 5.5 16 4 20l4-1.5 8-8'
+	],
+	'select-rect': ['M4 8.5V4h4.5', 'M15.5 4H20v4.5', 'M20 15.5V20h-4.5', 'M8.5 20H4v-4.5', 'M11 4h2M11 20h2M4 11v2M20 11v2'],
+	'select-lasso': [
+		'M12 4c4.4 0 8 1.8 8 4.5S16.4 13 12 13 4 11.2 4 8.5 7.6 4 12 4z',
+		'M8.5 12.8C7 15 7.5 18 10.5 18.5',
+		'M11 18.5h.01'
+	],
+	move: ['M12 3v18M3 12h18', 'm9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3'],
+	transform: ['M7 7h10v10H7z', 'M3 3h4v4H3zM17 3h4v4h-4zM3 17h4v4H3zM17 17h4v4h-4z'],
+	'edit-region': [
+		'M3 11V9a2 2 0 0 1 2-2h2M3 17v2a2 2 0 0 0 2 2h2M17 17v2a2 2 0 0 1-2 2h-2',
+		'M18 1.5L19.4 4.6L22.5 6L19.4 7.4L18 10.5L16.6 7.4L13.5 6L16.6 4.6z'
+	],
+	'remove-object': [
+		'M12 7H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5',
+		'M5 19 15 9',
+		'M13.5 6L16.6 4.6L18 1.5L19.4 4.6L22.5 6L19.4 7.4L18 10.5L16.6 7.4z'
+	],
+	'replace-background': [
+		'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
+		'M12 8.4a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4z',
+		'M8.6 17.2a3.4 3.4 0 0 1 6.8 0',
+		'M3 14.5l3.6-3 2.4 1.8'
+	],
+	light: [
+		'M8.5 12a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0',
+		'M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8'
+	],
+	colour: [
+		'M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-1.8 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z',
+		'M7.5 11.5h.01M10.5 7.5h.01M15 8h.01'
+	],
+	'split-tone': [
+		'M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z',
+		'M19 5 5 19',
+		'M9 19l10-10M13 19l6-6'
+	],
+	curves: ['M4 3v17h17', 'M7 16.5c5 0 3-9 12-9'],
+	'film-grain': [
+		'M6 3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3z',
+		'M8 8h.01M13 7h.01M16 11h.01M9.5 13h.01M14 16h.01M7.5 17h.01M17 17h.01'
+	],
+	vignette: [
+		'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z',
+		'M12 7c3 0 5.5 2 5.5 5s-2.5 5-5.5 5-5.5-2-5.5-5S9 7 12 7z'
+	],
+	grayscale: [
+		'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
+		'M4.7 12.3 12 5M5.6 15.4 12 9M7.4 17.6 12 13M10 19l2-2'
+	],
+	invert: [
+		'M12 3C8 8 5.5 10.8 5.5 14.5a6.5 6.5 0 0 0 13 0C18.5 10.8 16 8 12 3z',
+		'M12 3v18',
+		'M12 10.5l-4.5 4.5M12 14.5l-4.5 4.5'
+	],
+	looks: [
+		'M4 9a5 5 0 1 0 10 0a5 5 0 1 0 -10 0',
+		'M10 9a5 5 0 1 0 10 0a5 5 0 1 0 -10 0',
+		'M7 15a5 5 0 1 0 10 0a5 5 0 1 0 -10 0'
+	],
+	'color-key': [
+		'M4.5 8a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0 -7 0',
+		'M10.5 10.5 20 20',
+		'M15.5 15.5l2.5-2.5M18.5 18.5l2-2'
+	],
+	trim: ['M7 5H4v14h3', 'M17 5h3v14h-3', 'M10 12h4'],
+	split: ['M3 7.5h18v9H3z', 'M12 2.5v19'],
+	speed: ['M4 6l8 6-8 6z', 'M13 6l8 6-8 6z'],
+	volume: ['M4 9.5h3.5L12 6v12l-4.5-3.5H4z', 'M15.5 9a4.2 4.2 0 0 1 0 6', 'M18.5 6.5a8 8 0 0 1 0 11'],
+	mute: ['M3.5 9.5h3.5L11.5 6v12L7 14.5H3.5z', 'M15.5 9.5l5 5', 'M20.5 9.5l-5 5'],
+	audio: ['M9 18V6l9-2v12', 'M9 18a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0z', 'M18 16a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0z'],
+	frame: ['M3 4h18v11H3z', 'M12 17.5v4', 'M9.5 19.5l2.5 2 2.5-2'],
+	fade: ['M5 4v16', 'M10 7v10', 'M15 9.5v5', 'M20 11.5v1'],
+	kenburns: ['M3 6h18v12H3z', 'M8 10h8v4H8z', 'M16 10l3-3', 'M19 7h-2.5M19 7v2.5'],
+	fix: ['M4 20L15 9', 'M13.5 7.5l3 3', 'M19 3v3M17.5 4.5h3', 'M20 12v2M19 13h2']
+};
+
+export const editorToolIcons: Readonly<Record<string, string>> = {
+	crop: 'editor-tool-crop',
+	resize: 'editor-tool-resize',
+	canvas: 'editor-tool-canvas',
+	slice: 'editor-tool-slice',
+	brush: 'editor-tool-brush',
+	eraser: 'editor-tool-eraser',
+	fill: 'editor-tool-fill',
+	pick: 'editor-tool-eyedropper',
+	rect: 'editor-tool-select-rect',
+	lasso: 'editor-tool-select-lasso',
+	move: 'editor-tool-move',
+	transform: 'editor-tool-transform',
+	edit_region: 'editor-tool-edit-region',
+	remove_object: 'editor-tool-remove-object',
+	replace_background: 'editor-tool-replace-background',
+	light: 'editor-tool-light',
+	colour: 'editor-tool-colour',
+	split_tone: 'editor-tool-split-tone',
+	curves: 'editor-tool-curves',
+	lut: 'cube',
+	film_grain: 'editor-tool-film-grain',
+	vignette: 'editor-tool-vignette',
+	grayscale: 'editor-tool-grayscale',
+	invert: 'editor-tool-invert',
+	looks: 'editor-tool-looks',
+	color_key: 'editor-tool-color-key',
+	subject: 'editor-subject',
+	adjust: 'adjustments-horizontal',
+	trim: 'editor-tool-trim',
+	split: 'editor-tool-split',
+	speed: 'editor-tool-speed',
+	volume: 'editor-tool-volume',
+	mute: 'editor-tool-mute',
+	audio: 'editor-tool-audio',
+	frame: 'editor-tool-frame',
+	fade: 'editor-tool-fade',
+	kenburns: 'editor-tool-kenburns',
+	fix: 'editor-tool-fix',
+	plugin_fallback: 'extension'
+};
+
 function prefixed<T>(prefix: string, glyphs: Record<string, T>): Record<string, T> {
 	return Object.fromEntries(Object.entries(glyphs).map(([name, value]) => [`${prefix}-${name}`, value]));
 }
@@ -177,7 +324,8 @@ function prefixed<T>(prefix: string, glyphs: Record<string, T>): Record<string, 
 export const spriteGlyphs: Record<string, Paths> = {
 	...prefixed('chat', chat),
 	...prefixed('composer', composer),
-	...prefixed('panel', panel)
+	...prefixed('panel', panel),
+	...prefixed('editor-tool', editor)
 };
 
 export const spriteFilledGlyphs: Record<string, string[]> = {

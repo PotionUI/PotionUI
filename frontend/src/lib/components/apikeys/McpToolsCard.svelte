@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { Alert, Card, Spinner } from '$lib/components/ui';
+	import { Alert, Card, EmptyState, Spinner } from '$lib/components/ui';
 	import LoadErrorState from '$lib/components/ui/LoadErrorState.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { api } from '$lib/services/api/index';
@@ -131,7 +131,7 @@
 	{/if}
 
 	{#if unavailable}
-		<p class="rounded border border-line px-4 py-6 text-center text-sm text-fg-muted" role="status">MCP tools are not available yet.</p>
+		<div role="status"><EmptyState compact icon="key" title="MCP tools are not available yet" /></div>
 	{:else if loading && !listing}
 		<div class="flex items-center justify-center py-8"><Spinner /></div>
 	{:else if failed && !listing}

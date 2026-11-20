@@ -11,7 +11,7 @@
 	import { parseComponentRef } from '$lib/plugin-api/componentRef';
 	import { logger } from '$lib/utils/logger';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
-	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
+	import LibraryListHeader from '$lib/components/library/LibraryListHeader.svelte';
 	import type { SortOption } from '$lib/components/library/librarySection';
 	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
 	import { LIBRARY_SECTIONS, sectionHref, withSection } from '../library/librarySection';
@@ -56,7 +56,7 @@
 		removePromptsFromDuplicateGroup,
 		type DuplicateGroup
 	} from '$lib/utils/duplicatePrompts';
-	import { promptFilterChips, type PromptSortBy, promptFilters } from '$lib/prompts/promptFilters';
+	import { promptFilterChips, type PromptSortBy, promptFilters, PROMPT_SORT_DEFAULT_DIR } from '$lib/prompts/promptFilters';
 	import { queryPromptLibrary } from '$lib/prompts/promptLibraryQuery';
 
 	const PAGE_SIZE = 48;
@@ -64,8 +64,10 @@
 	const SORT_OPTIONS: readonly SortOption<PromptSortBy>[] = [
 		{ value: 'last_used_at', label: 'Last used' },
 		{ value: 'created_at', label: 'Created' },
+		{ value: 'updated_at', label: 'Updated' },
 		{ value: 'name', label: 'Name' },
-		{ value: 'usage_count', label: 'Most used' }
+		{ value: 'usage_count', label: 'Most used' },
+		{ value: 'heart_count', label: 'Most hearted' }
 	];
 
 	$: filters = promptFilters.fromSearchParams($page.url.searchParams);
@@ -117,7 +119,21 @@
 	}
 
 	function updateSort(value: string) {
-		updateFilters({ ...filters, sortBy: value as PromptSortBy });
+		updateFilters({ ...filters, sortBy: value as PromptSortBy, sortOrder: PROMPT_SORT_DEFAULT_DIR[value as PromptSortBy] });
+	}
+
+	function updateSortDir(dir: 'asc' | 'desc') {
+		updateFilters({ ...filters, sortOrder: dir });
+	}
+
+	$: headerChips = [
+		...filterChips,
+		...(excludingSubcollections ? [{ key: 'subcollections', label: 'Without subcollections' }] : [])
+	];
+
+	function removeHeaderChip(key: string) {
+		if (key === 'subcollections') void setDirectOnly(false);
+		else removeChip(key);
 	}
 
 	function removeChip(key: string) {
@@ -717,6 +733,23 @@
 	let coreImportOpen = false;
 	let exporting = false;
 
+	$: moreItems = [
+		{ id: 'import-file', label: 'From file or text', icon: 'upload' },
+		...importers.map((importer) => ({ id: `import:${importer.id}`, label: importer.label, icon: 'upload' })),
+		{ id: 'more-separator', label: '', separator: true },
+		{ id: 'export', label: 'Export styles.csv', icon: 'download', disabled: exporting },
+		{ id: 'duplicates', label: 'Find duplicates', icon: 'copy' }
+	];
+
+	function handleMore(id: string) {
+		if (id === 'import-file') coreImportOpen = true;
+		else if (id.startsWith('import:')) {
+			const importer = importers.find((entry) => `import:${entry.id}` === id);
+			if (importer) activeImporter = importer;
+		} else if (id === 'export') void handleExport();
+		else if (id === 'duplicates') void openDuplicatesModal();
+	}
+
 	$: activeImporterRef = activeImporter ? parseComponentRef(activeImporter.component) : null;
 
 	onMount(async () => {
@@ -878,26 +911,44 @@
 	sectionCounts={$libraryCounts}
 	count={total}
 	{detailOpen}
-	{filterChips}
-	onRemoveChip={removeChip}
-	onClearFilters={clearFilters}
 	loadedCount={prompts.length}
 	{total}
 >
-	{#snippet toolbar()}
-		<CollectionSidebarSheet label="Prompts">
-			{@render collectionsPanel('sidebar')}
-		</CollectionSidebarSheet>
-		<LibraryFilterBar
+	{#snippet header(sectionSelect)}
+		<LibraryListHeader
+			title="Prompts"
+			count={total}
+			total={$libraryCounts.prompts ?? null}
+			unit="prompts"
+			unitOne="prompt"
+			chips={headerChips}
+			onRemoveChip={removeHeaderChip}
+			onClearFilters={clearFilters}
+			filterCount={popoverFilterCount}
 			q={filters.q}
 			onQueryChange={updateQuery}
 			searchPlaceholder="Search prompts…"
 			{searchHint}
-			sortBy={filters.sortBy}
 			sortOptions={SORT_OPTIONS}
+			sortBy={filters.sortBy}
+			sortDir={filters.sortOrder}
 			onSortChange={updateSort}
-			filterCount={popoverFilterCount}
+			onSortDirChange={updateSortDir}
+			onRefresh={reloadPrompts}
+			primaryLabel="New prompt"
+			onPrimary={startNewPrompt}
+			moreItems={moreItems}
+			onMore={handleMore}
+			{sectionSelect}
 		>
+			{#snippet sidebarSheet()}
+				<CollectionSidebarSheet label="Prompts">
+					{@render collectionsPanel('sidebar')}
+				</CollectionSidebarSheet>
+			{/snippet}
+			{#snippet collectionActions()}
+				{@render collectionsPanel('actions')}
+			{/snippet}
 			{#snippet popover(close)}
 				<PromptFiltersPopover
 					{filters}
@@ -912,71 +963,11 @@
 					onDirectOnlyChange={setDirectOnly}
 				/>
 			{/snippet}
-		</LibraryFilterBar>
+		</LibraryListHeader>
 	{/snippet}
 
 	{#snippet sidebarTree()}
 		{@render collectionsPanel('sidebar')}
-	{/snippet}
-
-	{#snippet overflow(close)}
-		<button
-			type="button"
-			role="menuitem"
-			class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
-			onclick={() => {
-				close();
-				coreImportOpen = true;
-			}}
-		>
-			<Icon name="upload" className="h-3.5 w-3.5" />
-			From file or text
-		</button>
-		{#each importers as importer (importer.id)}
-			<button
-				type="button"
-				role="menuitem"
-				class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
-				onclick={() => {
-					close();
-					activeImporter = importer;
-				}}
-			>
-				<Icon name="upload" className="h-3.5 w-3.5" />
-				{importer.label}
-			</button>
-		{/each}
-		<div class="my-1 h-px bg-line"></div>
-		<button
-			type="button"
-			role="menuitem"
-			class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg disabled:opacity-50"
-			disabled={exporting}
-			onclick={() => {
-				close();
-				void handleExport();
-			}}
-		>
-			<Icon name="download" className="h-3.5 w-3.5" />
-			Export styles.csv
-		</button>
-		<button
-			type="button"
-			role="menuitem"
-			class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
-			onclick={() => {
-				close();
-				void openDuplicatesModal();
-			}}
-		>
-			<Icon name="copy" className="h-3.5 w-3.5" />
-			Find duplicates
-		</button>
-	{/snippet}
-
-	{#snippet primary()}
-		{@render collectionsPanel('actions')}
-		<Button size="sm" variant="primary" icon="plus" onclick={startNewPrompt}>New prompt</Button>
 	{/snippet}
 
 	{#if detailOpen}

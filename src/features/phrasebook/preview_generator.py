@@ -145,7 +145,7 @@ class PhrasebookPreviewGenerator:
 
         # Load session
         session = session_repo.get_by_id(session_id)
-        if not session:
+        if not session or session.kind == "editor":
             raise ValueError(f"Session not found: {session_id}")
 
         # Validate mode exists in session data

@@ -1,0 +1,79 @@
+{
+  "editor_mode": "fix_faces",
+  "from": "refine_faces",
+  "preset_id": "01K0W24A3RADXXABH16YQ7KE90",
+  "preset_name": "SDXL",
+  "shown": [
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Checkpoint",
+      "name": "model",
+      "type": "model"
+    },
+    {
+      "label": "Face Detection Model (YOLO, AGPL-3.0)",
+      "name": "face_detector_model",
+      "type": "model"
+    },
+    {
+      "label": "Hand Detection Model (YOLO, AGPL-3.0)",
+      "name": "hand_detector_model",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Detection confidence",
+      "name": "fix_confidence",
+      "type": "slider"
+    },
+    {
+      "label": "Area around it",
+      "name": "fix_padding",
+      "type": "slider"
+    },
+    {
+      "label": "Edge blend",
+      "name": "fix_mask_blur",
+      "type": "slider"
+    },
+    {
+      "label": "Hand description",
+      "name": "hand_prompt",
+      "type": "string"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Clip Skip",
+      "name": "clip_skip",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "select"
+    },
+    {
+      "label": "Scheduler",
+      "name": "scheduler",
+      "type": "select"
+    }
+  ],
+  "task": "fix_faces"
+}

@@ -1,4 +1,5 @@
 import type { RecentLook } from '$lib/filters/recentLooks';
+import { CONTINUE_ACTION, continuableLink } from '$lib/tool-tabs/continueTarget';
 import { shortcutTargets } from '$lib/tool-tabs/shortcuts';
 import type { EditorKind } from '$lib/tool-tabs/toolIds';
 import { applyLookAvailability, editMediaAvailability, editMediaLabel } from './editMedia';
@@ -12,7 +13,7 @@ import {
 	toolLabel
 } from './tools';
 
-export type RowToolAction = 'catalog' | 'edit-image' | 'apply-look';
+export type RowToolAction = 'catalog' | 'edit-image' | 'continue-edit' | 'apply-look';
 
 export interface RowTool {
 	id: string;
@@ -99,9 +100,22 @@ export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[
 	const editMedia = editMediaAvailability(ctx);
 	const leadKind = ctx.items[0]?.kind;
 	if ((leadKind === 'image' || leadKind === 'video') && ctx.items.every((item) => item.kind === leadKind)) {
+		const linked = continuableLink(ctx.items) !== null;
+		if (linked) {
+			edit.push({
+				id: CONTINUE_ACTION,
+				label: 'Continue this edit',
+				icon: 'pencil-square',
+				action: CONTINUE_ACTION,
+				enabled: editMedia.enabled,
+				reason: editMedia.reason ?? '',
+				note: '',
+				opens: shortcutTargets('edit-image', ctx.items)
+			});
+		}
 		edit.push({
 			id: 'edit-image',
-			label: editMediaLabel(ctx),
+			label: linked ? 'Edit this picture' : editMediaLabel(ctx),
 			icon: leadKind === 'video' ? 'video' : 'sliders',
 			action: 'edit-image',
 			enabled: editMedia.enabled,

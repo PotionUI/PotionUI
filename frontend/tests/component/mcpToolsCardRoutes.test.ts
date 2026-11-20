@@ -115,7 +115,7 @@ describe('McpToolsCard against the recorded route shapes', () => {
 	it('shows the unavailable state only when the default route answers 404', async () => {
 		hoisted.getMcpTools.mockRejectedValue({ response: { status: 404 } });
 		await open({});
-		expect(target.textContent).toContain('MCP tools are not available yet.');
+		expect(target.textContent).toContain('MCP tools are not available yet');
 	});
 
 	it('does not call a missing key unavailable', async () => {

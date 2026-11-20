@@ -19,7 +19,7 @@
 	$effect(() => {
 		const Component = component;
 		try {
-			instance = new Component({ target: el, props: untrack(() => ({ ...rest })) });
+			instance = untrack(() => new Component({ target: el, props: { ...rest } }));
 		} catch (e) {
 			logger.error('[PluginDistHost] Failed to mount plugin component:', e);
 			instance = null;
@@ -27,7 +27,7 @@
 		return () => {
 			if (instance && typeof instance.$destroy === 'function') {
 				try {
-					instance.$destroy();
+					untrack(() => instance.$destroy());
 				} catch (e) {
 					logger.error('[PluginDistHost] Error destroying plugin component:', e);
 				}
@@ -39,7 +39,8 @@
 	$effect(() => {
 		const props = { ...rest };
 		if (instance && typeof instance.$set === 'function') {
-			instance.$set(props);
+			const live = instance;
+			untrack(() => live.$set(props));
 		}
 	});
 </script>

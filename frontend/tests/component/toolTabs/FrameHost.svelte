@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ToolRail from '$lib/components/tool-tabs/frame/ToolRail.svelte';
 	import EditorFrame from '$lib/components/tool-tabs/frame/EditorFrame.svelte';
 	import EditorCanvas from '$lib/components/tool-tabs/frame/EditorCanvas.svelte';
 
@@ -8,6 +9,9 @@
 		canCompare = true,
 		withApply = true,
 		compare = $bindable(false),
+		panelSide,
+		selected = 'crop',
+		withDock = false,
 		log
 	}: {
 		phone?: boolean;
@@ -15,12 +19,30 @@
 		canCompare?: boolean;
 		withApply?: boolean;
 		compare?: boolean;
+		panelSide?: 'left' | 'right';
+		selected?: string;
+		withDock?: boolean;
 		log: (entry: string) => void;
 	} = $props();
+
+	const groups = [
+		{
+			id: 'main',
+			label: 'Main',
+			tools: [
+				{ id: 'crop', label: 'Crop', icon: 'editor-layers' },
+				{ id: 'rotate', label: 'Rotate', icon: 'editor-compare' }
+			]
+		}
+	];
 </script>
+
+{#snippet dockContent()}<div data-host-dock>dock</div>{/snippet}
 
 <EditorFrame
 	{phone}
+	{panelSide}
+	dock={withDock ? dockContent : undefined}
 	{active}
 	{canCompare}
 	bind:compare
@@ -31,7 +53,11 @@
 	onapply={withApply ? () => log('apply') : undefined}
 >
 	{#snippet toolbar()}<div data-host-toolbar>toolbar</div>{/snippet}
-	{#snippet rail()}<div data-host-rail>rail</div>{/snippet}
+	{#snippet rail()}
+		<div data-host-rail class="contents">
+			<ToolRail {groups} active={selected} variant={phone ? 'strip' : 'icons'} onselect={(id) => log(`tool:${id}`)} />
+		</div>
+	{/snippet}
 	{#snippet canvas()}
 		<EditorCanvas mediaWidth={100} mediaHeight={100} {compare} {phone}>
 			{#snippet layer()}<div data-host-layer></div>{/snippet}

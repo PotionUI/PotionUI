@@ -10,6 +10,8 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
+from src.features.presets.templates import is_editor_key
+
 from src.features.generation.exceptions import (
     GenerationNotFoundException,
     InvalidTagException,
@@ -17,6 +19,7 @@ from src.features.generation.exceptions import (
 )
 from src.features.generation import profile_paths
 from src.features.generation.history_filter import HistoryFilter
+from src.features.generation.origin import KeyNameLookup, present_origins
 from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
 from src.pipelines.param_meta import normalize_param_meta
@@ -50,6 +53,7 @@ class GenerationHistoryQuery:
         media_indexer: Optional["MediaIndexer"] = None,
         preset_name_resolver: Optional["PresetNameResolver"] = None,
         content_safety: Optional["ContentSafetyManager"] = None,
+        origin_key_names: Optional[KeyNameLookup] = None,
     ):
         """Initialize GenerationHistoryQuery.
 
@@ -79,6 +83,10 @@ class GenerationHistoryQuery:
         self.media_indexer = media_indexer
         self.preset_name_resolver = preset_name_resolver
         self.content_safety = content_safety
+        self.origin_key_names = origin_key_names
+
+    def preset_names(self) -> Dict[str, str]:
+        return self._preset_name_map()
 
     def _preset_name_map(self) -> Dict[str, str]:
         """One id -> name snapshot per serialization pass; never per row."""
@@ -258,6 +266,13 @@ class GenerationHistoryQuery:
             else:
                 item['grid_cols'] = grid.cols
 
+    def _reuse_mode(self, generation: Generation) -> Optional[str]:
+        if not is_editor_key(generation.mode):
+            return generation.mode
+        resolver = self.preset_name_resolver
+        reuse = getattr(resolver, 'reuse_mode', None)
+        return reuse(generation.preset_id, generation.mode) if callable(reuse) else None
+
     def serialize_generations(
         self, generations: List[Generation], include_tags: bool, *, viewer_id: Optional[str]
     ) -> List[Dict[str, Any]]:
@@ -270,7 +285,9 @@ class GenerationHistoryQuery:
                 gen_dict['preset_name'] = names.get(gen.preset_id, gen.preset_id)
             else:
                 gen_dict['preset_name'] = "Uploaded"
+            gen_dict['reuse_mode'] = self._reuse_mode(gen)
             history_data.append(gen_dict)
+        present_origins(history_data, self.origin_key_names)
         self._attach_system_tags(history_data)
         return self._apply_content_ledger(history_data, viewer_id=viewer_id)
 
@@ -604,6 +621,7 @@ class GenerationHistoryQuery:
 
         # Get base generation data
         generation_data = generation.to_dict(include_files=include_files)
+        present_origins([generation_data], self.origin_key_names)
         if include_batch and include_files and generation.batch_id:
             generation_data['files'] = self._batch_files(generation.batch_id, user_id)
         if include_files:

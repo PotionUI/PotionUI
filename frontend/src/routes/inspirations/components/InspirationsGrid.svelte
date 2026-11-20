@@ -5,6 +5,9 @@
 	import type { InspirationDto } from '$lib/services/api/inspirations';
 	import InspirationCard from './InspirationCard.svelte';
 	import { layoutJustifiedRows, type JustifiedRow } from '$lib/utils/justifiedLayout';
+	import { mediaGroupByDay } from '$lib/stores/mediaGroupByDay';
+	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
+	import { groupByDay } from '$lib/library/dayGroups';
 	import { inspirationPrimaryMedia, inspirationAspect } from '$lib/inspirations/inspirationCardMeta';
 
 	export let onOpen: (item: InspirationDto) => void;
@@ -20,14 +23,26 @@
 	let gridWidth = 0;
 
 	$: targetRowHeight =
-		gridWidth > 0 ? Math.round(Math.max(160, Math.min(280, gridWidth / 5.6))) : 220;
+		(gridWidth > 0 ? Math.round(Math.max(160, Math.min(280, gridWidth / 5.6))) : 220) *
+		TILE_SIZE_MULTIPLIER[$historyTileSize];
 
-	$: rows = layoutJustifiedRows(
-		items.map((item) => ({ item, aspect: inspirationAspect(inspirationPrimaryMedia(item)) })),
-		gridWidth,
-		targetRowHeight,
-		GAP
-	) as JustifiedRow<InspirationDto>[];
+	$: sortedByDate = (state.filters.sortBy ?? 'created') === 'created';
+	$: dayGroups =
+		$mediaGroupByDay && sortedByDate
+			? groupByDay(items)
+			: [{ key: 'all', label: '', items }];
+
+	$: groupRows = dayGroups.map((group) => ({
+		key: group.key,
+		label: group.label,
+		count: group.items.length,
+		rows: layoutJustifiedRows(
+			group.items.map((item) => ({ item, aspect: inspirationAspect(inspirationPrimaryMedia(item)) })),
+			gridWidth,
+			targetRowHeight,
+			GAP
+		) as JustifiedRow<InspirationDto>[]
+	}));
 
 	// Skeleton layout reuses the real packer with a fixed aspect pattern so the
 	// loading state already looks like the eventual light table.
@@ -53,8 +68,8 @@
 	}
 </script>
 
-<div class="px-3 py-3 md:px-6 md:py-6">
-	<div bind:clientWidth={gridWidth}>
+<div class="{!state.loading && items.length === 0 ? '' : 'px-3 py-3 md:px-6 md:py-6'} flex flex-1 flex-col">
+	<div bind:clientWidth={gridWidth} class="flex flex-1 flex-col">
 		{#if state.loading}
 			{#if gridWidth > 0}
 				<div class="space-y-3">
@@ -71,19 +86,32 @@
 				</div>
 			{/if}
 		{:else if items.length > 0 && gridWidth > 0}
-			<div class="space-y-3">
-				{#each rows as row}
-					<div class="flex" style="gap: {GAP}px">
-						{#each row as box (box.item.id)}
-							<InspirationCard
-								item={box.item}
-								tile={{ width: box.width, height: box.height }}
-								{onOpen}
-							/>
-						{/each}
+			{#each groupRows as group (group.key)}
+				{#if $mediaGroupByDay && sortedByDate}
+					<div class="flex items-baseline gap-3 mb-3 mt-8 first:mt-0">
+						<span class="font-mono text-sm uppercase tracking-[0.07em] text-fg-muted whitespace-nowrap">
+							{group.label}
+						</span>
+						<span class="font-mono tabular-nums text-sm text-fg-subtle whitespace-nowrap">
+							{group.count}
+						</span>
+						<div class="flex-1 h-px bg-line self-center"></div>
 					</div>
-				{/each}
-			</div>
+				{/if}
+				<div class="space-y-3">
+					{#each group.rows as row}
+						<div class="flex" style="gap: {GAP}px">
+							{#each row as box (box.item.id)}
+								<InspirationCard
+									item={box.item}
+									tile={{ width: box.width, height: box.height }}
+									{onOpen}
+								/>
+							{/each}
+						</div>
+					{/each}
+				</div>
+			{/each}
 
 			{#if pages > 1}
 				<div class="mt-10 flex items-center justify-center">
@@ -96,6 +124,7 @@
 			{/if}
 		{:else if items.length === 0}
 			<EmptyState
+				page
 				icon={filtered ? 'search' : 'lightbulb'}
 				title={filtered ? 'No results found' : 'No inspirations yet'}
 				description={filtered
@@ -104,7 +133,7 @@
 			>
 				{#snippet actions()}
 					{#if filtered}
-						<Button variant="secondary" size="sm" icon="close" onclick={handleClearFilters}>
+						<Button variant="secondary" icon="close" onclick={handleClearFilters}>
 							Clear filters
 						</Button>
 					{/if}

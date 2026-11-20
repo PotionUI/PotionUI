@@ -1,0 +1,119 @@
+{
+  "editor_mode": "extend",
+  "from": "extend",
+  "preset_id": "01KX47LTX25VIDEO00000000TV",
+  "preset_name": "LTX-2.5",
+  "shown": [
+    {
+      "label": "Speed profile",
+      "name": "speed_profile",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "Added length (seconds)",
+      "name": "duration",
+      "type": "slider"
+    },
+    {
+      "label": "Resolution",
+      "name": "resolution",
+      "type": "resolution"
+    },
+    {
+      "label": "FPS",
+      "name": "fps",
+      "type": "slider"
+    },
+    {
+      "label": "Generate Audio",
+      "name": "generate_audio",
+      "type": "checkbox"
+    },
+    {
+      "label": "LTX-2.5 DiT (transformer-only)",
+      "name": "model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Gemma4-12B with projection)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "Video VAE",
+      "name": "video_vae",
+      "type": "model"
+    },
+    {
+      "label": "Audio VAE (required for Generate Audio)",
+      "name": "audio_vae",
+      "type": "model"
+    },
+    {
+      "label": "Preview decoder",
+      "name": "preview_decoder",
+      "type": "model"
+    },
+    {
+      "label": "Carried-over length (seconds)",
+      "name": "context_seconds",
+      "type": "slider"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "sampler"
+    },
+    {
+      "label": "Schedule",
+      "name": "schedule",
+      "type": "schedule"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Manual Sigmas",
+      "name": "manual_sigmas",
+      "type": "textbox"
+    },
+    {
+      "label": "Cache threshold",
+      "name": "step_cache_threshold",
+      "type": "slider"
+    },
+    {
+      "label": "Warmup steps",
+      "name": "step_cache_warmup_steps",
+      "type": "slider"
+    },
+    {
+      "label": "Max consecutive skips",
+      "name": "step_cache_max_skips",
+      "type": "slider"
+    }
+  ],
+  "task": "extend"
+}

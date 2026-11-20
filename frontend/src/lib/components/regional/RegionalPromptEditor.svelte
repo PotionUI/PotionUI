@@ -1,7 +1,7 @@
 <script lang="ts">
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import type { CropRect } from '$lib/media/editors/cropGeometry';
+	import type { CropRect } from '$lib/media/cropGeometry';
 	import {
 		DRAW_THRESHOLD_PX,
 		draftRect,

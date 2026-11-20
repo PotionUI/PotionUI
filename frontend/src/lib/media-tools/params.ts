@@ -2,15 +2,28 @@ import { ANCHOR_VALUES } from '$lib/components/form-fields/anchorValues';
 import { evaluateCondition } from '$lib/form/reactions';
 import type { ToolDTO, ToolParam, ToolParamOption } from './types';
 
-export type ControlKind =
+export type ParamFieldType =
 	| 'segmented'
-	| 'dropdown'
+	| 'select'
 	| 'slider'
-	| 'number'
-	| 'switch'
+	| 'number_box'
+	| 'seed'
+	| 'checkbox'
 	| 'color'
 	| 'anchor'
-	| 'text';
+	| 'string';
+
+export const KNOWN_PARAM_TYPES: readonly string[] = [
+	'integer',
+	'float',
+	'select',
+	'checkbox',
+	'color',
+	'string',
+	'anchor',
+	'lut',
+	'look'
+];
 
 export const SEGMENTED_MAX_OPTIONS = 4;
 
@@ -45,67 +58,38 @@ export function hasRange(param: ToolParam): boolean {
 	);
 }
 
-export function controlFor(param: ToolParam): ControlKind {
+export const SLIDER_MAX_SPAN = 1000;
+
+export function isSeedParam(param: ToolParam): boolean {
+	return (param.type === 'integer' || param.type === 'float') && (param.widget === 'seed' || /(^|_)seed$/i.test(param.name));
+}
+
+export function fieldTypeFor(param: ToolParam): ParamFieldType {
+	if (isSeedParam(param)) return 'seed';
 	switch (param.type) {
 		case 'anchor':
 			return 'anchor';
 		case 'select':
 			if (param.widget === 'anchor') return 'anchor';
-			return normalizeOptions(param).length <= SEGMENTED_MAX_OPTIONS ? 'segmented' : 'dropdown';
+			return normalizeOptions(param).length <= SEGMENTED_MAX_OPTIONS ? 'segmented' : 'select';
 		case 'integer':
 		case 'float':
-			return hasRange(param) ? 'slider' : 'number';
+			return hasRange(param) && param.max! - param.min! <= SLIDER_MAX_SPAN ? 'slider' : 'number_box';
 		case 'checkbox':
-			return 'switch';
+			return 'checkbox';
 		case 'color':
 			return 'color';
 		case 'lut':
 		case 'look':
-			return 'dropdown';
+			return 'select';
 		default:
-			return 'text';
+			return 'string';
 	}
 }
 
 export function stepFor(param: ToolParam): number {
 	if (typeof param.step === 'number' && param.step > 0) return param.step;
 	return param.type === 'integer' ? 1 : 0.01;
-}
-
-export function toFieldConfig(param: ToolParam): Record<string, unknown> {
-	const config: Record<string, unknown> = {
-		title: paramLabel(param),
-		description: param.description,
-		default: param.default,
-		unit: param.unit
-	};
-	switch (controlFor(param)) {
-		case 'segmented':
-		case 'dropdown':
-			config.options = normalizeOptions(param);
-			break;
-		case 'slider':
-			config.minimum = param.min;
-			config.maximum = param.max;
-			config.step = stepFor(param);
-			break;
-		case 'number':
-			config.minimum = param.min;
-			config.maximum = param.max;
-			config.step = stepFor(param);
-			config.integer = param.type === 'integer';
-			config.placeholder = param.placeholder ?? 'Auto';
-			break;
-		case 'color':
-			config.allow_transparent = param.allow_transparent === true;
-			break;
-		case 'text':
-			config.placeholder = param.placeholder;
-			break;
-		default:
-			break;
-	}
-	return config;
 }
 
 export function isParamVisible(param: ToolParam, values: Record<string, unknown>): boolean {
@@ -138,20 +122,20 @@ function typedDefault(param: ToolParam): unknown {
 }
 
 export function acceptsValue(param: ToolParam, value: unknown): boolean {
-	switch (controlFor(param)) {
+	switch (fieldTypeFor(param)) {
 		case 'segmented':
-		case 'dropdown':
+		case 'select':
 			return normalizeOptions(param).some((option) => String(option.value) === String(value));
 		case 'anchor':
 			return (ANCHOR_VALUES as readonly string[]).includes(String(value));
 		case 'slider':
-		case 'number': {
+		case 'number_box': {
 			if (typeof value !== 'number' || !Number.isFinite(value)) return false;
 			if (typeof param.min === 'number' && value < param.min) return false;
 			if (typeof param.max === 'number' && value > param.max) return false;
 			return true;
 		}
-		case 'switch':
+		case 'checkbox':
 			return typeof value === 'boolean';
 		case 'color':
 			return (
@@ -185,8 +169,8 @@ export function paramIssues(
 	const issues: Record<string, string> = {};
 	for (const param of visibleParams(params, values)) {
 		const value = values[param.name];
-		const control = controlFor(param);
-		if (control !== 'slider' && control !== 'number') continue;
+		const control = fieldTypeFor(param);
+		if (control !== 'slider' && control !== 'number_box') continue;
 		if (value === undefined || value === null || value === '') continue;
 		if (typeof value !== 'number' || !Number.isFinite(value)) {
 			issues[param.name] = 'Enter a number';

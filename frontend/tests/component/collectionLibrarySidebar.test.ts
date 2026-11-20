@@ -212,7 +212,7 @@ describe('collection search', () => {
 		await settle();
 		search(target, 'Storyboards');
 		await settle();
-		expect(target.textContent).toContain('No matching collections.');
+		expect(target.textContent).toContain('No matching collections');
 		const create = Array.from(target.querySelectorAll('button')).find(
 			(b) => b.textContent?.trim() === 'Create “Storyboards”'
 		)!;

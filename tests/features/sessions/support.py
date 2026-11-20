@@ -26,6 +26,7 @@ CREATE TABLE sessions (
     pinned_at TIMESTAMP,
     version INTEGER NOT NULL DEFAULT 1,
     last_origin TEXT,
+    kind TEXT NOT NULL DEFAULT 'generation',
     UNIQUE(user_id, preset_id, name)
 );
 """
@@ -172,7 +173,13 @@ def build_service(
     )
 
 
-def save(sessions: SessionRepository, user_id: str = "u1", preset_id: str = PRESET, name: str = "Portrait", data=None, session_id: str = "s1") -> Session:
+def save(
+    sessions: SessionRepository, user_id: str = "u1", preset_id: str = PRESET, name: str = "Portrait", data=None,
+    session_id: str = "s1", kind: str = "generation",
+) -> Session:
     return sessions.create(
-        Session(id=session_id, user_id=user_id, preset_id=preset_id, name=name, data=data if data is not None else {"txt2img": entry()})
+        Session(
+            id=session_id, user_id=user_id, preset_id=preset_id, name=name,
+            data=data if data is not None else {"txt2img": entry()}, kind=kind,
+        )
     )

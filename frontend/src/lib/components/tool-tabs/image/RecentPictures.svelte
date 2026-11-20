@@ -3,10 +3,11 @@
 	import { api } from '$lib/services/api/index';
 	import { recentHistoryPictures } from '$lib/tool-tabs/image/sourceRefs';
 	import type { MediaRef } from '$lib/types/tabs';
+	import JustifiedTiles from './JustifiedTiles.svelte';
 
 	let {
 		onpick,
-		columns = 'grid-cols-3 md:grid-cols-6',
+		columns: _columns = '',
 		class: className = ''
 	}: {
 		onpick: (source: MediaRef) => void;
@@ -15,6 +16,9 @@
 	} = $props();
 
 	let recent = $state<MediaRef[]>([]);
+	let items = $derived(
+		recent.map((ref) => ({ key: ref.path, ref, aspect: ref.width && ref.height ? ref.width / ref.height : null }))
+	);
 
 	onMount(async () => {
 		try {
@@ -29,17 +33,27 @@
 {#if recent.length}
 	<div class={className}>
 		<p class="mb-2.5 font-mono text-sm uppercase tracking-[0.08em] text-fg-subtle">Recent in History</p>
-		<div class="grid gap-2 {columns}" data-recent-history>
-			{#each recent as ref (ref.path)}
+		<JustifiedTiles {items} gap={8} rowHeight={88} data-recent-history>
+			{#snippet tile(item, box, report)}
 				<button
 					type="button"
-					class="aspect-square overflow-hidden rounded bg-surface-3 outline-none ring-signal hover:ring-1 focus-visible:ring-1"
-					aria-label="Edit {ref.name}"
-					onclick={() => onpick(ref)}
+					class="block overflow-hidden rounded bg-surface-3 outline-none ring-signal hover:ring-1 focus-visible:ring-1"
+					style="width: {box.width}px; height: {box.height}px; max-width: 100%"
+					aria-label="Edit {item.ref.name}"
+					onclick={() => onpick(item.ref)}
 				>
-					<img src={ref.url} alt="" class="h-full w-full object-cover" loading="lazy" />
+					<img
+						src={item.ref.url}
+						alt=""
+						class="h-full w-full object-contain"
+						loading="lazy"
+						onload={(event) => {
+							const img = event.currentTarget as HTMLImageElement;
+							report(img.naturalWidth, img.naturalHeight);
+						}}
+					/>
 				</button>
-			{/each}
-		</div>
+			{/snippet}
+		</JustifiedTiles>
 	</div>
 {/if}

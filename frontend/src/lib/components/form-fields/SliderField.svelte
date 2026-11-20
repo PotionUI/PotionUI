@@ -2,12 +2,20 @@
 	import tooltipAction from '$lib/actions/tooltip';
 	import Icon from '../Icon.svelte';
 	import Tooltip from '../Tooltip.svelte';
-	import { resolveSliderValue, trackFraction, trackOffset } from './sliderGeometry';
+	import {
+		SLIDER_NAVIGATION_KEYS,
+		fillsFromDefault,
+		resolveSliderValue,
+		trackFraction,
+		trackOffset,
+		twoSidedFill
+	} from './sliderGeometry';
 
 	export let name: string | null;
 	export let config: any = {};
 	export let value: any;
 	export let onChange: (fieldName: string, value: any) => void;
+	export let onCommit: ((fieldName: string) => void) | undefined = undefined;
 
 	$: label = config.title || name || '';
 	$: description = config.description || '';
@@ -20,6 +28,12 @@
 	$: disabled = config.disabled || false;
 	$: defaultValue = config.default;
 	$: unit = typeof config.unit === 'string' ? config.unit : '';
+	$: inline = (config.layout ?? config.configuration?.layout) === 'inline';
+	$: legend = (config.legend ?? config.configuration?.legend) !== false;
+	$: signed = (config.signed ?? config.configuration?.signed) === true;
+	$: hasNumericDefault = typeof defaultValue === 'number' && Number.isFinite(defaultValue);
+	$: resetEnabled = hasNumericDefault && (config.reset ?? config.configuration?.reset) !== false;
+	$: fromDefault = fillsFromDefault(config.fill ?? config.configuration?.fill, defaultValue, min, max);
 
 	let localValue: number;
 	let previousValue: any = undefined;
@@ -38,6 +52,15 @@
 
 	$: range = max - min;
 	$: fillStop = trackOffset(trackFraction(localValue, min, max));
+	$: trackBackground = fromDefault
+		? twoSidedFill(localValue, defaultValue, min, max)
+		: `linear-gradient(to right, rgb(var(--signal)) ${fillStop}, rgb(var(--surface-3)) ${fillStop})`;
+	$: changed = hasNumericDefault && localValue !== defaultValue;
+	$: readout = `${signed && localValue > 0 ? '+' : ''}${localValue}${unit}`;
+	$: tooltipText = inline ? tooltip || description : tooltip;
+	$: labelClass = inline
+		? `font-mono text-sm uppercase tracking-[0.08em] ${changed ? 'text-fg-muted' : 'text-fg-subtle'}`
+		: 'label !mb-0';
 	// Order-independent backstop for the same sanitization trap: assigning the
 	// property re-runs it against the bounds actually in the DOM. No-op while
 	// dragging, since handleInput already holds the input's own value.
@@ -48,14 +71,61 @@
 	$: hasDefaultTick = typeof defaultValue === 'number' && range > 0 && defaultValue >= min && defaultValue <= max;
 	$: defaultOffset = trackOffset(hasDefaultTick ? trackFraction(defaultValue, min, max) : 0);
 
+	let announcement = '';
+	let keyHeld = false;
+	let commitPending = false;
+
+	function commit() {
+		if (name) onCommit?.(name);
+	}
+
 	function handleInput(event: Event) {
 		const target = event.target as HTMLInputElement;
 		const newValue = parseFloat(target.value);
 		localValue = newValue;
 		previousValue = newValue;
+		announcement = '';
 		if (name) {
 			onChange(name, newValue);
 		}
+	}
+
+	function handleRangeChange() {
+		if (keyHeld) {
+			commitPending = true;
+			return;
+		}
+		commit();
+	}
+
+	function flushKeyCommit() {
+		keyHeld = false;
+		if (!commitPending) return;
+		commitPending = false;
+		commit();
+	}
+
+	function resetToDefault() {
+		if (disabled || !resetEnabled || !name || localValue === defaultValue) return;
+		localValue = defaultValue;
+		previousValue = defaultValue;
+		onChange(name, defaultValue);
+		commit();
+		announcement = `${label} reset to default ${defaultValue}${unit}`;
+	}
+
+	function handleRangeKeydown(event: KeyboardEvent) {
+		if (resetEnabled && (event.key === 'Backspace' || event.key === 'Delete')) {
+			event.preventDefault();
+			event.stopPropagation();
+			resetToDefault();
+			return;
+		}
+		if (SLIDER_NAVIGATION_KEYS.has(event.key)) keyHeld = true;
+	}
+
+	function handleRangeKeyup(event: KeyboardEvent) {
+		if (SLIDER_NAVIGATION_KEYS.has(event.key)) flushKeyCommit();
 	}
 
 	function startEditing() {
@@ -81,6 +151,7 @@
 		previousValue = parsed;
 		if (name) {
 			onChange(name, parsed);
+			commit();
 		}
 	}
 
@@ -93,12 +164,16 @@
 	}
 </script>
 
-<div class="field-card">
-	<div class="flex items-center justify-between mb-2">
-		<div class="flex items-center gap-2">
-			<label class="label !mb-0" for={name || undefined}>{label}</label>
-			{#if tooltip}
-				<Tooltip text={tooltip} position="top">
+<div
+	class={inline ? 'flex min-w-0 items-center gap-2.5' : 'field-card'}
+	data-slider-layout={inline ? 'inline' : undefined}
+	data-changed={changed || undefined}
+>
+	<div class={inline ? 'contents' : 'flex items-center justify-between mb-2'}>
+		<div class="flex items-center gap-2 {inline ? 'order-1 flex-none' : ''}">
+			<label class={labelClass} for={name || undefined}>{label}</label>
+			{#if tooltipText}
+				<Tooltip text={tooltipText} position="top">
 					<span class="text-fg-subtle cursor-help inline-flex items-center">
 						<Icon name="info" className="w-3.5 h-3.5" />
 					</span>
@@ -112,20 +187,25 @@
 				bind:value={editValue}
 				on:blur={commitEdit}
 				on:keydown={handleEditKeydown}
-				class="w-16 text-sm font-medium font-mono tabular-nums text-fg-muted bg-surface-3 px-2 py-0.5 rounded border border-line-hover text-center outline-none focus:border-accent transition-colors duration-150"
+				class="w-16 text-sm font-medium font-mono tabular-nums text-fg-muted bg-surface-3 px-2 py-0.5 rounded border border-line-hover text-center outline-none focus:border-accent transition-colors duration-150 {inline ? 'order-3 flex-none' : ''}"
 			/>
 		{:else}
 			<button
 				type="button"
 				on:click={startEditing}
-				class="text-sm font-medium font-mono tabular-nums text-fg bg-surface-3 px-2 py-0.5 rounded hover:bg-surface-3/70 active:scale-95 transition-all duration-150 ease-out cursor-text min-w-[3rem] text-center"
+				class="text-sm font-medium font-mono tabular-nums text-fg bg-surface-3 px-2 py-0.5 rounded hover:bg-surface-3/70 active:scale-95 transition-all duration-150 ease-out cursor-text min-w-[3rem] text-center {inline ? 'order-3 flex-none' : ''}"
 				use:tooltipAction={'Click to type a value'}
+				data-slider-value
 			>
-				{localValue}{unit}
+				{readout}
 			</button>
 		{/if}
 	</div>
-	<div class="relative flex items-center py-1">
+	<div
+		class="relative flex items-center py-1 {inline ? 'order-2 min-w-0 flex-1' : ''}"
+		role="presentation"
+		on:dblclick={resetToDefault}
+	>
 		<!-- min/max/step MUST precede value: Svelte sets attributes in template
 		     order, and a range input sanitizes an incoming value against whatever
 		     step is current. Set value first and the default step of 1 snaps e.g.
@@ -140,8 +220,12 @@
 			step={domStep}
 			value={localValue}
 			on:input={handleInput}
+			on:change={handleRangeChange}
+			on:keydown={handleRangeKeydown}
+			on:keyup={handleRangeKeyup}
+			on:blur={flushKeyCommit}
 			{disabled}
-			style="background: linear-gradient(to right, rgb(var(--signal)) {fillStop}, rgb(var(--surface-3)) {fillStop})"
+			style="background: {trackBackground}"
 			class="slider-range w-full h-1.5 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
 			aria-describedby={description && name ? `${name}-desc` : undefined}
 		/>
@@ -153,16 +237,19 @@
 			></span>
 		{/if}
 	</div>
-	<div class="flex items-center justify-between mt-1">
-		<span class="font-mono text-sm tabular-nums text-fg-subtle">{min}{unit}</span>
-		{#if hasDefaultTick}
-			<span class="font-mono text-sm text-fg-subtle">tick = default</span>
-		{/if}
-		<span class="font-mono text-sm tabular-nums text-fg-subtle">{max}{unit}</span>
-	</div>
-	{#if description}
-		<p id={name ? `${name}-desc` : undefined} class="text-xs text-fg-muted mt-1">{description}</p>
+	{#if !inline && legend}
+		<div class="flex items-center justify-between mt-1">
+			<span class="font-mono text-sm tabular-nums text-fg-subtle">{min}{unit}</span>
+			{#if hasDefaultTick}
+				<span class="font-mono text-sm text-fg-subtle">tick = default</span>
+			{/if}
+			<span class="font-mono text-sm tabular-nums text-fg-subtle">{max}{unit}</span>
+		</div>
 	{/if}
+	{#if description}
+		<p id={name ? `${name}-desc` : undefined} class={inline ? 'sr-only' : 'text-xs text-fg-muted mt-1'}>{description}</p>
+	{/if}
+	<span class="sr-only" role="status" aria-live="polite">{announcement}</span>
 </div>
 
 <style>

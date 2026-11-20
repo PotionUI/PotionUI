@@ -1,14 +1,14 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional
 
-from src.features.presets.templates import default_form_name
+from src.features.presets.templates import default_form_name, find_mode
 from src.pipelines.outputs import GenerationOutput, ParamGenerationOutput
 from src.pipelines.param_meta import normalize_param_meta
 
 
 def _form_for(template: Any, mode: Optional[str], form_name: Optional[str]) -> Any:
     modes = getattr(template, 'modes', None)
-    mode_data = modes.get(mode) if isinstance(modes, dict) else None
+    mode_data = find_mode(template, mode) if isinstance(modes, dict) else None
     forms = getattr(mode_data, 'forms', None)
     if not isinstance(forms, list) or not forms:
         return None

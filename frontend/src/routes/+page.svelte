@@ -90,7 +90,7 @@
 				icon="warning"
 			>
 				{#snippet actions()}
-					<Button variant="secondary" size="sm" icon="refresh" loading={checking} onclick={checkNow}>Check now</Button>
+					<Button variant="secondary" icon="refresh" loading={checking} onclick={checkNow}>Check now</Button>
 				{/snippet}
 			</EmptyState>
 			<p class="text-sm text-fg-muted">Checking again every few seconds</p>

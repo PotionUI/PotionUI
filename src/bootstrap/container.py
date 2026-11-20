@@ -273,13 +273,28 @@ from src.features.backup.settings import repo_root as backup_repo_root
 from src.features.media.preset_prerender import PresetMediaPrerenderQueue
 from src.features.media_tools.repository import MediaToolParamsRepository
 from src.features.media_tools.routes import MediaToolController
+from src.features.media_tools.jobs import MediaToolJobManager
+from src.features.media_tools.pool_limits import SettingsLimits
 from src.features.media_tools.service import MediaToolService
+from src.platform.media_tools.ffmpeg import set_thread_cap_provider as set_ffmpeg_thread_cap_provider
 from src.features.library import LibraryCollaborators, LibraryRepository
 from src.features.library.routes import LibraryController
 from src.features.kits import KitRepository
 from src.features.kits.expansion import KitExpander
 from src.features.kits.resource_provider import KitsResourceProvider
 from src.features.kits.routes import KitController
+from src.features.edits.manager import EditManager
+from src.features.editor_tasks.default_repository import TaskDefaultRepository
+from src.features.editor_tasks.formats import SETTING_KEY as EXPAND_FORMATS_SETTING, ExpandFormats
+from src.features.editor_tasks.detection import DetectorRegistry, EditorDetectionService
+from src.features.editor_tasks.yolo_detector import DETECTOR_ID as YOLO_DETECTOR_ID, YoloDetector
+from src.features.editor_tasks.manager import EditorTaskManager
+from src.features.editor_tasks.registry import TaskRegistry, register_core_tasks
+from src.features.editor_tasks.repository import EditorRunRepository
+from src.features.editor_tasks.runs import EditorRunManager
+from src.features.generation.routes import GenerationController
+from src.features.edits.repository import EditRepository
+from src.features.edits.routes import EditController
 from src.features.inspirations import InspirationCollaborators, InspirationRepository
 from src.features.inspirations.routes import InspirationController
 from src.features.presets.routes import PresetController
@@ -609,6 +624,16 @@ class AppContainer:
     tab_draft_manager: "TabDraftManager"
     tab_draft_controller: "TabDraftController"
 
+    edit_manager: "EditManager"
+    edit_controller: "EditController"
+
+    editor_task_registry: TaskRegistry
+    editor_tasks: EditorTaskManager
+    editor_runs: EditorRunManager
+    expand_formats: ExpandFormats
+    editor_detector_registry: DetectorRegistry
+    editor_detection: EditorDetectionService
+
     # User groups
     user_group_repository: "UserGroupRepository"
     user_group_controller: "UserGroupController"
@@ -735,6 +760,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
     # their tools/chat_modes/resources into them. Builtins are registered
     # first so a plugin colliding with a builtin fails plugin enable.
 
+    editor_task_registry = register_core_tasks(TaskRegistry())
     media_tool_registry = MediaToolRegistry()
     effects_runtime = EffectRuntime()
     register_core_media_tools(media_tool_registry, effects_runtime)
@@ -831,6 +857,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         limit_kind_registry=limit_kind_registry,
         media_tool_registry=media_tool_registry,
         effect_runtime=effects_runtime,
+        editor_task_registry=editor_task_registry,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -1359,6 +1386,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
     )
 
     # Initialize generation history manager
+    api_key_repository = ApiKeyRepository()
     generation_repository = GenerationRepository()
     generation_parameter_repository = GenerationParameterRepository()
     generation_model_repository = GenerationModelRepository()
@@ -1373,6 +1401,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         preset_name_resolver=preset_name_resolver,
         content_safety=content_safety,
         limit_guard=limit_guard,
+        origin_key_names=api_key_repository.names_for_user,
     )
 
     # Phrasebook controller (needs generation_orchestrator)
@@ -1593,6 +1622,22 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
     tab_draft_manager = TabDraftManager(TabDraftRepository(), notifier=tab_draft_hub)
     tab_draft_controller = TabDraftController(tab_draft_manager)
 
+    edit_repository = EditRepository()
+    edit_manager = EditManager(edit_repository, upload_repository)
+    edit_controller = EditController(edit_manager)
+
+    from src.features.sessions.repository import SessionRepository as _EditorSessionRepository
+
+    editor_tasks = EditorTaskManager(
+        editor_task_registry,
+        file_preset_repository.templates,
+        lambda user: set(database_preset_repository.get_available_preset_ids_for_user(user.id)),
+        lambda engine: bool(engine) and bool(backend_registry.get_backends_for_engine(engine)),
+        TaskDefaultRepository(),
+        _EditorSessionRepository().get_many_for_user,
+        FormulaRepository().get_many_for_owner,
+    )
+
 
     housekeeping_worker = HousekeepingWorker(
         settings,
@@ -1620,6 +1665,9 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
 
 
     media_tool_repository = MediaToolParamsRepository()
+    media_tool_limits = SettingsLimits(settings)
+    set_ffmpeg_thread_cap_provider(lambda: media_tool_limits().ffmpeg_threads)
+    media_tool_jobs = MediaToolJobManager(limits=media_tool_limits)
     media_tool_service = MediaToolService(
         registry=media_tool_registry,
         params_repository=media_tool_repository,
@@ -1630,11 +1678,48 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         limit_guard=limit_guard,
         artifact_store=media_store,
         collection_repository=collection_repository,
+        jobs=media_tool_jobs,
+        edit_repository=edit_repository,
     )
     media_tool_controller = MediaToolController(media_tool_service)
     automation_services.media_tool_service = media_tool_service
     automation_services.media_tool_registry = media_tool_registry
     bind_media_tool_registry(media_tool_registry)
+
+    generation_controller = GenerationController(
+        generation_orchestrator,
+        generation_history_facade,
+        file_service,
+        run_report_recorder,
+        generation_cost_repository,
+        output_broadcaster,
+        generation_applied_prompt_repository,
+    )
+
+    async def start_editor_generation(request, user):
+        return (await generation_controller.start_generation(request, user)).data
+
+    editor_runs = EditorRunManager(
+        EditorRunRepository(),
+        editor_tasks,
+        edit_manager,
+        media_tool_service,
+        media_store,
+        start_editor_generation,
+        generation_controller.cancel_generation,
+        generation_repository,
+        generation_parameter_repository,
+        output_broadcaster.connection_hub,
+    )
+    editor_runs.subscribe(plugin_registry.hook_chain)
+    expand_formats = ExpandFormats(
+        lambda: settings.get_setting(EXPAND_FORMATS_SETTING),
+        lambda user_id: [group.id for group in user_group_repository.get_user_groups(user_id)],
+    )
+
+    editor_detector_registry = DetectorRegistry()
+    editor_detector_registry.register(YOLO_DETECTOR_ID, YoloDetector.kinds, YoloDetector(model_roots))
+    editor_detection = EditorDetectionService(editor_detector_registry, editor_task_registry, media_tool_service)
 
     # Library components (uploads as first-class, curatable resources)
 
@@ -1648,6 +1733,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         file_store=file_service,
         storage_driver=storage_driver,
         limit_guard=limit_guard,
+        edit_repository=edit_repository,
     )
     library_controller = LibraryController(library_collaborators)
     from src.features.library import operations as library_operations
@@ -1903,7 +1989,6 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         storage_root=settings.get_file_storage_directory,
     )
 
-    api_key_repository = ApiKeyRepository()
     user_api_access_repository = UserApiAccessRepository()
     api_key_collaborators = ApiKeyCollaborators(
         keys=api_key_repository,
@@ -1930,6 +2015,7 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         media_indexer=media_indexer,
         settings=settings,
         collection_repository=collection_repository,
+        kit_repository=kit_repository,
         tag_repository=tag_repository,
         plugin_registry=plugin_registry,
         generation_history_facade=generation_history_facade,
@@ -2020,6 +2106,8 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         session_version_repository=session_version_repository,
         file_preset_repository=file_preset_repository,
         notifier=session_hub,
+        editor_owned_fields=editor_tasks.owned_fields,
+        editor_mode_check=editor_tasks.mode_status,
     )
 
 
@@ -2096,7 +2184,9 @@ def build_container(generation_engine_factory: Optional[Callable[[], Any]] = Non
         "chat_controller": chat.chat_controller,
     }
     _locals = locals()
-    return AppContainer(
+    container = AppContainer(
         **typed,
         **{f.name: _locals[f.name] for f in dataclasses.fields(AppContainer) if f.name not in typed},
     )
+    container._generation_controller = generation_controller
+    return container

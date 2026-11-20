@@ -20,7 +20,7 @@ ADDED_AFTER_SEED_READS = frozenset({
 })
 ADDED_AFTER_SEED_WRITES = frozenset({
     "cancel_generation", "upload_media",
-    "run_elixir", "run_automation", "download_model", "delete_generation", "delete_library_item", "publish_inspiration", "mark_notifications_read"
+    "run_elixir", "run_automation", "download_model", "delete_generation", "delete_library_item", "publish_inspiration", "mark_notifications_read", "manage_kits"
 })
 ADDED_AFTER_SEED = ADDED_AFTER_SEED_READS | ADDED_AFTER_SEED_WRITES
 DESTRUCTIVE_TOOLS = frozenset({"delete_generation", "delete_library_item"})

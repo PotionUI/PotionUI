@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { getAllIconNames, getFilledIconPaths, getIconPath, hasIcon, iconSvgMarkup } from './IconLibrary';
-import { spriteFilledGlyphs, spriteGlyphs } from './iconGlyphs';
+import { get } from 'svelte/store';
+import { getAllIconNames, getFilledIconPaths, getIconPath, hasIcon, iconLookup, iconPaths, iconSvgMarkup } from './IconLibrary';
+import { editorToolIcons, spriteFilledGlyphs, spriteGlyphs } from './iconGlyphs';
 import { segmentMenuActions } from './segmentActions';
 import { actionCardIcon } from '$lib/chat/actionCard';
 import { startersForMode } from '$lib/chat/modeStarters';
@@ -135,7 +136,7 @@ describe('mode glyphs', () => {
 });
 
 describe('editor glyphs', () => {
-	const names = getAllIconNames().filter((name) => name.startsWith('editor-'));
+	const names = getAllIconNames().filter((name) => name.startsWith('editor-') && !name.startsWith('editor-tool-'));
 
 	it('registers exactly these editor glyphs', () => {
 		expect([...names].sort()).toEqual([
@@ -177,5 +178,54 @@ describe('editor glyphs', () => {
 			expect(getFilledIconPaths(name), name).toEqual([]);
 		}
 		expect(new Set(names.map(art)).size).toBe(names.length);
+	});
+});
+
+describe('editor tool icons', () => {
+	const own = Object.entries(spriteGlyphs).filter(([name]) => name.startsWith('editor-tool-'));
+	const dOf = (name: string) => [getIconPath(name) ?? []].flat();
+	const pathCommands = /^[MmLlHhVvCcSsQqTtAaZz0-9eE.,+\-\s]+$/;
+
+	it('resolves every mapped entry through the icon lookup', () => {
+		for (const [entry, name] of Object.entries(editorToolIcons)) {
+			expect(get(iconLookup)(name), `${entry} -> ${name}`).toBeTruthy();
+		}
+	});
+
+	it('gives every entry its own icon', () => {
+		const names = Object.values(editorToolIcons);
+		expect(new Set(names).size).toBe(names.length);
+		const art = names.map((name) => JSON.stringify(dOf(name)));
+		expect(new Set(art).size).toBe(art.length);
+	});
+
+	it('has no two identical path data inside the editor glyph set', () => {
+		const seen = new Set<string>();
+		for (const [name, paths] of own) {
+			for (const d of [paths].flat()) {
+				expect(seen.has(d), `${name}: ${d}`).toBe(false);
+				seen.add(d);
+			}
+			const whole = JSON.stringify(paths);
+			expect(own.filter(([, other]) => JSON.stringify(other) === whole)).toHaveLength(1);
+		}
+	});
+
+	it('writes valid path data', () => {
+		expect(own.length).toBeGreaterThan(20);
+		for (const [name, paths] of own) {
+			for (const d of [paths].flat()) {
+				expect(d, name).toMatch(/^[Mm]/);
+				expect(d, name).toMatch(pathCommands);
+				expect(d, name).not.toMatch(/NaN|undefined/);
+				for (const n of d.match(/-?\d*\.?\d+/g) ?? []) expect(Number.isFinite(Number(n)), `${name}: ${n}`).toBe(true);
+			}
+		}
+	});
+
+	it('does not reuse a name from another icon group', () => {
+		const others = new Set(Object.keys(iconPaths).filter((name) => !name.startsWith('editor-tool-')));
+		for (const [name] of own) expect(others.has(name), name).toBe(false);
+		expect(getAllIconNames().filter((name) => name.startsWith('editor-tool-'))).toHaveLength(own.length);
 	});
 });

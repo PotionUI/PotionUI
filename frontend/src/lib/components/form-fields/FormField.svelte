@@ -3,6 +3,7 @@
 	import { writable, type Writable } from 'svelte/store';
 	import { fieldOwnsErrors, resolveFieldComponent } from '$lib/fields/registry';
 	import { ACTIVE_TAB_ID_CONTEXT_KEY } from '$lib/form/activeTabContext';
+	import { FORM_FIELD_COMMIT_CONTEXT_KEY, type FormFieldCommit } from '$lib/form/commitContext';
 	import LiveSyncMark from '$lib/components/session/LiveSyncMark.svelte';
 	import { formKey } from '$lib/session/sessionMerge';
 	import { formulaApplied } from '$lib/stores/formulaApplied';
@@ -39,6 +40,7 @@
 	export let fieldPath: string | undefined = undefined;
 
 	const fieldType = config.type;
+	const onCommit = getContext<FormFieldCommit | undefined>(FORM_FIELD_COMMIT_CONTEXT_KEY);
 
 	// "tab" entries are rendered by their parent TabsField (which iterates
 	// `config.children` directly) - FormField never dispatches for them.
@@ -73,13 +75,43 @@
 	);
 	$: errorFix = name && errorActions ? deriveFieldErrorFix(name, fieldErrorMessages) : null;
 
+	function invalidMarker(node: HTMLElement, messages: string[]) {
+		let current = messages;
+		const describedby = `${name}-field-error`;
+		function mark() {
+			for (const element of node.querySelectorAll('input, select, textarea')) {
+				if (current.length) {
+					if (element.getAttribute('aria-invalid') !== 'true') element.setAttribute('aria-invalid', 'true');
+					if (element.getAttribute('aria-describedby') !== describedby) element.setAttribute('aria-describedby', describedby);
+				} else {
+					if (element.getAttribute('aria-describedby') === describedby) element.removeAttribute('aria-describedby');
+					if (element.getAttribute('aria-invalid') === 'true') element.removeAttribute('aria-invalid');
+				}
+			}
+		}
+		const observer = new MutationObserver(() => {
+			if (current.length) mark();
+		});
+		observer.observe(node, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-invalid', 'aria-describedby'] });
+		mark();
+		return {
+			update(next: string[]) {
+				current = next;
+				mark();
+			},
+			destroy() {
+				observer.disconnect();
+			}
+		};
+	}
+
 	function applyFix(fix: FieldErrorFix | null) {
 		if (fix && errorActions) applyFieldErrorFix(fix, errorActions);
 	}
 </script>
 
 {#if isVisible && !isTabEntry}
-	<div data-field-name={name || undefined} class:formula-changed={!!appliedChange}>
+	<div data-field-name={name || undefined} data-field-type={fieldType} data-invalid={fieldErrorMessages.length ? 'true' : undefined} use:invalidMarker={fieldErrorMessages} class:formula-changed={!!appliedChange}>
 		<LiveSyncMark tabId={appliedTabId} fieldKey={name ? formKey(name) : null}>
 			{#if appliedChange}
 				<div class="mb-1 truncate font-mono text-xs text-fg-subtle" data-testid="formula-previous-value">
@@ -108,7 +140,7 @@
 			{:else}
 				{#await componentPromise then Component}
 					{#if Component}
-						<svelte:component this={Component} {name} {config} {value} {onChange} {onOriginChange} {onMaskChange} {host} {fieldPath} />
+						<svelte:component this={Component} {name} {config} {value} {onChange} {onCommit} {onOriginChange} {onMaskChange} {host} {fieldPath} />
 					{:else}
 						<div class="p-2 bg-danger/10 rounded-md text-xs text-danger">
 							Unsupported field type: {fieldType}
@@ -121,7 +153,7 @@
 			{/if}
 			{#if fieldErrorMessages.length > 0}
 				<div class="mt-1 space-y-1.5">
-					<div class="space-y-0.5" role="alert">
+					<div class="space-y-0.5" role="alert" id="{name}-field-error" data-field-error>
 						{#each fieldErrorMessages as msg}
 							<p class="text-xs text-danger">{msg}</p>
 						{/each}

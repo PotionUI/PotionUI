@@ -16,6 +16,7 @@ from src.platform.plugins import PluginRegistry
 from src.features.generation.repository import GenerationRepository
 from src.features.generation.history_filter import HistoryFilter
 from src.features.generation.history_query import GenerationHistoryQuery
+from src.features.generation.origin import KeyNameLookup
 from src.features.generation.history_archive import GenerationHistoryArchive
 from src.features.generation.history_executor import HistoryExecutor
 
@@ -62,6 +63,7 @@ class GenerationHistoryFacade:
         preset_name_resolver: Optional['PresetNameResolver'] = None,
         content_safety: Optional['ContentSafetyManager'] = None,
         limit_guard: Optional['LimitGuard'] = None,
+        origin_key_names: Optional[KeyNameLookup] = None,
     ):
         """Initialize GenerationHistoryFacade.
 
@@ -85,7 +87,7 @@ class GenerationHistoryFacade:
 
         self._query = GenerationHistoryQuery(
             generation_repo, file_service, media_index_repository, settings,
-            media_indexer, preset_name_resolver, content_safety
+            media_indexer, preset_name_resolver, content_safety, origin_key_names
         )
         self._archive = GenerationHistoryArchive(
             generation_repo, file_service, plugin_registry, self._query, run_report_repository,

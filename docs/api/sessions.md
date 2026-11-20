@@ -137,7 +137,9 @@ The rest of this page explains each step.
 
 ## Find the session
 
-`GET /api/sessions` (needs `read`) lists your sessions across all presets, pinned first and then newest first. Filter with `preset_id`, `name` (the exact name) or `q` (sessions whose name contains the text, without regard to case). You only ever see your own sessions.
+`GET /api/sessions` (needs `read`) lists your sessions across all presets, pinned first and then newest first. Filter with `preset_id`, `name` (the exact name), `q` (sessions whose name contains the text, without regard to case) or `mode` (sessions that hold that mode). You only ever see your own sessions.
+
+Each session has a `kind`. The sessions the Generate page saves are `generation`; the Image editor keeps its own saved settings as `editor` sessions, which hold form values only (no prompt, pictures or layout). The `kind` query parameter picks which to list: `generation` (the default, so scripts see exactly what they always saw), `editor` or `any`. `GET /api/sessions/preset/{preset_id}` takes the same `kind` and `mode` parameters. An editor session cannot be generated from. Its `data` is keyed by editor mode, `editor:<name>` (see [Editor modes](../presets.md#editor-modes)); saving with a key without the prefix answers `422 session_mode_unknown`, and a listing filters on the exact key.
 
 ```bash
 curl -sS "$BASE/api/sessions?q=portrait" -H "Authorization: Bearer $POTIONUI_KEY"
@@ -159,7 +161,8 @@ Each item is:
   "prompts": {"txt2img": "a lighthouse"},
   "pinned": false,
   "updated_at": "2026-11-12T09:30:00Z",
-  "version": 3
+  "version": 3,
+  "kind": "generation"
 }
 ```
 
@@ -280,7 +283,12 @@ Errors of the session routes, in the usual `{"detail": {"success": false, "error
 | 403 | `session_model_unavailable` | `models`: a list of `field`, `model_id`, `name` |
 | 403 | `insufficient_scope` | The `WWW-Authenticate` header names the permission |
 | 409 | `session_changed` | `settings_hash`, `changed_fields` |
+| 409 | `session_kind_mismatch` | Saving a session under a name that another kind already uses for the same preset, or sending a `kind` that differs from the stored one. A session keeps its kind for life, and names are shared across kinds; the answer carries the stored `kind` |
 | 422 | `session_needs_editor` | `supported` |
+| 422 | `session_is_editor` | Generating from or describing an editor session; it belongs to the Image editor and has no prompt or picture |
+| 422 | `session_mode_required` | Saving or updating an editor session whose data is not keyed by editor mode and names no `mode` |
+| 422 | `session_mode_unknown` | The mode is not an editor mode of the preset; `mode` |
+| 422 | `session_mode_not_offered` | The editor mode exists but offers no editor task now; `mode` |
 | 422 | `input_missing` | `inputs`: a list of `field`, `path` |
 | 422 | `unknown_field`, `unknown_variable` | `names`, `known` |
 | 422 | `field_locked` | `names` |

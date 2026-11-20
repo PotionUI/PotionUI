@@ -5,7 +5,7 @@
 	import MediaPreview from '$lib/components/MediaPreview.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import { IconButton, SegmentedControl, Spinner } from '$lib/components/ui';
+	import { EmptyState, IconButton, SegmentedControl, Spinner } from '$lib/components/ui';
 	import CompareFrame from './CompareFrame.svelte';
 	import { COMPARE_DEFAULT, type CompareMode } from './compareFrame';
 	import portal from '$lib/actions/portal';
@@ -251,7 +251,7 @@
 	<!-- Parameter diff -->
 	<div class="px-4 pb-4">
 		{#if isLibrary}
-			<p class="py-8 text-center text-sm text-fg-subtle">No generation data for library items.</p>
+			<EmptyState compact icon="document" title="No generation data" description="Library items do not carry generation data." />
 		{:else if loading}
 			<div class="flex items-center justify-center gap-2 py-10 text-fg-muted">
 				<Spinner size="sm" />

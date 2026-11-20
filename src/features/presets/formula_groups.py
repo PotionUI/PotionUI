@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-from src.features.presets.templates import PresetTemplate, ModeTemplate, FormTemplate, default_form_name
+from src.features.presets.templates import PresetTemplate, ModeTemplate, FormTemplate, default_form_name, find_mode
 
 FORMULA_INPUT_TYPES = frozenset({
     "image", "video", "audio", "media", "file", "prompt_timeline", "camera_shot", "seed",
@@ -72,7 +72,7 @@ def resolve_formula_groups(
     preset: PresetTemplate, mode: str, form_name: Optional[str] = None
 ) -> List[FormulaGroup]:
     catalog = formula_catalog(preset)
-    mode_data = (preset.modes or {}).get(mode)
+    mode_data = find_mode(preset, mode)
     if not catalog or mode_data is None:
         return []
     form = _select_form(mode_data, form_name)

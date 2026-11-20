@@ -3,7 +3,7 @@
 	import { page } from '$app/stores';
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Badge, Button, IconButton, Kbd, Spinner } from '$lib/components/ui';
+	import { Badge, Button, EmptyState, IconButton, Kbd, Spinner } from '$lib/components/ui';
 	import { authStore } from '$lib/stores/auth';
 	import { toasts } from '$lib/stores/toast';
 	import { api } from '$lib/services/api';
@@ -457,8 +457,13 @@
 					{:else if listError}
 						<li class="px-6 py-8 text-center text-base text-danger">{listError}</li>
 					{:else if items.length === 0}
-						<li class="px-6 py-8 text-center text-base text-fg-muted">
-							{query.trim() ? `No files match "${query.trim()}".` : 'No files are waiting to be indexed.'}
+						<li>
+							<EmptyState
+								compact
+								icon={query.trim() ? 'search' : 'document'}
+								title={query.trim() ? 'Nothing found' : 'No files waiting'}
+								description={query.trim() ? `No files match "${query.trim()}".` : 'No files are waiting to be indexed.'}
+							/>
 						</li>
 					{:else if remaining > 0}
 						<li class="flex items-center justify-center gap-3 px-4 py-3 text-sm text-fg-muted md:px-6">

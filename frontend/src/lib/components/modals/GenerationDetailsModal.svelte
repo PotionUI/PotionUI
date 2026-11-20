@@ -44,6 +44,9 @@
 	import MediaStage from '$lib/components/media-details/MediaStage.svelte';
 	import { audioTracksFor, isAudioFile, isMeshFile, isVideoFile, resolveAudioFormat } from '$lib/components/media-details/mediaFile';
 	import ParametersView from '$lib/components/generation/ParametersView.svelte';
+	import GenerationOriginChip from '$lib/components/GenerationOriginChip.svelte';
+	import { describeOrigin, offersOpenInTab } from '$lib/generation/origin';
+	import { openGenerationInNewTab } from '$lib/generation/attach/openInTabDefault';
 	import ParameterTextBlock from '$lib/components/generation/ParameterTextBlock.svelte';
 	import DetailsSection from '$lib/components/generation/DetailsSection.svelte';
 	import GenerationFailureAlert from '$lib/components/generation/GenerationFailureAlert.svelte';
@@ -54,6 +57,23 @@
 	import { countParameters } from '$lib/components/generation/parametersModel';
 	import { loadDetailsPrefs } from '$lib/components/generation/detailsPrefs';
 	import type { GenerationParameterMeta } from '$lib/types/generation';
+	import LiveStage from '$lib/components/generation/LiveStage.svelte';
+	import LiveActionBar from '$lib/components/generation/LiveActionBar.svelte';
+	import { liveWatcher, liveClock } from '$lib/generation/live/liveDefault';
+	import { isTerminalLive } from '$lib/generation/live/liveState';
+	import {
+		batchSlots,
+		batchTotal,
+		elapsedSeconds,
+		formatElapsed,
+		isLiveStatus,
+		liveStepLine,
+		percentOf
+	} from '$lib/generation/live/liveView';
+	import { resolveOriginAction, type OriginAction } from '$lib/generation/live/originAction';
+	import { openOriginEdit } from '$lib/tool-tabs/editOrigin';
+	import { tabsStore } from '$lib/stores/tabs';
+	import { goto } from '$app/navigation';
 
 	// Support both ways of passing generation data
 	export let generation: GenerationHistoryItem | null = null;
@@ -134,6 +154,7 @@
 	// Prefer the loaded detail (it carries `segments`) over the list item.
 	$: activeGenerationId = generation?.id || generationId || '';
 	$: activeGeneration = pickActiveGeneration(generation, loadedGeneration, activeGenerationId);
+	$: originInfo = activeGeneration ? describeOrigin(activeGeneration.origin) : null;
 	$: shortGenerationId = activeGenerationId ? activeGenerationId.slice(0, 8) : '';
 	$: if (!activeGenerationId) {
 		logger.error('GenerationDetailsModal: No generation or generationId provided');
@@ -190,7 +211,6 @@
 	$: statusName = activeGeneration?.status ? activeGeneration.status.charAt(0).toUpperCase() + activeGeneration.status.slice(1) : '';
 	$: headerIcon = headerIconName !== 'image' || !currentFile ? headerIconName : libraryItemIcon(currentFile.file_type);
 	$: headerKindLabel = headerIconName === 'grid' ? 'Compare grid' : currentFile?.file_type ? currentFile.file_type.charAt(0).toUpperCase() + currentFile.file_type.slice(1) : 'Generation';
-	$: paramCount = countParameters({ params: shownParams, meta: shownParamMeta, order: currentParamOrder, models: currentModels });
 	$: runLine = activeGeneration ? formatRunLine(activeGeneration) : null;
 	$: phoneWhen = activeGeneration ? formatShortDay(activeGeneration.completed_at ?? activeGeneration.created_at) : '';
 	$: runDetail = (runLine?.detail ?? '').replace(/^took /, '');
@@ -294,12 +314,169 @@
 	// blink this pane. Keying also picks up a file change, which reading
 	// currentFileIndex inside the function did not.
 	$: paramsKey =
-		activeGeneration?.files?.length ? `${activeGenerationId}:${currentFileIndex}` : '';
+		activeGeneration?.files?.length || recordLive || sawLive
+			? `${activeGenerationId}:${currentFileIndex}:${recordLive ? (liveNow?.pipeId ?? '') : ''}`
+			: '';
 	$: if (paramsKey && paramsKey !== loadedParamsKey) {
+		const silent = loadedParamsKey.startsWith(`${activeGenerationId}:`);
 		loadedParamsKey = paramsKey;
-		loadParametersForCurrentFile();
+		loadParametersForCurrentFile(silent);
 	}
 
+
+	const liveStates = liveWatcher.states;
+	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
+	$: liveNow = activeGenerationId ? ($liveStates[activeGenerationId] ?? null) : null;
+	$: recordLive = !!activeGeneration && isLiveStatus(activeGeneration.status);
+	$: queuedNow = (liveNow?.status ?? activeGeneration?.status) === 'pending';
+
+	let releaseLive: (() => void) | null = null;
+	let watchedLiveId = '';
+	$: syncLiveWatch(isOpen && recordLive, activeGenerationId);
+
+	function syncLiveWatch(open: boolean, id: string) {
+		if (releaseLive && (!open || watchedLiveId !== id)) {
+			releaseLive();
+			releaseLive = null;
+			watchedLiveId = '';
+		}
+		if (open && id && !releaseLive) {
+			releaseLive = liveWatcher.watch(id, 'detail', activeGeneration?.status === 'pending' ? 'pending' : 'running');
+			watchedLiveId = id;
+		}
+	}
+
+	onDestroy(() => {
+		releaseLive?.();
+		releaseLive = null;
+		clearTimeout(settleTimer);
+	});
+
+	let liveSeenId = '';
+	$: if (recordLive) liveSeenId = activeGenerationId;
+	$: sawLive = !!activeGenerationId && liveSeenId === activeGenerationId;
+	$: endedInPlace = sawLive && (activeGeneration?.status === 'failed' || activeGeneration?.status === 'cancelled');
+	$: liveStage = recordLive || endedInPlace;
+	$: justFinished = sawLive && activeGeneration?.status === 'completed';
+
+	let slotChoice: number | null = null;
+	let lastItemIndex = 0;
+	$: if (liveNow?.itemIndex != null) lastItemIndex = liveNow.itemIndex;
+	let finishAppliedFor = '';
+	$: if (justFinished && finishAppliedFor !== activeGenerationId && mediaFiles.length > 0) {
+		finishAppliedFor = activeGenerationId;
+		currentFileIndex = Math.min(slotChoice ?? lastItemIndex, mediaFiles.length - 1);
+	}
+
+	let settleTimer: ReturnType<typeof setTimeout> | undefined;
+	let settleKey = '';
+	$: liveSettled = sawLive && !!liveNow && isTerminalLive(liveNow.status);
+	$: if (liveSettled && settleKey !== `${activeGenerationId}:${liveNow?.status}`) {
+		settleKey = `${activeGenerationId}:${liveNow?.status}`;
+		void settleDetail(3);
+	}
+	$: listSettled =
+		!!generation &&
+		!!loadedGeneration &&
+		generation.id === loadedGeneration.id &&
+		isLiveStatus(loadedGeneration.status) &&
+		!isLiveStatus(generation.status);
+	$: if (listSettled && settleKey !== `${activeGenerationId}:list:${generation?.status}`) {
+		settleKey = `${activeGenerationId}:list:${generation?.status}`;
+		void settleDetail(3);
+	}
+
+	async function refreshDetail(): Promise<GenerationHistoryItem | null> {
+		const id = activeGenerationId;
+		if (!id) return null;
+		try {
+			const response = await api.getGenerationById(id, true, true);
+			if (response.success && response.data && id === activeGenerationId) {
+				loadedGeneration = response.data;
+				return response.data;
+			}
+		} catch (error) {
+			logger.error('Failed to refresh generation:', error);
+		}
+		return null;
+	}
+
+	async function settleDetail(retries: number) {
+		const detail = await refreshDetail();
+		if ((!detail || isLiveStatus(detail.status)) && retries > 0) {
+			clearTimeout(settleTimer);
+			settleTimer = setTimeout(() => void settleDetail(retries - 1), 1000);
+		}
+	}
+
+	let galleryCount = 0;
+	$: if (recordLive && liveNow && liveNow.galleryUpdates !== galleryCount) {
+		galleryCount = liveNow.galleryUpdates;
+		if (galleryCount > 0) void refreshDetail();
+	}
+
+	$: paramCount = countParameters({ params: shownParams, meta: shownParamMeta, order: currentParamOrder, models: currentModels });
+	$: liveElapsed = activeGeneration && recordLive ? elapsedSeconds(activeGeneration, $liveClock) : null;
+	$: liveFinished = mediaFiles.length;
+	$: liveTotal = Math.max(batchTotal(activeGeneration?.form_data, liveNow?.itemCount ?? null), liveFinished);
+	$: liveSlots = batchSlots(
+		liveTotal,
+		liveFinished,
+		endedInPlace ? (activeGeneration?.status as 'failed' | 'cancelled') : null
+	);
+	$: liveThumbs = mediaFiles.map((file) => mediaFileThumbnailUrl(file) || getImageUrl(file));
+	$: liveFulls = mediaFiles.map((file) => getImageUrl(file));
+	$: liveLine = liveNow
+		? liveStepLine(liveNow, {
+				isAdmin,
+				noun: liveNow.clip ? 'video' : 'image',
+				queued: queuedNow && !liveNow.currentStep
+			})
+		: {
+				text: queuedNow ? 'Waiting in the queue' : 'Starting…',
+				stepCount: null,
+				percent: percentOf(activeGeneration?.progress)
+			};
+	$: livePercent = liveLine.percent ?? percentOf(activeGeneration?.progress);
+	$: liveDimensions = (() => {
+		const w = Number(activeGeneration?.form_data?.width);
+		const h = Number(activeGeneration?.form_data?.height);
+		return w > 0 && h > 0 ? `${w} × ${h}` : null;
+	})();
+	$: if (activeGenerationId !== renderedGenerationId) slotChoice = null;
+
+	$: originAction = activeGeneration ? resolveOriginAction(activeGeneration, $tabsStore.tabs) : null;
+	let cancelling = false;
+
+	async function handleCancelLive() {
+		if (!activeGenerationId || cancelling) return;
+		cancelling = true;
+		try {
+			const response = await api.cancelGeneration(activeGenerationId);
+			if (!response.success) toasts.error('Could not cancel this generation. Try again.');
+		} catch (error) {
+			logger.error('Cancel failed:', error);
+			toasts.error('Could not cancel this generation. Try again.');
+		} finally {
+			cancelling = false;
+		}
+	}
+
+	async function runOriginAction(action: OriginAction) {
+		if (action.kind === 'open-in-tab') {
+			await handleOpenInTab();
+			return;
+		}
+		if (action.kind === 'go-to-tab') {
+			tabsStore.setActiveTab(action.tabId);
+			if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/generate')) await goto('/generate');
+			handleClose();
+			return;
+		}
+		const result = await openOriginEdit(action.origin);
+		if (result.ok) handleClose();
+		else toasts.error(result.message);
+	}
 
 	async function loadGenerationData() {
 		if (!activeGenerationId) return;
@@ -336,10 +513,10 @@
 		return merged;
 	}
 
-	async function loadParametersForCurrentFile() {
+	async function loadParametersForCurrentFile(silent = false) {
 		if (!activeGenerationId) return;
 
-		paramsLoading = true;
+		if (!silent) paramsLoading = true;
 		try {
 			const response = await api.getGenerationParams(activeGenerationId, currentFileIndex);
 			if (response.success && response.data) {
@@ -574,8 +751,23 @@
 		link.click();
 	}
 
-	function buildGenerationActions(withReuse: boolean, withCopy: boolean, copying: boolean): BarAction[] {
+	async function handleOpenInTab() {
+		if (!activeGeneration) return;
+		const result = await openGenerationInNewTab(activeGeneration.id, { navigate: true });
+		if (result.kind === 'opened' || result.kind === 'focused') handleClose();
+	}
+
+	function buildGenerationActions(withReuse: boolean, withCopy: boolean, copying: boolean, withOpenInTab: boolean): BarAction[] {
 		const actions: BarAction[] = [];
+		if (withOpenInTab) {
+			actions.push({
+				id: 'open-in-tab',
+				label: 'Open in a tab',
+				icon: 'external-link',
+				tooltip: 'Open this generation in a new tab, following it while it runs',
+				onclick: handleOpenInTab
+			});
+		}
 		if (withReuse) {
 			actions.push({
 				id: 'reuse',
@@ -615,7 +807,8 @@
 	$: generationActions = buildGenerationActions(
 		!!activeGeneration?.preset_id,
 		canCopyToLibrary,
-		copyingToLibrary
+		copyingToLibrary,
+		!!activeGeneration && offersOpenInTab(activeGeneration)
 	);
 
 	$: downloadActions = [
@@ -720,7 +913,7 @@
 					{#if !hostTitle && activeGeneration.preset_version}<span class="font-normal text-fg-muted">{' v'}{activeGeneration.preset_version}</span>{/if}
 				{/snippet}
 				{#snippet rating()}
-					<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />
+					{#if !recordLive}<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />{/if}
 				{/snippet}
 				{#snippet tools()}
 					{#if currentFile}
@@ -767,6 +960,13 @@
 					{/if}
 				{/snippet}
 				{#snippet meta()}
+					{#if recordLive}
+							<Badge variant="signal" size="sm" class="uppercase tracking-wide">{queuedNow ? 'Queued' : 'Running'}</Badge>
+						{:else if endedInPlace}
+							<Badge variant="danger" size="sm" class="uppercase tracking-wide">{activeGeneration.status === 'cancelled' ? 'Cancelled' : 'Failed'}</Badge>
+						{:else if justFinished}
+							<Badge variant="success" size="sm" class="uppercase tracking-wide">Completed</Badge>
+						{/if}
 					{#if hostTitle && presetLabel}
 						<span class="max-w-[40%] shrink-0 truncate font-medium text-fg max-sm:hidden">{presetLabel}</span>
 					{/if}
@@ -791,13 +991,32 @@
 						<code class="hidden font-mono tabular-nums sm:inline">{middleEllipsis(activeGenerationId, 17)}</code>
 						<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" class="flex-shrink-0" />
 					</span>
+						{#if originInfo}
+							<span class="inline-flex min-w-0 flex-shrink items-center max-sm:hidden" data-details-origin>
+								<GenerationOriginChip generation={activeGeneration} onopened={handleClose} />
+							</span>
+							<span class="inline-flex flex-shrink-0 items-center sm:hidden">
+								<GenerationOriginChip generation={activeGeneration} iconOnly onopened={handleClose} />
+							</span>
+						{/if}
 				{/snippet}
 			</MediaDetailsHeader>
 		{/if}
 	{/snippet}
 
 	{#snippet toolbar()}
-		{#if activeGeneration && currentFile}
+		{#if activeGeneration && liveStage}
+			<LiveActionBar
+				live={recordLive}
+				{cancelling}
+				onCancel={handleCancelLive}
+				origin={recordLive ? originAction : null}
+				onOrigin={runOriginAction}
+				canReuse={!!activeGeneration.preset_id}
+				reuseLabel={recordLive ? 'Reuse settings' : 'Try again in a tab'}
+				onReuse={() => dispatch('reuse', activeGeneration)}
+			/>
+		{:else if activeGeneration && currentFile}
 			<DetailsActionBar
 				bind:this={actionBar}
 				items={rowItems}
@@ -816,7 +1035,26 @@
 	{/snippet}
 
 	{#snippet stage()}
-		{#if currentFile}
+		{#if liveStage && activeGeneration}
+			<LiveStage
+				mode={recordLive ? 'live' : 'ended'}
+				preview={liveNow?.preview ?? null}
+				clip={liveNow?.clip ?? null}
+				suppressed={liveNow?.previewSuppressed ?? false}
+				stepText={liveLine.text}
+				percent={livePercent}
+				elapsed={liveElapsed}
+				queued={queuedNow}
+				dimensions={liveDimensions}
+				slots={liveSlots}
+				thumbs={liveThumbs}
+				fulls={liveFulls}
+				selectedSlot={slotChoice}
+				onSelectSlot={(index) => (slotChoice = index)}
+				{failure}
+				{isAdmin}
+			/>
+		{:else if currentFile}
 			<MediaStage
 				file={currentFile}
 				src={getImageUrl(currentFile)}
@@ -844,7 +1082,7 @@
 	{#snippet columnContent()}
 		{#if activeGeneration}
 				<div class="pb-4">
-					{#if failure}
+					{#if failure && !endedInPlace}
 						<div class="px-4 pb-4 pt-4">
 							<GenerationFailureAlert notice={failure} />
 						</div>

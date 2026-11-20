@@ -6,6 +6,7 @@
 	export let config: any = {};
 	export let value: any;
 	export let onChange: (fieldName: string, value: any) => void;
+	export let onCommit: ((fieldName: string) => void) | undefined = undefined;
 
 	type Option = { label?: string; value: string | number; disabled?: boolean };
 
@@ -23,7 +24,10 @@
 
 	function select(id: string) {
 		const option = options.find((candidate) => String(candidate.value) === id);
-		if (option && name) onChange(name, option.value);
+		if (option && name) {
+			onChange(name, option.value);
+			onCommit?.(name);
+		}
 	}
 </script>
 

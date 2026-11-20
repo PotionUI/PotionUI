@@ -22,10 +22,12 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import get_current_active_user, require_media_viewer
+from src.platform.http.sorting import SortDirection
 from src.platform.security.user import AccountType
 
 from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.dto import (
+    InspirationSortBy,
     PublishInspirationRequest,
     CommentCreateRequest,
     CreateInspirationCollectionRequest,
@@ -74,6 +76,8 @@ class InspirationController(BaseController):
         saved: Optional[bool],
         include_descendants: bool = True,
         unsorted: bool = False,
+        sort_by: str = "created",
+        sort_dir: Optional[str] = None,
     ) -> APIResponse:
         limit = max(1, min(limit, 100))
         offset = max(0, offset)
@@ -87,6 +91,8 @@ class InspirationController(BaseController):
             saved=saved,
             include_descendants=include_descendants,
             unsorted=unsorted,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
         visible = self._viewable(current_user.id, items)
         return self.success_response(data={
@@ -261,11 +267,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         saved: Optional[bool] = Query(None),
         include_descendants: bool = Query(True),
         unsorted: bool = Query(False),
+        sort_by: Optional[InspirationSortBy] = Query(None, description="'created' (default) | 'title' | 'saved' (most saved) | 'comments' (most commented)"),
+        sort_dir: Optional[SortDirection] = Query(None, description="'asc' | 'desc'; default is desc for created, saved and comments, asc for title"),
         current_user=Depends(get_current_active_user),
     ) -> APIResponse:
         return await controller.list_feed(
             current_user, query, limit, offset, collection_id, author_id, saved,
             include_descendants, unsorted,
+            sort_by.value if sort_by else "created", sort_dir.value if sort_dir else None,
         )
 
     @router.post("", response_model=APIResponse, summary="Publish Inspiration")

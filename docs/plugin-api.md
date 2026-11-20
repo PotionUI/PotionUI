@@ -1860,7 +1860,9 @@ still images (grain, VHS, grades) are photo filters, not tools: see
 | `mute` | video with sound | same | none |
 | `volume` | video, audio with sound | same | `unit` percent / db, `percent` 0 to 400, `db` -60 to 20, `fade_in`, `fade_out` (seconds) |
 | `replace_audio` | video (editor only) | same | `audio` (media), `start` (seconds into the track), `loop` |
-| `paint_layer` | image (editor only) | same | `layer` (media, a transparent PNG) |
+| `paint_layer` | image (editor only) | same | `layer` (media, a transparent PNG), `opacity` (0 to 1, default 1) |
+| `place_patch` | image (editor only) | same | `patch` (media, an RGBA PNG made by an editor run), `x`, `y`, `width`, `height` (0 to 1, the patch's place as fractions of the picture), `opacity` (0 to 1, default 1), `canvas_width`, `canvas_height`, `canvas_x`, `canvas_y` (pixels, grow the picture onto a larger transparent canvas first), `replace` (checkbox, default off: the patch is the whole picture at its own size, as an upscale makes it) |
+| `replace_background` | image (editor only) | same | `kind` (`color` default, `picture`, `transparent`), `color` (`#rrggbb`, default `#ffffff`, for `kind: color`), `picture` (media, cover-fitted to the canvas, for `kind: picture`), `matte` (media, a grayscale mask, white = the background; its soft values are used as they are), `opacity` (0 to 1, how much of the replacement shows, default 1). `transparent` makes an RGBA picture with alpha multiplied by 1 minus the matte |
 
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
 transparency (a JPEG that gains an alpha channel is saved as PNG).
@@ -1868,7 +1870,7 @@ transparency (a JPEG that gains an alpha channel is saved as PNG).
 `mute`, `volume` and `replace_audio` copy the video stream when they run alone; next to a picture or timing edit they
 share that edit's single encode. `replace_audio` keeps the video's length: the track starts `start` seconds in and, with
 `loop`, repeats until the picture ends. `split` with `mode: at` cuts at one time point into two items; video parts are
-re-encoded so the cut lands on the exact frame. Tools whose `scopes` are only `editor` (`replace_audio`, `paint_layer`)
+re-encoded so the cut lands on the exact frame. Tools whose `scopes` are only `editor` (`replace_audio`, `paint_layer`, `place_patch`, `replace_background`)
 are left out of the Library and History menus because they need a file picked in the editor.
 
 A `media` parameter names another file: `{"item_id": "..."}` (a Library item or a helper upload) or
@@ -1919,7 +1921,11 @@ a file path in a response.
   a replacement track. Use the returned `id` as a run input or in a `media` parameter. They stay out of the Library but
   count toward the plan's storage and per-file limits. They must be an image, audio or video file of at most 512 MB.
   The announced size is checked before the body is read and the bytes are checked again after. The same rules apply
-  to `POST /api/media/upload` with `purpose=derived_artifact`.
+  to `POST /api/media/upload` with `purpose=derived_artifact`. The Image editor stores every paint layer as its own
+  helper upload and its own `paint` step (`{layer, url, layers: 1, name}`, with the step's `layer.opacity` and `hidden`
+  carrying the fade and the eye), so a saved edit keeps each layer; a layer that was added but not painted yet has
+  an empty `layer` and `url` and sends no step; a `paint` step without `name` is an older one-PNG
+  paint and opens as a single layer. Nothing sweeps these helper uploads, so a saved edit keeps every layer file it names.
 
 ### From chat, MCP and automation
 
@@ -1979,7 +1985,7 @@ media_tools:
       - { name: repeats, type: integer, min: 1, max: 8, default: 2 }
     requires: { has_audio: false }  # optional: has_audio, has_alpha, min_duration (seconds)
     selection: { min: 1, max: 4 }   # optional: how many items the tool takes
-    scopes: [library, history]      # optional: library | history | field; default all three
+    scopes: [library, history]      # optional: library | history | field | editor; default library, history, field
     preview: false                  # true needs python; the dialog then shows a before/after pane
     python: tools/loop.py:LoopTool  # optional: a path inside the plugin dir, then :ClassName
     component: loop-preview         # optional: a plugin frontend asset
@@ -2161,6 +2167,562 @@ Successful JSON responses use the usual `{success, data}` envelope. A refusal an
 Runs are in-process: at most two execute at once, the rest wait their turn, and a finished run is kept for
 ten minutes. A user only ever sees, polls and cancels their own runs. After a single-step run completes, its
 parameters are stored as that user's `last_params` for the tool.
+
+## Contributing an editor task
+
+A plugin adds a job the Image editor can offer, such as "Colorize a region", with `editor_tasks` in
+`manifest.yml`. Disabling the plugin removes its tasks.
+
+```yaml
+editor_tasks:
+  - id: my-plugin.colorize
+    label: Colorize a region
+    icon: palette
+    editors: [image]
+    region: required
+    prompt: optional
+    produces: patch
+    fallback:
+      task: edit_region
+      prompt: Colorize the marked area naturally.
+```
+
+The `id` must start with your plugin id and a dot; ids without a dot belong to core. `region` and
+`prompt` are `required`, `optional` or `none`. A `fallback` names a task to run, with a built-in prompt,
+when no mode offers this one; the prompt may contain `{prompt}`, which a run replaces with the user's text. `grows: true` marks a task whose result is larger than the picture (the way core's
+`expand` is); its runs carry an `expand` canvas instead of a region (see [Editor runs](api/editor-runs.md#expand-a-picture)).
+
+Optional keys that shape the run (all default to the old behaviour):
+
+| Key | Meaning |
+|---|---|
+| `produces` | `patch` (default), `replace`, or `matte`: the run returns the model's RGBA picture at the picture's size instead of a patch. |
+| `grow` | `0` to `0.5`, default `0`. The marked region is grown by this fraction of its longer side (at least 6 px) before the run. |
+| `feather` | `0` to `8`, default `1`. A multiplier on the stitch feather. |
+| `matte` | `true`: the region is a soft matte, kept grayscale and used as the patch alpha. |
+| `internal` | `true`: no rail tool; the task is run by other tools. |
+
+An editor mode may also set `instruction:`, the prompt sent for a task whose `prompt` is `none`
+([Editor modes](presets.md#one-click-picture-tools)).
+
+A task is offered by presets, not by the manifest: an editor mode names it in its `editor_mode.yml`
+([Editor modes](presets.md#editor-modes)). An editor mode that belongs to your plugin (a preset from your
+`presets:` root, or an `editor_modes/` directory under a `preset_modes:` root, which can target a preset your
+plugin does not own) may name your task and the core tasks. An editor mode of another plugin that names your task
+is rejected by lint.
+
+`src.plugin_api.editor` exports `TaskDefinition`, the shape the host keeps for every registered task.
+
+What the host does with a task:
+
+- The server keeps one task registry. Core registers `edit_region`, `remove_object`, `replace_background` and `find_subject`; a plugin's entries are
+  added when it is enabled and dropped when it is disabled. An id that another source already holds is
+  refused, so a plugin cannot replace a core task. `editors` defaults to `[image]`.
+- `GET /api/editor/tasks?editor=image` lists the registered tasks for that editor, each with `offers` (the
+  modes the caller may use that declare it, or that reach it through the task's `fallback`; empty when none
+  does) and the caller's `default` setup.
+- `POST /api/editor/tasks/{task}/runs` starts a **run**: one Generate press in the editor. The server prepares the
+  picture and region from the editor mode, submits a normal generation, and blends each result back as a
+  patch. `GET /api/editor/runs/{id}` follows it, `DELETE /api/editor/runs/{id}` cancels it, and
+  `editor_run_update` on `/ws/generation` announces each change to the run's owner.
+- `PUT` and `DELETE /api/editor/tasks/{task}/default` set and clear the caller's **default** setup for a task.
+- Every route, field and error is in [Generative edits in the editor](api/editor-runs.md).
+- `produces` accepts `patch` and `replace`. A run creates patches whichever is declared, so write `patch`.
+
+The Image editor adds each task the server lists to its Generate group as a rail tool, with the editor's own
+options and a Settings panel. Name a rail tool of your own with `task: <task id>` in `editor_tools` to replace
+that tool; the editor then adds no rail tool for the task.
+
+## Extending the editors
+
+The image, video and audio editors take parts from plugins. A plugin declares each part in
+`manifest.yml`; the code that implements it is a built file under the plugin's `frontend/dist`. The
+manifest is what the host reads to list the part, check it and keep a name for it when the plugin is
+turned off; the file is loaded lazily.
+
+```yaml
+editor_steps:
+  - id: my-plugin.halftone
+    editor: image
+    module: editor/halftone.js
+    label: Halftone
+    icon: extension
+    lane: paint
+editor_tools:
+  - id: my-plugin.halftone
+    editor: image
+    group: look
+    label: Halftone
+    icon: extension
+    options: editor/HalftoneOptions.js
+    order: 40
+editor_groups:
+  - { id: my-plugin.stylize, editor: image, label: Stylize, order: 450 }
+editor_overlays:
+  - { id: my-plugin.select, editor: image, component: editor/Select.js, produces: selection }
+editor_menu:
+  - id: my-plugin.note
+    editor: image
+    menu: tools
+    group: my-plugin.stylize
+    order: 900
+    label: Halftone note
+    icon: extension
+    module: editor/note.js
+editor_tasks:
+  - id: my-plugin.relight
+    label: Relight
+    editors: [image]
+    tool: my-plugin.relight
+    step_kind: generate
+media_tools:
+  - id: my-plugin.halftone
+    accepts: [image]
+    scopes: [editor]
+    python: tools.py:Halftone
+```
+
+| Key | Declares | Fields |
+|---|---|---|
+| `editor_steps` | A kind of step in an edit | `id`, `editor`, `module`, `label`, `icon`, `lane` |
+| `editor_tools` | A tool in the editor's rail (`ai: true` marks one that runs a model: it gets the iridescent AI ring) | `id`, `editor`, `group`, `label`, `icon`, `order`, `keys`, `options`, `bar`, `schema`, `overlay`, `task`, `ai` |
+| `editor_groups` | A group in the rail | `id`, `editor`, `label`, `order` |
+| `editor_overlays` | A layer drawn over the canvas | `id`, `editor`, `component`, `cursor` (`crosshair`, `brush`, `default`), `produces` (`selection`) |
+| `editor_menu` | An item in the editor's menu bar ([below](#menu-bar-items)) | `id`, `editor`, `menu`, `group`, `order`, `label`, `icon`, `keys`, `menu_label`, `module` |
+| `editor_tasks` | A job the editor can offer ([above](#contributing-an-editor-task)) | adds `tool` (the rail tool that asks for it) and `step_kind` for the editor |
+
+- `editor` is `image`, `video` or `audio`. An unknown value fails validation.
+- Every `id` starts with your plugin id and a dot. A bare or foreign-prefixed id fails validation, and
+  so does the same `id` twice for the same `editor` within one key.
+- `module`, `options`, `bar`, `schema` and `component` are paths inside `frontend/dist`, relative, with no `..`,
+  no leading `/` and no `:` (so no URLs). `overlay` and `task` name another entry by id; `group` names a
+  core group or one of your `editor_groups`.
+- `GET /api/plugins/frontend-extensions` returns these as the flat lists `editor_steps`, `editor_tools`,
+  `editor_groups`, `editor_overlays`, `editor_menu` and `editor_tasks`, for enabled plugins only. Each entry carries
+  `plugin_id` and the fields above, with paths relative to `frontend/dist`. A key you leave out is an empty
+  list. Disabling or removing the plugin drops its entries from the next response.
+- When a plugin is disabled, an edit that used one of its steps keeps the step. It is shown as not
+  available, left out of the preview and Save, and never removed on its own.
+
+All six keys are optional and default to an empty list, so a plugin that declares none of them is unaffected,
+and so is every plugin written before they existed.
+
+### Tool options as a field list
+
+A rail tool can declare its options as a list of form fields instead of writing a component. The editor draws the
+list with the same dynamic form the Generate page uses, so every field type there is available, including field types
+your plugin registers with `field_types:`, and the tool's panel looks like every other one.
+
+In the manifest, point `schema` at a JSON file inside `frontend/dist`:
+
+```yaml
+editor_tools:
+  - id: acme.halftone
+    editor: image
+    group: acme.stylize
+    label: Halftone
+    icon: extension
+    schema: editor/halftone.schema.json
+```
+
+```json
+[
+  { "type": "slider", "name": "amount", "title": "Amount", "minimum": 0, "maximum": 100, "step": 1, "default": 40,
+    "reset": true, "fill": "from-default" },
+  { "type": "segmented", "name": "mode", "title": "Mode", "default": "soft",
+    "options": [{ "label": "Soft", "value": "soft" }, { "label": "Hard", "value": "hard" }] },
+  { "type": "color", "name": "ink", "title": "Ink", "default": "#000000",
+    "visible": false,
+    "reactions": [{ "when": { "field": "mode", "equals": "hard" }, "then": { "set_visibility": true } }] }
+]
+```
+
+A field is a `type` and a `name` plus the keys that type reads (`title`, `default`, `minimum`, `maximum`, `options`,
+`reactions`, ...). Fields nest in `row` and `group` the usual way. The file is read when the plugin is enabled: a
+missing or unreadable file, a field without a `type`, a repeated `name`, or a `type` that no enabled plugin or core
+registers makes the plugin fail to enable, and the error names the tool and the field. The list is served on the
+tool's entry in `GET /api/plugins/frontend-extensions` as `schema`.
+
+With only a schema, the form drives a pending step of your own step kind: the first edit begins a step with the tool's
+`id` and the form's values as its `params`, later edits update it, and Apply adds it to the edit. A tool that needs
+more registers `schema` from code (`registerRailTool`), where it may also be a function of the tool's context, and adds:
+
+| Key | Meaning |
+|---|---|
+| `schema` | A field list, or `(ctx) => fields` run again whenever the context changes. |
+| `values(ctx)` | The values to show. Without it the form shows the pending step's params, then the field defaults. |
+| `onValues(values, { commit, name }, ctx)` | Called with every value of the form. `commit` is false for each change, including every step of a slider drag, and true once when the gesture ends; `name` is the field that changed. Without it the form edits a pending step as above. |
+| `description` | A line of text shown above the form, or `(ctx) => text`. |
+| `options` | Still allowed. The component is drawn below the form, for parts that are not values: action buttons, pickers. |
+
+`ctx` is `{ host, phone, tool, pending, stack, catalog }`: the tool host the options component would receive, the
+pending step, and the image editor's edit stack where there is one. Use `commit` to end an undo step: write the live
+draft on each change and settle it on the commit, so a drag is one step.
+
+```ts
+editors.registerRailTool(
+  {
+    id: 'acme.halftone', editor: 'image', group: 'acme.stylize', label: 'Halftone', icon: 'extension',
+    schema: [{ type: 'slider', name: 'amount', title: 'Amount', minimum: 0, maximum: 100, default: 40 }],
+    values: ({ pending }) => (pending?.params as { amount?: number } | null) ?? { amount: 40 },
+    onValues: (values, info, { host, pending }) => {
+      const draft = { tool: 'acme.halftone', icon: 'extension', label: 'Halftone', summary: `Amount ${values.amount}`, params: values };
+      if (info.commit) return;
+      if (pending?.tool === 'acme.halftone') host.update(draft);
+      else host.begin(draft);
+    }
+  },
+  { pluginId: 'acme' }
+);
+```
+
+A tool with only `options` is unchanged.
+
+### Canvas actions
+
+A rail tool can put its main actions on the canvas as a bar fixed at the bottom centre, above the zoom control, so
+the user does not travel to the side panel for them. The panel keeps every control; the bar repeats the ones used
+most, and must call the same handlers rather than a second implementation. Core registers the image editor's bars
+(selection, marking, floating piece, crop, brush, slice) through this same field. The video editor shares the bar
+and adds its actions later.
+
+`canvasActions(ctx)` is called whenever the editor's state changes and returns the actions to show. An empty list
+hides the bar. Plugin entries are called inside the guard: a throw or a value that is not a list leaves the bar off.
+
+```ts
+editors.registerRailTool(
+  {
+    id: 'acme.halftone', editor: 'image', group: 'acme.stylize', label: 'Halftone', icon: 'extension',
+    canvasActions: ({ host }) => [
+      { id: 'reset', label: 'Reset', icon: 'refresh', kind: 'action', run: () => host.discard() },
+      { id: 'apply', label: 'Apply', icon: 'check', shortcut: 'Enter', kind: 'action', primary: true, run: () => host.apply() }
+    ]
+  },
+  { pluginId: 'acme' }
+);
+```
+
+| Action field | Meaning |
+|---|---|
+| `id`, `label`, `icon` | Identify the action. `label` is the text, and the tooltip when the bar is narrow and shows icons only. `shortLabel` is the shorter text the phone strip uses. |
+| `kind` | `action` runs `run`. `toggle` is a switch that reads `pressed`. `value` is a compact slider or colour swatch read from `value`. `custom` draws `component` with `props`. |
+| `group` | Neighbouring actions with the same `group` sit together, with a thin rule between groups. Toggles in one group read as a segmented switch. |
+| `primary` | The one white action, drawn last and without a rule before it. |
+| `shortcut` | A key label such as `Enter` or `Esc`, shown with `Kbd` and in the tooltip. It is a label, not a binding. |
+| `disabled`, `reason` | A disabled action stays visible; `reason` says why in its tooltip. |
+| `iconOnly` | Always draw the icon without the label. |
+| `value` | `{ type: 'range' \| 'colour', value, min, max, step, unit, set(value) }` for `kind: 'value'`. |
+| `run()` | Called on click. |
+
+`ctx` is `{ editor, tool, phone, host, surface }`. `host` is the tool host. `surface` is what the editor hands its
+tools: in the image editor it holds the live paint session, the marking controls, the crop and slice controls and
+`editArea()`; read it only through the exported helpers when you build on a core tool.
+
+The bar hides while a stroke or drag is in progress and returns on release. It never covers the dock. On a narrow
+canvas the labels collapse to icons, and on a phone the bar is a full-width strip above the tool sheet.
+
+### Menu bar items
+
+The editors' header is a menu bar: File, Edit, View and Tools. Core registers every item of those menus through the
+same registry a plugin uses (`frontend/src/lib/editors/coreMenu.ts`), and a plugin adds to them or opens a menu of its
+own.
+
+An `editor_menu` entry names its place and its file. `menu` is `file`, `edit`, `view`, `tools` or a menu id of your
+own (lowercase letters, digits, `-`, `_`, `.`), which adds a menu to the bar after Tools, labelled by `menu_label` of
+its first entry. Items are grouped by `group` and the groups are separated by a divider; `order` sorts items inside a
+group and groups among themselves (an item without `order` goes last). In the Tools menu the groups are the rail
+groups, so `group: look` puts the item under the Look tools and a group of your own goes after the rail's.
+`keys` is a label shown right-aligned, not a shortcut. `module` is a file under `frontend/dist` whose default export
+has two optional functions:
+
+```js
+export default {
+  available: (ctx) => (ctx.hasSource ? true : 'Open a picture first'),
+  run: (ctx) => ctx.commands.selectTool('crop')
+};
+```
+
+`available` returns `true`, or the plain reason the item is off; the reason is shown in a tooltip on hover and focus and
+read out to assistive technology. `run` is called when the item is chosen. Until the file loads the item reads
+"Loading"; if it cannot be loaded it reads "Could not load". Both functions run inside the guard described below, and
+the menu never calls them while it renders anything that could write state.
+
+`ctx` is the editor's current state and its commands: `editor`, `hasSource`, `phone`, `busy`, `tool` (the active rail
+tool id), `rail` (the rail groups), `canUndo`, `canRedo`, `editCount`, `step` (the current step, if any), `compare`,
+`canSave`, `saved` and `commands` (`save`, `undo`, `redo`, `selectTool`, `closeEditor`, `toggleCompare`, `zoomIn`,
+`zoomOut`, `fit`, `actualSize`, `toggleEdits`, and the rest the core items use). A command an editor has no action for
+is a no-op there.
+
+Code that registers at run time passes the same fields plus the function forms, with `window.__potionui.editors`:
+
+```ts
+editors.registerMenuItem({
+  id: 'acme.note',
+  editor: 'image',
+  menu: 'tools',
+  group: 'acme.group',
+  order: 10,
+  label: 'Note',                       // or (ctx) => string
+  icon: 'extension',                   // or (ctx) => string
+  keybind: 'N',                        // optional, or (ctx) => string | undefined
+  tone: 'danger',                      // optional
+  check: (ctx) => ctx.compare,         // optional: shows a tick, in the signal colour
+  visible: (ctx) => ctx.hasSource,     // optional
+  available: (ctx) => true,            // true, or a reason string
+  run: (ctx) => ctx.commands.undo(),
+  children: (ctx) => [{ id: 'one', label: 'One', run: () => undefined }] // optional: makes it a submenu
+}, { pluginId: 'acme' });
+editors.menuItems.get(editor, id) / .list(editor)
+```
+
+A submenu child is `{ id, label, sub?, icon?, badge?, dot?, disabled? (a reason), run }`, `{ id, separator: true }` or
+`{ id, heading }`. The Video editor lists its own tools in its Tools menu from the tools it shows in its rail and has no
+Recent edits item.
+
+### How core uses the same registries
+
+Core registers its own tools through the registries a plugin uses, in `frontend/src/lib/tool-tabs/image/coreEditor.ts`: the
+core rail groups and tools, a step kind for each core tool (`crop`, `resize`, `canvas`, `slice`, `paint`, `effects`,
+`colorKey`, `subject`), the Generate group, and the core tasks (`generate/register.ts`). Core entries have no `pluginId` and
+are not guarded. Two consequences for a plugin:
+
+- A media tool with `scopes: [editor]` that takes one image and returns one file gets a step kind made by core, marked
+  overridable. Declare an `editor_steps` entry with the same id to replace it. Without a rail tool of your own, the tool
+  is listed in the rail's `tools` group.
+- A core entry that is not overridable keeps its id. A plugin entry for it is refused.
+
+### What a declared step module exports
+
+`editor_steps[].module` is a built file under `frontend/dist` whose default export is a plain object. The host registers
+the step kind at once, from the manifest, and fills in the rest when the file has loaded. The object may carry:
+
+| Export | Effect |
+|---|---|
+| `summary(params, ctx)` | The line under the step's label. Default: the summary stored on the step. |
+| `outputSize(params, ctx)` | The picture size after the step. Default: the size going in. |
+| `payload(params, ctx)` | The media tool steps this step sends to the server, `[{tool, params}]`. Default: one hidden step, so nothing runs. |
+| `preview(frame, params, ctx, signal)` | Draws the step on the preview canvas and resolves the new frame. Default: the frame as it is. |
+| `state(step, ctx)` | `{kind: 'done'}`, `{kind: 'busy', label}` or `{kind: 'skipped', tone, label}`. |
+| `onAction(step, action, ctx)` | Handles a row action. |
+| `version`, `migrate(params, from)` | Params saved with an older `v` are passed through `migrate`; params with a newer `v` than `version` are shown as "Made with a newer version" and are not run. |
+| `reopenTool` | The rail tool id (or a function of the params returning one) that reopens the step. |
+| `layer` | `true` makes the step a layer: it is listed under **Layers**, keeps the picture's size, is placed under every edit, and gets the opacity drawer (send `opacity` from `payload` through a tool that reads it, and draw it in `preview` with `opacityOf(ctx.step)`). Default: an edit, listed under **Edits** and applied to the whole layered picture. |
+
+A stack is stored in the order it renders, layers first: the Image editor keeps every layer step before every edit step,
+so a reader that applies the steps one after another gets the same picture. Stacks saved before that split, with a
+look or a crop between their layers, are read and rendered in their stored order unchanged.
+
+Until the file loads the row reads "Loading"; if it cannot be loaded the row reads "Could not load" and the failure is logged
+once. `lane` comes from the manifest entry. Fields a manifest cannot carry (`row`, `extras`, `contract`) are available only to a
+step kind registered from code.
+
+### What a failure does
+
+Everything a plugin supplies runs behind a guard, in `frontend/src/lib/editors/guard.ts`. A synchronous call that throws is
+logged once per entry and replaced with a safe default: the step shows its stored summary, the tool stays listed. An
+asynchronous call such as `preview` is cut off after 10 seconds and treated the same way; an aborted call is not a failure.
+Plugin components run inside an error boundary, so a broken options panel shows "This tool could not load" with a Close
+button and leaves the rest of the editor alone.
+
+A step whose kind is not registered is never dropped from the edit:
+
+- While the extension list is still loading it shows "Loading".
+- When its plugin is disabled, removed or has not declared the kind, it shows "Not available". The step stays in the stack,
+  is sent to the server as hidden, and is left out of the preview and of Save. Enabling the plugin again makes it normal.
+- When its params are newer than the kind knows, it shows "Made with a newer version" and is treated the same way.
+
+### What is not extendable yet
+
+- **Video and audio editors.** The manifest and the registries accept `editor: video` and `editor: audio`, and
+  `GET /api/plugins/frontend-extensions` returns those entries, but only the Image editor reads the registries today.
+- **A rail tool's Settings from the manifest.** `settings` (the component shown in the right panel when a tool is opened from a
+  task) exists on a rail tool registered from code only; `editor_tools` has no such key. A tool with a `task` and no
+  `settings` gets the standard Generate settings.
+- **Availability and row customisation.** A rail tool's `available(ctx)`, a step kind's `row` and `extras`, and an overlay's
+  `order`, `hint`, `modes`, `modesLabel` and `size` are code registration only; `editor_overlays` accepts `component`,
+  `cursor` and `produces`.
+- **Tasks without a preset.** A task is run by an editor mode that names it. A plugin adds one to a preset it does
+  not own by contributing an editor mode, and a task has no run path other than an editor mode.
+- **Core groups and ids.** Core rail group and tool ids are fixed. A plugin adds groups of its own and tools to any group,
+  and can order itself among core entries with `order`. The Image editor's core groups are `shape` (Transform), `paint`,
+  `generate`, `look` (Light and colour), `fx` (Effects), `looks` and `tools` (Cut out); a tool that names one lands in it.
+- **Folding.** The rail lists every entry as its own icon while they all fit the rail's height. When they do not, groups
+  fold one at a time into a single icon with a flyout, never a scrollbar. A group folds by its `fold` rank (lower folds first;
+  core: Effects, Light and colour, Cut out, Transform, Generate); a group without a `fold` folds after the ranked ones, and a
+  group with one entry never folds. The fold depends only on the rail height and the number of entries, so a plugin tool
+  added to a group can fold it. The Tools menu always lists every group with its entries.
+
+### Example: a rail tool with a step kind
+
+`acme-halftone/manifest.yml` declares the media tool that does the work (its Python class is described under
+[Media tools](#media-tools)), and the three editor parts that put it in the rail:
+
+```yaml
+media_tools:
+  - id: acme-halftone.halftone
+    label: Halftone
+    accepts: [image]
+    scopes: [editor]
+    python: tools.py:Halftone
+    params:
+      - { name: size, type: integer, min: 2, max: 64, default: 8 }
+editor_steps:
+  - id: acme-halftone.halftone
+    editor: image
+    module: editor/halftoneStep.js
+    label: Halftone
+editor_tools:
+  - id: acme-halftone.halftone
+    editor: image
+    group: look
+    label: Halftone
+    options: editor/HalftoneOptions.js
+    order: 40
+```
+
+`frontend/src/editor/halftoneStep.js` is built into `frontend/dist/editor/halftoneStep.js`:
+
+```js
+export default {
+  summary: (params) => `Dot size ${params.size}`,
+  payload: (params) => [{ tool: 'acme-halftone.halftone', params: { size: params.size } }]
+};
+```
+
+`HalftoneOptions.svelte` is the panel the rail tool opens. It receives `host` and `phone`; `host.begin` starts a pending step,
+`host.apply` puts it in the stack and `host.discard` drops it:
+
+```svelte
+<script>
+  let { host } = $props();
+  let size = $state(8);
+  const draft = () => ({
+    tool: 'acme-halftone.halftone',
+    icon: 'extension',
+    label: 'Halftone',
+    summary: `Dot size ${size}`,
+    params: { size }
+  });
+  host.begin(draft());
+  $effect(() => host.update(draft()));
+</script>
+
+<input type="range" min="2" max="64" bind:value={size} />
+<button onclick={() => host.apply()}>Apply</button>
+<button onclick={() => host.discard()}>Cancel</button>
+```
+
+The step then appears in the edit's stack, saves with the edit and is sent to the server as the `acme-halftone.halftone`
+media tool. Turning the plugin off leaves it in the stack as "Not available".
+
+### Example: a task
+
+A task is a manifest entry plus a mode that offers it. `acme-relight/manifest.yml`:
+
+```yaml
+editor_tasks:
+  - id: acme-relight.relight
+    label: Relight a region
+    icon: palette
+    region: required
+    prompt: optional
+```
+
+and, in the plugin, an editor mode that derives from a generation mode of any preset. With `preset_modes:` the
+plugin does not need to own the preset (see [Editor modes](presets.md#editor-modes) and
+[contributed editor modes](presets/plugins.md#contributed-editor-modes)). `manifest.yml`:
+
+```yaml
+preset_modes:
+  - target: "01KX46YCC5RB5EGYY38SBMVKR5"
+    modes_root: "contributed"
+```
+
+and `contributed/editor_modes/relight/editor_mode.yml`:
+
+```yaml
+schema_version: 1
+task: acme-relight.relight
+from: edit
+region: crop
+inputs:
+  source: source_image
+```
+
+With the plugin enabled, `GET /api/editor/tasks` lists `acme-relight.relight` with that editor mode (`editor:relight`) under `offers`, the Image editor
+adds a "Relight a region" tool to its Generate group, and a run starts with
+`POST /api/editor/tasks/acme-relight.relight/runs`. Nothing in the plugin's code is needed for a task.
+
+### The `editor` scope for media tools
+
+A media tool lists the scope `editor` to appear in the image editor's rail and run as a step there:
+`scopes: [editor]`, or `scopes: [library, editor]` to be in the Library too. `editor` is not in the
+default: a tool that omits `scopes` stays in `library`, `history` and `field` and never joins the
+editor. `GET /api/media-tools?scope=editor` lists the tools that ask for it, each with its `scopes`.
+
+### Registering from your frontend
+
+Code that builds entries at run time uses `window.__potionui.editors`. It is additive; the host `version` stays 1.
+
+```ts
+type Options = { pluginId: string };
+
+editors.registerStepKind(kind, options): () => void
+editors.registerRailGroup(group, options): () => void
+editors.registerRailTool(tool, options): () => void
+editors.registerOverlay(overlay, options): () => void
+editors.registerTask(task, options): () => void
+editors.registerMenuItem(item, options): () => void
+
+editors.stepKinds | railGroups | railTools | overlays | tasks | menuItems
+  .get(editor, id): Entry | undefined
+  .list(editor): Entry[]
+```
+
+Every `register*` call returns a function that removes that entry. `editor` is `'image'`, `'video'` or `'audio'`; today only the
+Image editor reads the registries. An entry carries its own `editor` and `id`.
+
+- **Ids.** A plugin id must start with `<plugin id>.`; an entry that does not is refused and logged. A plugin cannot take over a core
+  id.
+- **Lifetime.** Each registration belongs to `options.pluginId`. When that plugin is disabled or removed, the next extension refresh
+  removes its entries, and a step it made shows "Not available" in the edit stack (kept, sent to the server as hidden, never
+  dropped). When the plugin is enabled again its entries come back and the step is normal. Calling the returned function ends a
+  registration for good.
+- **Failures.** Your `summary`, `outputSize`, `preview`, `payload`, `state` and `available` run inside a guard, and your components
+  inside an error boundary. A failure is logged once; the step is skipped or the tool shows "This tool could not load" with a Close
+  button. The rest of the editor and the edit keep working.
+- **Manifest.** A registration made in code is not declared, so it has no name while the plugin is off; declare it in the manifest
+  as above to keep a readable row.
+
+```ts
+const stop = window.__potionui.editors.registerStepKind(
+  {
+    id: 'acme.halftone',
+    editor: 'image',
+    label: 'Halftone',
+    icon: 'extension',
+    summary: (params) => `Dot size ${params.size}`,
+    payload: (params) => [{ tool: 'acme.halftone', params: { size: params.size } }]
+  },
+  { pluginId: 'acme' }
+);
+```
+
+### A marking tool for the marking block
+
+The Image editor has no Mask tool: the marking block (Brush or Lasso, Add or Subtract, size, the marked area and Clear area) sits
+in Edit a region, Remove an object and every task that declares a region, and is the same in each. Clear area is one undo step.
+The block lists every overlay that sets `produces: 'selection'` as one choice next to Brush and Lasso (the core ones are
+registered as `mask.brush` and `mask.lasso`, the same way a plugin registers). They all write one marked area, the picture's mask,
+so what a plugin tool marks can be added to or subtracted from by the brush and the lasso. An overlay can also set `label` (the
+choice's name; it defaults to the end of its id), `order`, `hint` (a line under the choices), and `modes` (`{ id, label, subtract }`
+choices such as Add and Subtract). The marking block and the quick mask dialog on media fields both read the list, so a new
+choice appears in both.
+
+The component receives `surface` (the mask canvas in picture pixels, with `context()`, `toPicture(clientX, clientY)`, `scale()`, the
+`tint` and `changed()` to call after it painted), `width`, `height`, `phone`, `size`, `subtract`, `disabled` and
+`commitSelection(blob | null)`, which replaces the marked area with a black and white image (white is marked) or clears it. The mask
+canvas sits inside the zoomed and panned picture, so `toPicture` already returns picture coordinates.
 
 ## Reading model files and folders
 
@@ -2866,11 +3428,22 @@ the tab never stores them inline.
 
 ## Extending the image editor
 
-The media loader's image editor (**Edit** on a loaded image, **Draw** on an empty
-field) is built on registries a plugin frontend can
-extend through `window.__potionui.imageEditor`. Every `register*` call returns an unregister
-function. Registrations are global and survive editor sessions, so register once when your
-plugin's frontend loads.
+The Image editor tab and the paint window on media fields (**Edit** on a loaded image,
+**Draw** on an empty field) share one paint engine and read the same registries, which a
+plugin frontend extends through `window.__potionui.imageEditor`. Every `register*` call returns
+an unregister function. Registrations are global and survive editor sessions, so register once
+when your plugin's frontend loads. Where each one takes effect:
+
+- **Tools** (`registerTool`): listed in the Image editor's Paint tool after the built-in
+  brush, eraser, fill, picker, rectangle, lasso and move tools, and in the field paint
+  window's tool rail.
+- **Adjustments** (`registerAdjustment`) and **image sources** (`registerImageSource`): offered in
+  both surfaces.
+- **Actions** (`registerAction`): shown under Actions in the Image editor's Paint options and in
+  the field paint window's Canvas panel.
+- `addImage` and `openImage` act on whichever paint surface is open.
+
+A tool or action that throws is logged and skipped; it never stops the editor.
 
 ```js
 const editor = window.__potionui.imageEditor;
@@ -2916,7 +3489,7 @@ const offTool = editor.registerTool({
   never needs to know about it.
 - **Image sources** (`registerImageSource`): `{id, label, pick()}`; `pick()` resolves
   `{url | blob | canvas, name}` or `null`. The source is listed in the Open and Add image menus.
-- **Actions** (`registerAction`): `{id, label, run(editor)}` shown in the Canvas panel; `editor`
+- **Actions** (`registerAction`): `{id, label, run(editor)}` shown as a button; `editor`
   offers `flatten()`, `addImage(canvas, name)` and `openImage(canvas, name)`.
 - `addImage(canvas, name)` / `openImage(canvas, name)` / `isOpen()` act on the editor that is
   currently open. `addImage` returns `false` when none is. `openImage` replaces the open
@@ -3511,10 +4084,45 @@ stylesheet described above, so the library's stylesheet is not shipped as a file
 need from `@xyflow/svelte/dist/style.css` into the component's `<style>` block, using
 `:global(...)` selectors.
 
+## Field components and the commit signal
+
+A `field_types[].component` is a Svelte component the dynamic form mounts for every field of that type. It
+receives these props:
+
+| Prop | Meaning |
+|------|---------|
+| `name`, `config`, `value` | The field name, its schema entry (`title`, `default`, `disabled`, per-type keys) and its current value. |
+| `onChange(name, value)` | Report a new value. Call it on every change, including each step of a drag. |
+| `onCommit(name)` | Optional. Report that an interaction ended: call it once after the last `onChange` of a gesture (a slider on release, a choice from a list, a toggle, a text or number box on blur or Enter). Never call it mid-drag. |
+| `onOriginChange`, `onMaskChange`, `host`, `fieldPath` | As before; most fields ignore them. |
+
+A host that mounts the form can pass `onFormDataChange(data)`, called on every change, and
+`onFormDataCommit(data, { name })`, called once when an interaction ends, with the form's settled data (reactions
+applied). A field that never calls `onCommit` needs no change: once its `onChange` calls stop for a short idle
+(400 ms by default) the form commits on its behalf, so a host always gets a commit. Calling `onCommit` yourself
+is how you make the commit land exactly when the user lets go.
+
+```svelte
+<script>
+  export let name;
+  export let value;
+  export let onChange;
+  export let onCommit = undefined;
+</script>
+
+<input type="range" {value}
+  on:input={(e) => onChange(name, Number(e.target.value))}
+  on:change={() => onCommit?.(name)} />
+```
+
+A host can also write into a mounted form without the field seeing a user edit: the form's `setValues(partial)`
+changes the named fields, runs their reactions, and does not publish the write back through `onFormDataChange` or
+`onFormDataCommit`. Fields do not need to do anything for this beyond rendering their `value` prop.
+
 ## Building your plugin's frontend
 
 Every plugin frontend (a `pages[].component`, a `field_types[].component`, an
-`admin_tabs[].component`, a `tool_tabs[].component`, ...) compiles through the single shared toolchain in
+`admin_tabs[].component`, a `tool_tabs[].component`, an `editor_steps[].module`, an `editor_tools[].options`, ...) compiles through the single shared toolchain in
 `content/plugins/package.json` (esbuild + esbuild-svelte, pinned to the frontend's Svelte
 major), driven by `scripts/build-plugins.mjs`:
 

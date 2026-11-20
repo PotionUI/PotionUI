@@ -115,6 +115,7 @@ class TestGenerationModel(unittest.TestCase):
             'error_code': None,
             'error_user_message': None,
             'error_id': None,
+            'origin': None,
             'created_at': '2024-01-01T12:00:00+00:00',
             'started_at': '2024-01-01T12:01:00+00:00',
             'completed_at': None,

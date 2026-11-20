@@ -28,7 +28,7 @@ export {
 	toolIdOfKind
 } from './types';
 
-export { resolveEditableResource, uploadFilenameFromPath } from './editorSource';
+export { resolveEditableResource, uploadFilenameFromPath } from '$lib/media/editorSource';
 export { describeEditFailure } from './editErrors';
 export { formatClipLength, formatPreciseTime, formatTimecode } from './timecode';
 export { computeSplitPlan, describeSplitPlan, describeSplitRejection } from './splitPlan';

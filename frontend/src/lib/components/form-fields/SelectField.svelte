@@ -10,6 +10,7 @@
 	export let config: any = {};
 	export let value: any;
 	export let onChange: (fieldName: string, value: any) => void;
+	export let onCommit: ((fieldName: string) => void) | undefined = undefined;
 
 	$: label = config.title || name || '';
 	$: description = config.description || '';
@@ -29,6 +30,7 @@
 			// Convert empty string to null for backend
 			const valueToSend = newValue === '' ? null : newValue;
 			onChange(name, valueToSend);
+			onCommit?.(name);
 		}
 	}
 

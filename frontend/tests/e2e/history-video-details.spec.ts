@@ -59,7 +59,7 @@ test('history video opens in the details modal with its preset', async ({ page }
 	await page.goto('/history');
 	await page.waitForLoadState('networkidle');
 
-	await page.getByRole('button', { name: 'Videos only' }).click();
+	await page.getByRole('radio', { name: 'Videos only' }).click();
 	await expect.poll(() => requestedMediaTypes.includes('video'), { timeout: 15000 }).toBe(true);
 
 	const actions = page.locator('[data-generation-card]').getByRole('button', { name: 'Item actions' });

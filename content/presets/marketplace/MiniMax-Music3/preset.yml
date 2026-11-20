@@ -49,6 +49,9 @@ vars:
   # encoder, so there is nothing for a negative prompt to condition against
   # -- see PromptSection's `negativePromptSupported` gate in generate/+page.svelte.
   supports_negative_prompt: false
+  optional_prompt_modes:
+    - mode: "song"
+      when: { field: "instrumental", equals: true }
   # Song sections are prose blocks, not tag fragments -- flattening enabled
   # segments with "\n\n" instead of the default ", " keeps each [Verse]/
   # [Chorus] block on its own paragraph. See richSegments.ts's `SegmentJoin`.

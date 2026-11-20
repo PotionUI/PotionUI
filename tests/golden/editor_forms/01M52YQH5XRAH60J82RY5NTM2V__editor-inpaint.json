@@ -1,0 +1,109 @@
+{
+  "editor_mode": "inpaint",
+  "from": "inpaint",
+  "preset_id": "01M52YQH5XRAH60J82RY5NTM2V",
+  "preset_name": "MOSS-Image",
+  "shown": [
+    {
+      "label": "Speed profile",
+      "name": "speed_profile",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "Strength",
+      "name": "denoise",
+      "type": "slider"
+    },
+    {
+      "label": "Grow",
+      "name": "mask_grow",
+      "type": "slider"
+    },
+    {
+      "label": "Feather",
+      "name": "mask_feather",
+      "type": "slider"
+    },
+    {
+      "label": "Surroundings",
+      "name": "region_context",
+      "type": "select"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3.5-9B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE (FLUX 2)",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "sampler"
+    },
+    {
+      "label": "Schedule",
+      "name": "schedule",
+      "type": "schedule"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Shift (override)",
+      "name": "shift",
+      "type": "number"
+    },
+    {
+      "label": "Negative-branch layer skip",
+      "name": "uncond_layer_skip",
+      "type": "checkbox"
+    },
+    {
+      "label": "Cache threshold",
+      "name": "step_cache_threshold",
+      "type": "slider"
+    },
+    {
+      "label": "Warmup steps",
+      "name": "step_cache_warmup_steps",
+      "type": "slider"
+    },
+    {
+      "label": "Max consecutive skips",
+      "name": "step_cache_max_skips",
+      "type": "slider"
+    }
+  ],
+  "task": "edit_region"
+}

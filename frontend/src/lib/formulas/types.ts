@@ -112,3 +112,12 @@ export interface AppliedState {
 }
 
 export type MenuAction = 'rename' | 'duplicate' | 'update' | 'delete';
+
+export interface FormulaApplication {
+	formData: Record<string, unknown>;
+	applied: Omit<AppliedState, 'revision'>;
+}
+
+export interface FormulaHost {
+	apply(application: FormulaApplication): void;
+}

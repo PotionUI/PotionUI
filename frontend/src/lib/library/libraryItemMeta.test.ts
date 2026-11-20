@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+	canContinueEdit,
 	libraryItemAspect,
 	libraryItemDisplayName,
 	libraryItemGridSrc,
 	libraryItemIcon,
 	libraryItemMetaParts,
+	madeInEditor,
 	sliceOrigin,
 	sliceOriginLabel
 } from './libraryItemMeta';
@@ -114,5 +116,39 @@ describe('sliceOrigin', () => {
 		expect(sliceOrigin(null)).toBeNull();
 		expect(sliceOrigin({ other: {} })).toBeNull();
 		expect(sliceOrigin({ slice: { index: -1 } })).toBeNull();
+	});
+});
+
+describe('madeInEditor', () => {
+	it('reads the link a saved picture carries', () => {
+		expect(madeInEditor({ edit_id: 'ed_1', tool: 'image', revision: 4, available: true, continuable: true })).toEqual({
+			editId: 'ed_1',
+			tool: 'image',
+			revision: 4,
+			available: true,
+			continuable: true
+		});
+	});
+
+	it('is empty for an item from a server that sends nothing, or for a malformed value', () => {
+		expect(madeInEditor(undefined)).toBeNull();
+		expect(madeInEditor(null)).toBeNull();
+		expect(madeInEditor('ed_1')).toBeNull();
+		expect(madeInEditor({ tool: 'image' })).toBeNull();
+		expect(madeInEditor({ edit_id: '' })).toBeNull();
+	});
+
+	it('treats anything but an explicit true as not available and not continuable', () => {
+		const link = madeInEditor({ edit_id: 'ed_1', available: 'yes' });
+		expect(link).toMatchObject({ available: false, continuable: false, tool: 'image' });
+	});
+
+	it('offers to continue only an available, continuable edit', () => {
+		const base = { editId: 'e', tool: 'image', revision: 1 };
+		expect(canContinueEdit({ ...base, available: true, continuable: true })).toBe(true);
+		expect(canContinueEdit({ ...base, available: false, continuable: true })).toBe(false);
+		expect(canContinueEdit({ ...base, available: true, continuable: false })).toBe(false);
+		expect(canContinueEdit(null)).toBe(false);
+		expect(canContinueEdit(undefined)).toBe(false);
 	});
 });

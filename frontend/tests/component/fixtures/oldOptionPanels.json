@@ -1,0 +1,2369 @@
+{
+ "resize": [
+  {
+   "label": "width 1500 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1500,
+     "height": 1000,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "height 1500 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 2250,
+     "height": 1500,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "width 1500 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1500,
+     "height": 2000,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "height 1500 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 3000,
+     "height": 1500,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "width 1 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1,
+     "height": 1,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "height 1 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 2,
+     "height": 1,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "width 1 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1,
+     "height": 2000,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "height 1 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 3000,
+     "height": 1,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "width 0 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1,
+     "height": 1,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "height 0 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 2,
+     "height": 1,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "width 0 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1,
+     "height": 2000,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "height 0 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 3000,
+     "height": 1,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "width 99999 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 16384,
+     "height": 10923,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "height 99999 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 24576,
+     "height": 16384,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "width 99999 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 16384,
+     "height": 2000,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "height 99999 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 3000,
+     "height": 16384,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "width abc locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1,
+     "height": 1,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "height abc locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 2,
+     "height": 1,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "width abc free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1,
+     "height": 2000,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "height abc free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 3000,
+     "height": 1,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "width 812.6 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 813,
+     "height": 542,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "height 812.6 locked",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1220,
+     "height": 813,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "width 812.6 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 813,
+     "height": 2000,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "height 812.6 free",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 3000,
+     "height": 813,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "lock off",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": true
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 3000,
+     "height": 2000,
+     "lock": false
+    }
+   ]
+  },
+  {
+   "label": "lock on",
+   "params": {
+    "width": 3000,
+    "height": 2000,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 3000,
+     "height": 2000,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "scale 50",
+   "params": {
+    "width": 10,
+    "height": 10,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 1500,
+     "height": 1000,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "scale 75",
+   "params": {
+    "width": 10,
+    "height": 10,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 2250,
+     "height": 1500,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "scale 150",
+   "params": {
+    "width": 10,
+    "height": 10,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 4500,
+     "height": 3000,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "scale 200",
+   "params": {
+    "width": 10,
+    "height": 10,
+    "lock": false
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "width": 6000,
+     "height": 4000,
+     "lock": true
+    }
+   ]
+  },
+  {
+   "label": "odd source",
+   "params": {
+    "width": 1000,
+    "height": 333,
+    "lock": true
+   },
+   "input": {
+    "width": 1000,
+    "height": 333
+   },
+   "emitted": [
+    {
+     "width": 777,
+     "height": 259,
+     "lock": true
+    }
+   ]
+  }
+ ],
+ "crop": [
+  {
+   "label": "aspect Free",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "aspect 1:1",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "1:1",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.016666666666666663,
+       "y": 0,
+       "width": 0.6666666666666666,
+       "height": 1
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "aspect 4:3",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "4:3",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0,
+       "y": 0,
+       "width": 0.8888888888888888,
+       "height": 1
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "aspect 3:2",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "3:2",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0,
+       "y": 0,
+       "width": 1,
+       "height": 1
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "aspect 16:9",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "16:9",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0,
+       "y": 0,
+       "width": 1,
+       "height": 0.84375
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "aspect 9:16",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "9:16",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.16249999999999998,
+       "y": 0,
+       "width": 0.375,
+       "height": 1
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "orient rotate-left",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 270,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.20000000000000007,
+       "y": 0.4,
+       "width": 0.4,
+       "height": 0.5
+      },
+      "targetLongestSide": null
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "orient rotate-right",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 90,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.3999999999999999,
+       "y": 0.1,
+       "width": 0.4,
+       "height": 0.5
+      },
+      "targetLongestSide": null
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "orient flip-h",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": true,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.4,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "orient flip-v",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": true,
+      "rect": {
+       "x": 0.1,
+       "y": 0.3999999999999999,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "Crop X 600",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.2,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop X 600 after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.2,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop X 99999",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.5,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop X 99999 after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.5,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop Y 100",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.05,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop Y 100 after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.05,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop Y 5000",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.6,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop Y 5000 after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.6,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop width 900",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.3,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop width 900 after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.3,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop width 99999",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.09999999999999998,
+       "y": 0.2,
+       "width": 0.9,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop width 99999 after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.09999999999999998,
+       "y": 0.2,
+       "width": 0.9,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop width 0",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.02,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop width 0 after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.02,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop height 700",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.35
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop height 700 after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.35
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop height -4",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.02
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop height -4 after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.02
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop height abc",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.02
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "Crop height abc after aspect",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "1:1"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "aspect": "free",
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.02
+      },
+      "targetLongestSide": null
+     }
+    }
+   ]
+  },
+  {
+   "label": "longest FULL",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "longest FULL from set",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": 1024
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": null
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "longest 768",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": 768
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "longest 768 from set",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": 1024
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": 768
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "longest 1024",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": 1024
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "longest 1024 from set",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": 1024
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": [
+    {
+     "plan": {
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false,
+      "rect": {
+       "x": 0.1,
+       "y": 0.2,
+       "width": 0.5,
+       "height": 0.4
+      },
+      "targetLongestSide": 1024
+     },
+     "aspect": "free"
+    }
+   ]
+  },
+  {
+   "label": "longest 1536",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": []
+  },
+  {
+   "label": "longest 1536 from set",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": 1024
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": []
+  },
+  {
+   "label": "longest 2048",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": null
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": []
+  },
+  {
+   "label": "longest 2048 from set",
+   "params": {
+    "plan": {
+     "rotation": 0,
+     "flipHorizontal": false,
+     "flipVertical": false,
+     "rect": {
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.5,
+      "height": 0.4
+     },
+     "targetLongestSide": 1024
+    },
+    "aspect": "free"
+   },
+   "input": {
+    "width": 3000,
+    "height": 2000
+   },
+   "emitted": []
+  }
+ ],
+ "slice": [
+  {
+   "label": "columns 5",
+   "calls": [
+    [
+     "preset",
+     5,
+     2
+    ]
+   ]
+  },
+  {
+   "label": "rows 5",
+   "calls": [
+    [
+     "preset",
+     3,
+     5
+    ]
+   ]
+  },
+  {
+   "label": "tolerance 5",
+   "calls": [
+    [
+     "output",
+     {
+      "tolerance": 5
+     }
+    ]
+   ]
+  },
+  {
+   "label": "padding 5",
+   "calls": [
+    [
+     "output",
+     {
+      "padding": 5
+     }
+    ]
+   ]
+  },
+  {
+   "label": "columns 1",
+   "calls": [
+    [
+     "preset",
+     1,
+     2
+    ]
+   ]
+  },
+  {
+   "label": "rows 1",
+   "calls": [
+    [
+     "preset",
+     3,
+     1
+    ]
+   ]
+  },
+  {
+   "label": "tolerance 1",
+   "calls": [
+    [
+     "output",
+     {
+      "tolerance": 1
+     }
+    ]
+   ]
+  },
+  {
+   "label": "padding 1",
+   "calls": [
+    [
+     "output",
+     {
+      "padding": 1
+     }
+    ]
+   ]
+  },
+  {
+   "label": "columns 0",
+   "calls": [
+    [
+     "preset",
+     1,
+     2
+    ]
+   ]
+  },
+  {
+   "label": "rows 0",
+   "calls": [
+    [
+     "preset",
+     3,
+     1
+    ]
+   ]
+  },
+  {
+   "label": "tolerance 0",
+   "calls": [
+    [
+     "output",
+     {
+      "tolerance": 0
+     }
+    ]
+   ]
+  },
+  {
+   "label": "padding 0",
+   "calls": [
+    [
+     "output",
+     {
+      "padding": 0
+     }
+    ]
+   ]
+  },
+  {
+   "label": "columns 99",
+   "calls": [
+    [
+     "preset",
+     12,
+     2
+    ]
+   ]
+  },
+  {
+   "label": "rows 99",
+   "calls": [
+    [
+     "preset",
+     3,
+     12
+    ]
+   ]
+  },
+  {
+   "label": "tolerance 99",
+   "calls": [
+    [
+     "output",
+     {
+      "tolerance": 64
+     }
+    ]
+   ]
+  },
+  {
+   "label": "padding 99",
+   "calls": [
+    [
+     "output",
+     {
+      "padding": 99
+     }
+    ]
+   ]
+  },
+  {
+   "label": "columns x",
+   "calls": []
+  },
+  {
+   "label": "rows x",
+   "calls": []
+  },
+  {
+   "label": "tolerance x",
+   "calls": []
+  },
+  {
+   "label": "padding x",
+   "calls": []
+  },
+  {
+   "label": "columns plus",
+   "calls": [
+    [
+     "preset",
+     4,
+     2
+    ]
+   ]
+  },
+  {
+   "label": "padding plus",
+   "calls": [
+    [
+     "output",
+     {
+      "padding": 4
+     }
+    ]
+   ]
+  },
+  {
+   "label": "snap off",
+   "calls": [
+    [
+     "snap",
+     false
+    ]
+   ]
+  },
+  {
+   "label": "trim on",
+   "calls": [
+    [
+     "output",
+     {
+      "trim": true
+     }
+    ]
+   ]
+  },
+  {
+   "label": "aspect Keep",
+   "calls": [
+    [
+     "output",
+     {
+      "aspect": "keep"
+     }
+    ]
+   ]
+  },
+  {
+   "label": "aspect Square",
+   "calls": [
+    [
+     "output",
+     {
+      "aspect": "square"
+     }
+    ]
+   ]
+  },
+  {
+   "label": "aspect Portrait 2:3",
+   "calls": [
+    [
+     "output",
+     {
+      "aspect": "portrait"
+     }
+    ]
+   ]
+  },
+  {
+   "label": "pattern typed",
+   "calls": [
+    [
+     "pattern",
+     "sheet_{n}"
+    ]
+   ]
+  },
+  {
+   "label": "token",
+   "calls": [
+    [
+     "pattern",
+     "{sheet}-{n}{row}"
+    ]
+   ]
+  }
+ ]
+}

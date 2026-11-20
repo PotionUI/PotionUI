@@ -653,7 +653,7 @@
 					compact
 				>
 					{#snippet actions()}
-						<Button variant="primary" size="sm" icon="refresh" loading={refreshing} onclick={refreshCatalog}>
+						<Button size="sm" variant="secondary" icon="refresh" loading={refreshing} onclick={refreshCatalog}>
 							Refresh catalog
 						</Button>
 					{/snippet}
@@ -668,7 +668,7 @@
 				compact
 			>
 				{#snippet actions()}
-					<Button variant="ghost" size="sm" onclick={() => applyFilters(DEFAULT_CATALOG_FILTERS)}>
+					<Button size="sm" variant="secondary" onclick={() => applyFilters(DEFAULT_CATALOG_FILTERS)}>
 						Clear filters
 					</Button>
 				{/snippet}

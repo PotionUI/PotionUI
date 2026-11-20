@@ -144,3 +144,16 @@ describe('isOptionalPromptMode', () => {
 		});
 	});
 });
+
+describe('a song mode that needs lyrics unless it is instrumental', () => {
+	const vars = { optional_prompt_modes: [{ mode: 'song', when: { field: 'instrumental', equals: true } }] };
+
+	it('makes the prompt optional with the toggle on', () => {
+		expect(isOptionalPromptMode(vars, 'song', { instrumental: true })).toBe(true);
+	});
+
+	it('keeps the prompt required with the toggle off or unset', () => {
+		expect(isOptionalPromptMode(vars, 'song', { instrumental: false })).toBe(false);
+		expect(isOptionalPromptMode(vars, 'song', {})).toBe(false);
+	});
+});

@@ -14,6 +14,7 @@
 		chipItems,
 		subtitle,
 		enabledSwitch,
+		titleEditor,
 		actions
 	}: {
 		title: string;
@@ -24,6 +25,7 @@
 		chipItems?: DetailHeaderChip[];
 		subtitle?: Snippet;
 		enabledSwitch?: Snippet;
+		titleEditor?: Snippet;
 		actions?: Snippet;
 	} = $props();
 
@@ -56,9 +58,13 @@
 	{/if}
 	<div class="min-w-0 flex-1">
 		<div class="flex items-center gap-2 min-w-0 flex-wrap">
-			<Tooltip text={title} wrapperClass="flex min-w-0 max-w-full">
-				<h2 class="min-w-0 max-w-full text-base font-semibold text-fg truncate" data-detail-title>{title}</h2>
-			</Tooltip>
+			{#if titleEditor}
+				{@render titleEditor()}
+			{:else}
+				<Tooltip text={title} wrapperClass="flex min-w-0 max-w-full">
+					<h2 class="min-w-0 max-w-full text-base font-semibold text-fg truncate" data-detail-title>{title}</h2>
+				</Tooltip>
+			{/if}
 			{@render chips?.()}
 			{#if chipSplit}
 				{#each chipSplit.visible as chip (chip.key)}

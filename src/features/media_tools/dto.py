@@ -18,10 +18,17 @@ class InputRef(BaseModel):
     generation_file_id: Optional[str] = None
 
 
+class EditRef(BaseModel):
+    id: str
+    revision: int
+
+
 class OutputSpec(BaseModel):
     mode: Literal["new", "replace", "update"] = "new"
     target_item_id: Optional[str] = None
     collection_id: Optional[str] = None
+    edit: Optional[EditRef] = None
+    name: Optional[str] = Field(None, max_length=200)
 
 
 class StartRunRequest(BaseModel):

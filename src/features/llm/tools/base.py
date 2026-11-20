@@ -119,6 +119,7 @@ class ToolServices:
     sessions: Any = None
     media_store: Any = None
     domains: Any = None
+    kit_repository: Any = None
 
 
 @dataclass
@@ -169,6 +170,8 @@ class ToolContext:
     sessions: Any = None
     media_store: Any = None
     domains: Any = None
+    origin: Optional[Dict[str, Any]] = None
+    kit_repository: Any = None
 
     @classmethod
     def for_session(cls, services: ToolServices, user_id: str, **fields_: Any) -> "ToolContext":

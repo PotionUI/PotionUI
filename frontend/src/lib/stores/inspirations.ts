@@ -76,7 +76,11 @@ function createInspirationsStore() {
 		},
 
 		clearFilters() {
-			update((state) => ({ ...state, filters: { ...DEFAULT_INSPIRATIONS_FILTERS }, currentPage: 1 }));
+			update((state) => ({
+				...state,
+				filters: { ...DEFAULT_INSPIRATIONS_FILTERS, sortBy: state.filters.sortBy, sortDir: state.filters.sortDir },
+				currentPage: 1
+			}));
 		},
 
 		setSelectedId(id: string | null) {

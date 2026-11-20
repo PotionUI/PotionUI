@@ -1,0 +1,44 @@
+{
+  "editor_mode": "edit",
+  "from": "edit",
+  "preset_id": "01M732Q89GSPYP058BTVGJDR89",
+  "preset_name": "MiniMax-H3-Image",
+  "shown": [
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "MiniMax-H3-Image DiT",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3-VL-32B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Live preview",
+      "name": "preview",
+      "type": "checkbox"
+    }
+  ],
+  "task": "edit_region"
+}

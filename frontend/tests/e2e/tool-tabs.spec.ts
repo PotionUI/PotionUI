@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, loginAsOwner, scopedStorageKey, screenshot } from './helpers';
 
 const JOURNEY = 'tool-tabs';
 const PLUGIN_ID = 'tool-tab-fixture';
@@ -70,6 +70,7 @@ function bookTab(page: Page, name: string) {
 
 async function openGenerate(page: Page) {
 	await loginAsOwner(page);
+	await clearEdits(page);
 	await page.goto('/generate');
 	await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
 	await expect(bookTab(page, 'Generation 1')).toBeVisible();
@@ -78,7 +79,7 @@ async function openGenerate(page: Page) {
 test.describe('tool tabs on desktop', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test('an Image editor tab takes the whole tab area, renames, survives a reload and asks before discarding edits', async ({ page }) => {
+	test('an Image editor tab takes the whole tab area, renames, survives a reload and closes without asking when nothing would be lost', async ({ page }) => {
 		await openGenerate(page);
 		await expect(page.locator('.generation-panel')).toBeVisible();
 
@@ -93,6 +94,7 @@ test.describe('tool tabs on desktop', () => {
 		const host = page.getByTestId('tool-tab-host');
 		await expect(host).toHaveAttribute('data-tool', 'image');
 		await expect(host.getByTestId('tool-tab-empty')).toContainText('Open a picture to edit');
+		await expect(host.locator('[data-tool-rail], [data-editor-toolbar], [data-editor-menubar], [data-frame-divider], [data-frame-file]')).toHaveCount(0);
 		await expect(page.locator('.generation-panel')).toHaveCount(0);
 		await expect(page.getByTestId('context-bar')).toHaveCount(0);
 		await expect(page.locator('.workbench-pane, [data-testid="workbench"]')).toHaveCount(0);
@@ -154,10 +156,7 @@ test.describe('tool tabs on desktop', () => {
 		await expect(page.locator('.generation-panel')).toHaveCount(0);
 
 		await bookTab(page, 'Hero shot').locator('.close-button').click({ force: true });
-		const dialog = page.getByRole('alertdialog');
-		await expect(dialog).toContainText('Discard 2 unsaved edits?');
-		await screenshot(page, JOURNEY, 'discard-prompt-1440');
-		await dialog.getByRole('button', { name: 'Discard and close' }).click();
+		await expect(page.getByRole('alertdialog')).toHaveCount(0);
 		await expect(bookTab(page, 'Hero shot')).toHaveCount(0);
 
 		await expect(page.locator('.generation-panel')).toBeVisible();
@@ -213,6 +212,7 @@ test.describe('tool tabs on a phone', () => {
 
 	test('the Tabs sheet lists every tab and opens an editor with its own top bar', async ({ page }) => {
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/generate');
 		await expect(page.locator('.studio-topbar')).toBeVisible({ timeout: 15000 });
 
@@ -229,9 +229,10 @@ test.describe('tool tabs on a phone', () => {
 		await expect(phone).toBeVisible();
 		await expect(phone.getByRole('button', { name: /^Open tabs/ })).toContainText('Image editor');
 		await expect(phone.getByTestId('tool-tab-empty')).toContainText('Open a picture to edit');
+		await expect(phone.locator('[data-phone-menu], [data-tool-rail], [data-editor-toolbar]')).toHaveCount(0);
+		await expect(phone.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'phone-image-editor-390');
-		await expect(phone.getByRole('button', { name: 'Undo' })).toBeDisabled();
-		await expect(phone.getByRole('button', { name: 'Save' })).toBeDisabled();
+		await expect(phone.getByRole('button', { name: 'Undo' })).toHaveCount(0);
 		await expect(page.locator('.studio-dock')).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'Open preset and session' })).toHaveCount(0);
 		await expect(page.locator('nav.fixed.bottom-0').filter({ hasText: 'Generate' })).toBeVisible();

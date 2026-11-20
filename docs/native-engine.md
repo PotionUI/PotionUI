@@ -194,8 +194,14 @@ would look like once one lands.
 
 The engine targets small GPUs (8–16GB) as first-class, not just the 24–32GB dev card. Placement is
 **estimate-driven and fit-first**: `memory/tiering.plan_placement` decides per component (DiT / TE /
-VAE) whether it stays GPU-resident from its *actual* size. Sampling reserves a latent-size-aware
-activation allowance (`sampling_headroom_gb`); decode is a separate phase with its own larger,
+VAE) whether it stays GPU-resident from its *actual* size. Sampling reserves a token-count-aware
+activation allowance (`sampling_headroom_gb`, plus `ref_latents_headroom_gb` for reference tokens):
+the per-latent-pixel constant is calibrated on a 2x2-patched DiT, so a patch-1 DiT (Qwen-Image-2.1,
+FLUX.2 Klein) pays four times as much per latent pixel. A DiT that keeps a per-run cache through
+sampling (Qwen-Image-2.1's prefix K/V) declares it with `run_cache_reserve_gb(latents_shape,
+ref_hw_frames, context_tokens, itemsize)`, and the engine adds one entry per conditioning branch the
+sampler runs. The reserve is what decides whether a co-resident text encoder is evicted before the
+DiT moves in; decode is a separate phase with its own larger,
 resolution-aware spike estimate (`activation_headroom_gb`) and tiling policy. The VRAM tier table
 below is only the *fallback* when component sizes are unknown; when they're known, two same-VRAM
 cards get different plans for a 9B Klein vs a 14B Wan. Residency priority is DiT > TE > VAE (the

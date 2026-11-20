@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from src.features.library.collaborators import LibraryCollaborators
 from src.features.library.dto import LibraryFacets, LibraryItem, LibraryListResult
-from src.features.library.mappers import upload_to_item
+from src.features.library.mappers import made_in_editor_for, upload_to_item
 from src.features.library.operations.guards import get_owned_or_raise, validate_tag_ids
 
 MAX_LIBRARY_LIST_LIMIT = 200
@@ -33,6 +33,8 @@ def list_items(
     include_descendants: bool = True,
     unsorted: bool = False,
     favorites_only: bool = False,
+    sort_by: str = "added",
+    sort_dir: Optional[str] = None,
 ) -> LibraryListResult:
     """One filtered page of the user's library.
 
@@ -63,12 +65,16 @@ def list_items(
         search=(search or "").strip() or None,
     )
 
-    uploads = collaborators.repository.list_items(user_id, limit=limit, offset=offset, **filters)
+    uploads = collaborators.repository.list_items(
+        user_id, limit=limit, offset=offset, sort_by=sort_by, sort_dir=sort_dir, **filters,
+    )
     total = collaborators.repository.count_items(user_id, **filters)
     tags_by_id = collaborators.tag_repository.get_upload_tags_bulk([u.id for u in uploads])
 
+    editor = made_in_editor_for(collaborators.edit_repository, user_id, uploads)
+
     return LibraryListResult(
-        items=[upload_to_item(u, tags_by_id.get(u.id, [])) for u in uploads],
+        items=[upload_to_item(u, tags_by_id.get(u.id, []), editor.get(u.id)) for u in uploads],
         total=total,
         limit=limit,
         offset=offset,
@@ -100,7 +106,8 @@ def get_item(collaborators: LibraryCollaborators, item_id: str, user_id: str) ->
         ValueError: If no such item is owned by this user.
     """
     upload = get_owned_or_raise(collaborators, item_id, user_id)
-    return upload_to_item(upload, collaborators.tag_repository.get_upload_tags(upload.id))
+    editor = made_in_editor_for(collaborators.edit_repository, user_id, [upload])
+    return upload_to_item(upload, collaborators.tag_repository.get_upload_tags(upload.id), editor.get(upload.id))
 
 
 def get_tags(collaborators: LibraryCollaborators, item_id: str, user_id: str) -> List[Dict[str, Any]]:

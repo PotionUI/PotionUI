@@ -21,10 +21,12 @@
 	import MediaTaggingPanel from './settings/MediaTaggingPanel.svelte';
 	import VisualSearchPanel from './settings/VisualSearchPanel.svelte';
 	import GenerationPanel from './settings/GenerationPanel.svelte';
+	import ExpandFormatsPanel from './settings/ExpandFormatsPanel.svelte';
 	import ElixirLimitsPanel from './settings/ElixirLimitsPanel.svelte';
 	import DiagnosticsPanel from './settings/DiagnosticsPanel.svelte';
 	import ExternalLoginPanel from './settings/ExternalLoginPanel.svelte';
 	import LogsPanel from './settings/LogsPanel.svelte';
+	import MediaToolsPanel from './settings/MediaToolsPanel.svelte';
 	import {
 		SETTINGS_GROUPS,
 		SETTINGS_KEY_GROUP,
@@ -174,6 +176,9 @@
 						{:else if activeGroup === 'generation'}
 							<GenerationPanel {settings} onSettingChange={handleSettingChange} />
 							<ElixirLimitsPanel {settings} onSettingChange={handleSettingChange} />
+							<ExpandFormatsPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'media_tools'}
+							<MediaToolsPanel {settings} />
 						{:else if activeGroup === 'diagnostics'}
 							<DiagnosticsPanel {settings} onSettingChange={handleSettingChange} />
 						{:else if activeGroup === 'external_login'}

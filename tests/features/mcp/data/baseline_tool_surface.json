@@ -1730,7 +1730,7 @@
    "parameters": {
     "properties": {
      "items": {
-      "description": "The media to edit; each entry has exactly one of item_id or generation_file_id.",
+      "description": "One of item_id or generation_file_id per entry.",
       "items": {
        "properties": {
         "generation_file_id": {
@@ -1750,7 +1750,7 @@
      },
      "mode": {
       "default": "new",
-      "description": "'new' keeps the original; 'replace' overwrites one library item and needs approval.",
+      "description": "'replace' needs approval.",
       "enum": [
        "new",
        "replace"
@@ -1758,15 +1758,14 @@
       "type": "string"
      },
      "steps": {
-      "description": "Steps in the order they run.",
+      "description": "Run in order.",
       "items": {
        "properties": {
         "params": {
-         "description": "Params named in the tool list; omit for the defaults.",
+         "description": "Per the tool list; omit for defaults.",
          "type": "object"
         },
         "tool": {
-         "description": "Tool id from the list.",
          "enum": [
           "trim",
           "crop",
@@ -1785,6 +1784,8 @@
           "volume",
           "replace_audio",
           "paint_layer",
+          "place_patch",
+          "replace_background",
           "slice",
           "fade",
           "film_grain",
@@ -1973,7 +1974,7 @@
    "parameters": {
     "properties": {
      "form_overrides": {
-      "description": "Field overrides on top of the preset's defaults (e.g. {'width': 1024, 'seed': 12345, 'batch_size': 4}). Field names must match the preset's form fields (see get_preset_info). An image/video/audio/media field takes a storage-root-relative path exactly as returned in a search_gallery result's `path` (e.g. 'generations/2026-08-12/01ABC.../1.png'). Never construct one from a generation id: the date segment is not derivable and videos have no index 0. If get_preset_info shows a 'regional_prompt' section, set 'regional_prompt' to {enabled: true, items: [{x, y, w, h, caption}]} (fractions, top-left origin).",
+      "description": "Field overrides on top of the preset's defaults (e.g. {'width': 1024, 'seed': 12345}). Field names must match the preset's form fields (see get_preset_info). An image/video/audio/media field takes a storage-root-relative path exactly as returned in a search_gallery result's `path` (e.g. 'generations/2026-08-12/01ABC.../1.png'). Never construct one from a generation id: the date segment is not derivable and videos have no index 0. A lora_picker field takes rows [{model, strength?}]; model = LoRA id, `model:<id>`, file name or library-relative path (search_models type=lora). If get_preset_info shows a 'regional_prompt' section, set 'regional_prompt' to {enabled: true, items: [{x, y, w, h, caption}]} (fractions, top-left origin).",
       "type": "object"
      },
      "mode": {

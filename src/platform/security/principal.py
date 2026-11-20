@@ -16,6 +16,7 @@ class KeyGrant:
     scopes: FrozenSet[ApiScope]
     display_prefix: str
     expires_at: Optional[str] = None
+    name: str = ""
 
 
 @dataclass(frozen=True)

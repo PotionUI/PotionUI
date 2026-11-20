@@ -123,7 +123,7 @@ describe('PhrasebookHeader', () => {
 	});
 
 	it('shows a count of 1 for a single filter deviation', () => {
-		mountHeader({ ...defaultFilters(), caseSensitive: true });
+		mountHeader({ ...defaultFilters(), includeInactive: false });
 		expect(target.querySelector('[data-filters-count]')?.textContent?.trim()).toBe('1');
 	});
 
@@ -142,20 +142,19 @@ describe('PhrasebookHeader', () => {
 		expect(document.querySelector('[data-filters-popover]')).toBeNull();
 	});
 
-	it('Reset filters clears every non-default filter back to defaults', () => {
-		mountHeader({ ...defaultFilters(), caseSensitive: true, scope: 'categories', pathPrefix: 'animals' });
+	it('Clear all clears every non-default filter back to defaults', () => {
+		mountHeader({ ...defaultFilters(), scope: 'categories', pathPrefix: 'animals' });
 		target.querySelector<HTMLButtonElement>('[data-filters-trigger] button')?.click();
 		flushSync();
 
 		const resetButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
-			b.textContent?.trim().startsWith('Reset filters')
+			b.textContent?.trim().startsWith('Clear all')
 		);
-		if (!resetButton) throw new Error('missing Reset filters button');
+		if (!resetButton) throw new Error('missing Clear all button');
 		resetButton.click();
 		flushSync();
 
 		expect(onChange).toHaveBeenCalledWith({
-			caseSensitive: false,
 			inLabel: true,
 			inValue: true,
 			scope: 'all',

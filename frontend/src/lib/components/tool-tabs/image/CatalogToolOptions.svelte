@@ -1,6 +1,7 @@
 <script lang="ts">
-	import ToolForm from '$lib/media-tools/ToolForm.svelte';
+	import EntryForm from '$lib/components/tool-tabs/frame/EntryForm.svelte';
 	import { paramIssues } from '$lib/media-tools/params';
+	import { toolParamsToSchema } from '$lib/media-tools/toolSchema';
 	import type { ToolDTO } from '$lib/media-tools/types';
 
 	let {
@@ -16,12 +17,13 @@
 	} = $props();
 
 	let errors = $derived(tool ? paramIssues(tool.params, values) : {});
+	let fields = $derived(tool ? toolParamsToSchema(tool.params) : []);
 </script>
 
 {#if tool}
 	{#if tool.params.length}
-		<div class="flex flex-col gap-4" data-catalog-tool={tool.id}>
-			<ToolForm params={tool.params} {values} {errors} onChange={(name, value) => onchange({ ...values, [name]: value })} />
+		<div data-catalog-tool={tool.id}>
+			<EntryForm {fields} {values} {errors} label="{tool.label} options" onValues={(next, info) => !info.commit && onchange(next)} />
 		</div>
 	{:else}
 		<p class="text-sm text-fg-muted">{tool.label} has no settings. Apply adds it as a step.</p>

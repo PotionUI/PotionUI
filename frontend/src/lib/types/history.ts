@@ -100,6 +100,20 @@ export interface RoutingDecision {
 	rule_trace: RoutingRuleTraceEntry[];
 }
 
+export interface GenerationOrigin {
+	kind?: string;
+	edit_id?: string;
+	step_id?: string | null;
+	task?: string | null;
+	run_id?: string | null;
+	key_id?: string;
+	key_name?: string | null;
+	key_current_name?: string | null;
+	[key: string]: unknown;
+}
+
+export type HistoryOriginFilter = 'mcp' | 'editor' | 'chat' | 'tab';
+
 export interface GenerationHistoryItem {
 	id: string;
 	preset_id?: string | null;
@@ -146,6 +160,7 @@ export interface GenerationHistoryItem {
 	grid_y?: number | null;
 	grid_cols?: number | null;
 	axis_values?: Record<string, string> | null;
+	origin?: GenerationOrigin | null;
 }
 
 export interface HistoryGridAxis {
@@ -227,6 +242,7 @@ export interface GenerationHistoryFilters {
 	usedPhrasebookLabel?: string;
 	/** Auto-tagger system-tag facet (exact tag name). */
 	systemTag?: string;
+	origin?: HistoryOriginFilter;
 	sortBy?: SortBy;
 	sortDir?: SortDir;
 }

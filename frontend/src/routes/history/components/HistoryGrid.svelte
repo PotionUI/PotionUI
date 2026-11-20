@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { mediaGroupByDay } from '$lib/stores/mediaGroupByDay';
 	import {
 		historyStore,
 		totalPages,
@@ -72,6 +73,9 @@
 		);
 		const file = media[leadIndex(media)];
 		if (file?.width && file?.height) return clampAspect(file.width / file.height);
+		const width = Number(generation.form_data?.width);
+		const height = Number(generation.form_data?.height);
+		if (width > 0 && height > 0) return clampAspect(width / height);
 		return 1;
 	}
 
@@ -98,7 +102,7 @@
 	// When sorting by rating or file size the day grouping is meaningless, so we
 	// render a single flat justified grid (no day headers).
 	$: grouped =
-		currentState.filters.sortBy !== 'rating' && currentState.filters.sortBy !== 'file_size';
+		$mediaGroupByDay && currentState.filters.sortBy !== 'rating' && currentState.filters.sortBy !== 'file_size';
 	$: groups = grouped
 		? buildGroups(generations)
 		: generations.length > 0
@@ -224,6 +228,12 @@
 			if (gridId) openGridId.set(gridId);
 		},
 		reuse: (ctx) => ctx.generations[0] && onReuseRequest?.(ctx.generations[0]),
+		openInTab: async (ctx) => {
+			const id = ctx.generations[0]?.id;
+			if (!id) return;
+			const { openGenerationInNewTab } = await import('$lib/generation/attach/openInTabDefault');
+			void openGenerationInNewTab(id, { navigate: true });
+		},
 		remove: (ctx) =>
 			ctx.generations.length > 1 ? onBulkDeleteRequest() : onDeleteRequest(ctx.generations[0]),
 		cancel: async (ctx) => {
@@ -281,11 +291,11 @@
 	}
 </script>
 
-<div class="px-3 py-3 md:px-6 md:py-6">
+<div class="{!currentState.loading && generations.length === 0 ? '' : 'px-3 py-3 md:px-6 md:py-6'} flex flex-1 flex-col">
 	<div
 		bind:this={gridRootEl}
 		bind:clientWidth={gridWidth}
-		class="relative"
+		class="relative flex flex-1 flex-col"
 		class:select-none={marqueeState.active}
 		role="listbox"
 		aria-multiselectable={currentState.selectionMode}
@@ -357,6 +367,7 @@
 							<GenerationCard
 								generation={box.item}
 								tile={{ width: box.width, height: box.height }}
+								live
 								on:imageClick={handleImageClick}
 								on:viewClick={handleViewGeneration}
 								on:deleteClick={handleDeleteClick}
@@ -398,6 +409,7 @@
 			{/if}
 		{:else if generations.length === 0}
 			<EmptyState
+				page
 				icon={hasActiveFilters ? 'search' : 'image'}
 				title={hasActiveFilters ? 'No results found' : 'No generations yet'}
 				description={hasActiveFilters
@@ -406,7 +418,7 @@
 			>
 				{#snippet actions()}
 					{#if hasActiveFilters}
-						<Button variant="secondary" size="sm" icon="close" onclick={handleClearAllFilters}>
+						<Button variant="secondary" icon="close" onclick={handleClearAllFilters}>
 							Clear All Filters
 						</Button>
 					{/if}

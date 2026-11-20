@@ -24,12 +24,11 @@ CALL_EXAMPLE = (
 
 INTRO = (
     f"Edit the user's images, videos and audio: one tool or a chain of up to {MAX_STEPS} steps run in "
-    "order, each applied to every item (an item must be a kind the step accepts). Name items by "
+    "order, each applied to every item. Name items by "
     "item_id (a library item{{#if list_library_items}}, from list_library_items{{/if}}) or "
     "generation_file_id (a generated file{{#if search_gallery}}, the file_id from search_gallery{{/if}}). "
     "mode 'new' (default) saves results as new library items and keeps the originals; 'replace' "
-    "overwrites ONE library item (not a generated file) and needs the user's approval. Returns the "
-    "resulting items (id, filename, url, kind, size). Tools, id (accepts -> produces): params as "
+    "overwrites ONE library item (not a generated file) and needs the user's approval. Tools, id (accepts -> produces): params as "
     "name type[min..max]unit; =x is the default, ? is optional, otherwise required."
 )
 
@@ -222,7 +221,7 @@ class RunMediaToolTool(BaseTool):
     @property
     def parameters(self) -> Dict[str, Any]:
         tool_ids = [spec.id for spec in self._runnable()]
-        tool_field: Dict[str, Any] = {"type": "string", "description": "Tool id from the list."}
+        tool_field: Dict[str, Any] = {"type": "string"}
         if tool_ids:
             tool_field["enum"] = tool_ids
         return {
@@ -232,14 +231,14 @@ class RunMediaToolTool(BaseTool):
                     "type": "array",
                     "minItems": 1,
                     "maxItems": MAX_STEPS,
-                    "description": "Steps in the order they run.",
+                    "description": "Run in order.",
                     "items": {
                         "type": "object",
                         "properties": {
                             "tool": tool_field,
                             "params": {
                                 "type": "object",
-                                "description": "Params named in the tool list; omit for the defaults.",
+                                "description": "Per the tool list; omit for defaults.",
                             },
                         },
                         "required": ["tool"],
@@ -249,7 +248,7 @@ class RunMediaToolTool(BaseTool):
                     "type": "array",
                     "minItems": 1,
                     "maxItems": MAX_INPUTS,
-                    "description": "The media to edit; each entry has exactly one of item_id or generation_file_id.",
+                    "description": "One of item_id or generation_file_id per entry.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -262,7 +261,7 @@ class RunMediaToolTool(BaseTool):
                     "type": "string",
                     "enum": list(MODES),
                     "default": "new",
-                    "description": "'new' keeps the original; 'replace' overwrites one library item and needs approval.",
+                    "description": "'replace' needs approval.",
                 },
             },
             "required": ["steps", "items"],

@@ -1,29 +1,35 @@
 import { get } from 'svelte/store';
-import { canvasFromBlob, canvasFromUrl } from '$lib/components/imageEditor/loadPicked';
-import { canvasToPngFile } from '$lib/components/imageEditor/flatten';
-import { paintFilters } from '$lib/components/imageEditor/registries';
+import { canvasFromBlob, canvasFromUrl } from '$lib/paint/loadPicked';
+import { canvasToPngFile } from '$lib/paint/flatten';
+import { paintFilters } from '$lib/paint/registries';
 import { filterCatalog, loadCube, loadFilterCatalog } from '$lib/filters/catalog';
 import { sharedExtensions } from '$lib/filters/extensions';
 import { renderRecipe, type FilterRecipe } from '$lib/filters/render';
-import { planOutputSize } from '$lib/media/editors/imageEditPlan';
+import { planOutputSize } from '$lib/media/imageEditPlan';
 import { loadMediaToolCatalog } from '$lib/media-tools/catalog';
 import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 import { previewFrame, uploadMediaToolArtifact } from '$lib/services/api/mediaTools';
 import type { MediaToolInputRef } from '$lib/media-tools/types';
-import type { EditStep } from '$lib/tool-tabs/frame/editStack';
+import { opacityOf, type EditStep } from '$lib/tool-tabs/frame/editStack';
+import { whenEditorExtensionsReady } from '$lib/editors/ready';
+import { callKindAsync } from '$lib/editors/stepKinds';
 import { outputSize, payloadGaps, resizeOutput, runSteps, type PixelSize } from './payload';
+import { imageStepContext, resolveImageStep, stepOutOfDate, type ImageStepLike } from './stepKinds';
 import { imageEffects, stillShader } from './shaderEffect';
-import { adjustRecipeStep, type CropParams, type EffectParams, type PaintParams, type ResizeParams, type ToolEffectParams } from './steps';
+import { localLayerCanvas } from './paintLayers';
+import { adjustRecipeSteps, type CropParams, type EffectParams, type PaintParams, type ResizeParams, type ToolEffectParams } from './steps';
 
 export const FULL_SIDE = 8192;
 export const PREVIEW_SIDE = 1600;
 
-const CLIENT_TOOLS = new Set(['crop', 'resize', 'paint', 'effects', 'slice']);
+const drawn = (step: ImageStepLike & Pick<EditStep, 'hidden'>) => {
+	if (step.hidden || step.tool === 'slice') return false;
+	return resolveImageStep(step).status === 'kind';
+};
 
-const drawn = (step: Pick<EditStep, 'tool' | 'hidden'>) => !step.hidden && step.tool !== 'slice';
-
-export function isClientStep(step: Pick<EditStep, 'tool'>): boolean {
-	return CLIENT_TOOLS.has(step.tool);
+export function isClientStep(step: ImageStepLike): boolean {
+	const resolved = resolveImageStep(step);
+	return resolved.status === 'kind' && !!resolved.kind.preview;
 }
 
 export interface RenderSource {
@@ -103,11 +109,13 @@ function cropCanvas(canvas: HTMLCanvasElement, params: CropParams, size: PixelSi
 	return { canvas: out, size: logical };
 }
 
-async function paintCanvas(canvas: HTMLCanvasElement, params: PaintParams): Promise<HTMLCanvasElement> {
-	const layer = await canvasFromUrl(params.url);
+async function paintCanvas(canvas: HTMLCanvasElement, params: PaintParams, opacity: number): Promise<HTMLCanvasElement> {
+	const layer = localLayerCanvas(params.url) ?? (params.url ? await canvasFromUrl(params.url) : null);
+	if (!layer) return canvas;
 	const out = makeCanvas(canvas.width, canvas.height);
 	const context = context2d(out);
 	context.drawImage(canvas, 0, 0);
+	context.globalAlpha = opacity;
 	context.drawImage(layer, 0, 0, out.width, out.height);
 	return out;
 }
@@ -118,7 +126,7 @@ export interface ResolvedEffect {
 }
 
 export async function resolveEffect(params: LookOrAdjust): Promise<ResolvedEffect> {
-	if (params.kind === 'adjust') return { recipe: { steps: [adjustRecipeStep(params)], cube: null }, intensity: 100 };
+	if (params.kind === 'adjust') return { recipe: { steps: adjustRecipeSteps(params), cube: null }, intensity: 100 };
 	await loadFilterCatalog();
 	const item = get(filterCatalog).items.find((candidate) => candidate.id === params.filter);
 	if (!item) throw new Error(`The look ${params.name} is not available any more`);
@@ -158,7 +166,7 @@ export async function effectCanvas(canvas: HTMLCanvasElement, params: EffectPara
 	return out;
 }
 
-export async function applyClientStep(rendered: Rendered, step: EditStep, maxSide: number): Promise<Rendered> {
+export async function coreApplyClientStep(rendered: Rendered, step: EditStep, maxSide: number): Promise<Rendered> {
 	switch (step.tool) {
 		case 'crop':
 			return cropCanvas(rendered.canvas, step.params as CropParams, rendered.size, maxSide);
@@ -167,12 +175,20 @@ export async function applyClientStep(rendered: Rendered, step: EditStep, maxSid
 			return { canvas: scaled(rendered.canvas, fitSide(size, maxSide)), size };
 		}
 		case 'paint':
-			return { canvas: await paintCanvas(rendered.canvas, step.params as PaintParams), size: rendered.size };
+			return { canvas: await paintCanvas(rendered.canvas, step.params as PaintParams, opacityOf(step)), size: rendered.size };
 		case 'effects':
 			return { canvas: await effectCanvas(rendered.canvas, step.params as EffectParams), size: rendered.size };
 		default:
 			return rendered;
 	}
+}
+
+export async function applyClientStep(rendered: Rendered, step: EditStep, maxSide: number, signal?: AbortSignal): Promise<Rendered> {
+	const resolved = resolveImageStep(step);
+	if (resolved.status !== 'kind' || !resolved.kind.preview) return rendered;
+	const { kind, params } = resolved;
+	const ctx = imageStepContext(step, rendered.size, [], null, maxSide);
+	return callKindAsync(kind, 'preview', () => kind.preview!(rendered, params, ctx, signal ?? new AbortController().signal), rendered);
 }
 
 export function abortError(): DOMException {
@@ -209,7 +225,7 @@ function waitFor<T>(promise: Promise<T>, signal: AbortSignal | undefined, onAbor
 }
 
 export function stepsKey(steps: readonly EditStep[]): string {
-	return JSON.stringify(steps.filter(drawn).map((step) => [step.tool, step.params]));
+	return JSON.stringify(steps.filter(drawn).map((step) => [step.tool, step.params, step.layer?.opacity ?? 1]));
 }
 
 export function sourceKey(source: RenderSource): string {
@@ -275,7 +291,7 @@ export class ImageRenderer {
 
 	async render(steps: readonly EditStep[], options: RenderOptions = {}): Promise<Rendered> {
 		const maxSide = options.maxSide ?? PREVIEW_SIDE;
-		const visible = steps.filter(drawn);
+		const visible = steps.filter((step, i) => drawn(step) && !stepOutOfDate(step, steps.slice(0, i).filter((before) => !before.hidden)));
 		let serverAt = -1;
 		visible.forEach((step, i) => {
 			if (!isClientStep(step)) serverAt = i;
@@ -289,7 +305,7 @@ export class ImageRenderer {
 		}
 		for (const step of visible.slice(serverAt + 1)) {
 			if (options.signal?.aborted) throw abortError();
-			rendered = await applyClientStep(rendered, step, maxSide);
+			rendered = await applyClientStep(rendered, step, maxSide, options.signal);
 		}
 		return rendered;
 	}
@@ -322,6 +338,7 @@ export class ImageRenderer {
 	}
 
 	async payload(steps: readonly EditStep[]): Promise<ReturnType<typeof runSteps>> {
+		await Promise.all([loadMediaToolCatalog(), whenEditorExtensionsReady()]);
 		const sizes: Record<string, PixelSize> = {};
 		const baked: Record<string, string> = {};
 		for (const gap of payloadGaps(steps, { source: this.source.size })) {

@@ -38,7 +38,7 @@
 	<title>Inspirations · PotionUI</title>
 </svelte:head>
 
-<div class="flex min-h-screen bg-canvas">
+<div class="flex h-[calc(100dvh-var(--tab-bar-height))] md:h-[100dvh] bg-canvas">
 	<!-- Left folder-tree panel (collapsible), pinned while the grid scrolls -->
 	{#if sidebarOpen}
 		<aside
@@ -50,7 +50,7 @@
 		</aside>
 	{/if}
 
-	<div class="flex-1 min-w-0">
+	<div class="flex-1 min-w-0 min-h-0 overflow-y-auto flex flex-col dot-grid bg-canvas">
 		<div class="sticky top-0 z-30">
 			<InspirationsToolbar {sidebarOpen} onOpenSidebar={() => (sidebarOpen = true)} />
 		</div>

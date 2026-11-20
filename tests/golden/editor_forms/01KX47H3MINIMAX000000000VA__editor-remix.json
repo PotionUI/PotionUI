@@ -1,0 +1,144 @@
+{
+  "editor_mode": "remix",
+  "from": "remix",
+  "preset_id": "01KX47H3MINIMAX000000000VA",
+  "preset_name": "MiniMax-H3",
+  "shown": [
+    {
+      "label": "Speed profile",
+      "name": "speed_profile",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "MiniMax-H3 DiT (reference partition)",
+      "name": "model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3-VL-32B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "Video VAE",
+      "name": "video_vae",
+      "type": "model"
+    },
+    {
+      "label": "Audio VAE",
+      "name": "audio_vae",
+      "type": "model"
+    },
+    {
+      "label": "Flex adapter",
+      "name": "flex_adapter",
+      "type": "model"
+    },
+    {
+      "label": "Preview decoder",
+      "name": "preview_decoder",
+      "type": "model"
+    },
+    {
+      "label": "Pictures",
+      "name": "pictures",
+      "type": "image"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "select"
+    },
+    {
+      "label": "Scheduler",
+      "name": "scheduler",
+      "type": "select"
+    },
+    {
+      "label": "Video shift",
+      "name": "video_sigma_shift",
+      "type": "slider"
+    },
+    {
+      "label": "Audio shift",
+      "name": "audio_sigma_shift",
+      "type": "slider"
+    },
+    {
+      "label": "Manual sigmas (video)",
+      "name": "manual_sigmas",
+      "type": "textbox"
+    },
+    {
+      "label": "Manual sigmas (audio)",
+      "name": "manual_audio_sigmas",
+      "type": "textbox"
+    },
+    {
+      "label": "Sparse attention",
+      "name": "sparse_attn",
+      "type": "select"
+    },
+    {
+      "label": "Sol-Attn sparsity",
+      "name": "sol_attn_tau",
+      "type": "slider"
+    },
+    {
+      "label": "SLA sparsity",
+      "name": "sla_sparsity",
+      "type": "slider"
+    },
+    {
+      "label": "SLA block size",
+      "name": "sla_block_size",
+      "type": "select"
+    },
+    {
+      "label": "Exact final steps",
+      "name": "sparse_attn_dense_last_steps",
+      "type": "slider"
+    },
+    {
+      "label": "Cache threshold",
+      "name": "step_cache_threshold",
+      "type": "slider"
+    },
+    {
+      "label": "Warmup steps",
+      "name": "step_cache_warmup_steps",
+      "type": "slider"
+    },
+    {
+      "label": "Max consecutive skips",
+      "name": "step_cache_max_skips",
+      "type": "slider"
+    },
+    {
+      "label": "Live preview",
+      "name": "preview",
+      "type": "checkbox"
+    }
+  ],
+  "task": "remix"
+}

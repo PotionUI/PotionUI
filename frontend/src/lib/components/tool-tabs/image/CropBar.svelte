@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { IconButton } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { planDisplaySize, planOutputSize } from '$lib/media/editors/imageEditPlan';
+	import { planDisplaySize, planOutputSize } from '$lib/media/imageEditPlan';
 	import { ORIENTATION, withAspect, withOrientation, type OrientationKey } from '$lib/tool-tabs/image/cropActions';
 	import type { PixelSize } from '$lib/tool-tabs/image/payload';
 	import type { CropParams } from '$lib/tool-tabs/image/steps';

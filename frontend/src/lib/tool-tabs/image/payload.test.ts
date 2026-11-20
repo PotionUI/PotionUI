@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, beginEdit, createStack, move, canMove, toggleHidden, appliedSteps, type EditStackState, type EditStep } from '$lib/tool-tabs/frame/editStack';
 import {
 	PayloadError,
@@ -176,6 +176,11 @@ describe('stack to run steps', () => {
 		expect(runBody(steps, { generation_file_id: '7' }, 'update', 'copy-1').output).toEqual({ mode: 'update', target_item_id: 'copy-1' });
 		expect(runBody(steps, { item_id: 'lib-1' }, 'replace').output).toEqual({ mode: 'replace' });
 		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, 'col-9').output).toEqual({ mode: 'new', collection_id: 'col-9' });
+		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, null, { id: 'ed_1', revision: 3 }).output).toEqual({ mode: 'new', edit: { id: 'ed_1', revision: 3 } });
+		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, null, null).output).toEqual({ mode: 'new' });
+		expect(runBody(steps, { item_id: 'lib-1' }, 'new', null, 'col-9').output).not.toHaveProperty('edit');
+		expect(runBody(steps, { generation_file_id: '7' }, 'new', null, null, null, '  Harbor at dawn ').output).toEqual({ mode: 'new', name: 'Harbor at dawn' });
+		expect(runBody(steps, { generation_file_id: '7' }, 'new', null, null, null, '   ').output).toEqual({ mode: 'new' });
 	});
 });
 
@@ -251,6 +256,14 @@ describe('paint pinning', () => {
 });
 
 describe('rail', () => {
+	it('offers no rail tool and no step kind for place_patch while a normal editor tool still appears', () => {
+		const catalog = [tool('place_patch'), tool('pixel.sort', { label: 'Pixel sort' })];
+		expect(editorCatalogTools(catalog).map((entry) => entry.id)).toEqual(['pixel.sort']);
+		const ids = imageRail(catalog).flatMap((group) => group.tools.map((entry) => entry.id));
+		expect(ids).not.toContain('place_patch');
+		expect(ids).toContain('pixel.sort');
+	});
+
 	it('groups the core tools and appends image tools the catalog marks for the editor', () => {
 		const catalog = [
 			tool('paint_layer'),
@@ -263,10 +276,14 @@ describe('rail', () => {
 		expect(editorCatalogTools(catalog).map((entry) => entry.id)).toEqual(['pixel.sort']);
 		const rail = imageRail(catalog);
 		expect(rail.map((group) => [group.label, group.tools.map((entry) => entry.label)])).toEqual([
-			['Shape', ['Crop', 'Resize', 'Canvas', 'Slice']],
-			['Paint', ['Paint', 'Mask']],
-			['Look', ['Looks', 'Adjust']],
-			['Tools', ['Color key', 'Subject', 'Pixel sort']]
+			['Generate', ['Edit a region', 'Remove an object', 'Replace the background', 'Expand']],
+			['Transform', ['Crop', 'Resize', 'Canvas', 'Slice']],
+			['Paint', ['Brush', 'Eraser', 'Fill', 'Eyedropper']],
+			['Select and move', ['Rectangle select', 'Lasso select', 'Move']],
+			['Light and colour', ['Light', 'Colour', 'Split tone', 'Curves', 'LUT']],
+			['Effects', ['Film grain', 'Vignette', 'Grayscale', 'Invert']],
+			['Looks', ['Looks']],
+			['Cut out', ['Color key', 'Subject', 'Pixel sort']]
 		]);
 	});
 });

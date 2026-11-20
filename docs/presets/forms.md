@@ -203,7 +203,7 @@ in the [Preset Context Cheat Sheet](../preset-context.md#built-in-field-types)):
 | Category | Types |
 |----------|-------|
 | Text | `string`, `textbox` |
-| Numeric | `number`, `integer`, `slider`, `stepper`, `seed`, `resolution` |
+| Numeric | `number`, `integer`, `slider`, `stepper`, `seed`, `resolution`, `number_box` |
 | Boolean | `boolean`, `checkbox` |
 | Choice and value controls | `segmented`, `anchor`, `color` |
 | Options-backed | `select`, `checkbox_group`, `tags`, `model` (alias `models`), `lora_picker`, `sampler`, `schedule`, `cloud_options` |
@@ -254,6 +254,36 @@ The three controls the media tool dialog draws are ordinary field types, so a pr
 All three accept a `tooltip` in `configuration:` and the usual field keys, and all three are shareable on an
 inspiration because their values are plain text. The preset linter reports a bad `options` list, an anchor or
 color `default:` that does not fit, and `allow_transparent` that is not a boolean as an error.
+
+### Number box and slider display options
+
+`number_box` is a compact box for typed numbers that may be left blank (the value is then `null`).
+
+```yaml
+- name: "width"
+  type: "number_box"
+  label: "Width"
+  configuration:
+    integer: true                # round typed values to whole numbers
+    min: 1                       # flagged under the box when undershot
+    max: 8192
+    unit: "px"                   # suffix inside the box
+    placeholder: "Auto"          # shown while blank (default "Auto")
+    aria_label: "Crop X"         # accessible name when the visible label is short
+```
+
+A submitted `number_box` value must be a number (a whole number with `integer: true`) inside `min`/`max`, or blank. While a typed number is being edited the box keeps the typed text; once the number is committed (Enter or leaving the box) it shows the value the form holds, so a value the form corrected or clamped appears as corrected.
+
+`slider` fields accept four optional display keys in `configuration:`; without them a slider looks and behaves as before.
+
+| Key | Values | Effect |
+|-----|--------|--------|
+| `fill` | `from-default` | The coloured fill grows from the `default:` to the value, so a range such as -100 to 100 with a default of 0 fills left or right of the middle. Needs a numeric `default:` inside the range; otherwise the fill starts at the left end. |
+| `layout` | `inline` | Label, track and value sit on one line, with no range legend underneath. |
+| `signed` | `true` | A positive readout shows a leading `+`. |
+| `reset` | `false` | Turns off resetting to the `default:`. |
+
+Every slider with a numeric `default:` resets to it on a double-click of the track and on Backspace or Delete while it has focus, and says so to screen readers; the Delete key is kept from reaching window shortcuts while a slider has focus. Set `reset: false` to keep a slider from doing so.
 
 Common field shapes (all from real presets under `content/presets/marketplace/`):
 

@@ -360,7 +360,7 @@
 				<div class="flex h-full items-center justify-center p-5">
 					<EmptyState title="Recipes unavailable" description={loadError} icon="warning" compact>
 						{#snippet actions()}
-							<Button variant="secondary" size="sm" icon="refresh" onclick={() => loadRecipes()}>
+							<Button size="sm" variant="secondary" icon="refresh" onclick={() => loadRecipes()}>
 								Try again
 							</Button>
 						{/snippet}
@@ -579,7 +579,7 @@
 								compact
 							>
 								{#snippet actions()}
-									<Button variant="secondary" size="sm" onclick={backToList}>Back to recipes</Button>
+									<Button size="sm" variant="secondary" onclick={backToList}>Back to recipes</Button>
 								{/snippet}
 							</EmptyState>
 						</div>
@@ -596,7 +596,7 @@
 						>
 							{#snippet actions()}
 								{#if recipes.length > 0}
-									<Button variant="ghost" size="sm" onclick={clearFilters}>Clear filters</Button>
+									<Button size="sm" variant="secondary" onclick={clearFilters}>Clear filters</Button>
 								{/if}
 							{/snippet}
 						</EmptyState>

@@ -96,6 +96,17 @@ exactly like a core mode's would, because both read from the SAME merged `Preset
 under-configured field does (no filtering, not an error) - and the same lint cross-check that
 catches an undeclared `@config:` reference on a core preset's field catches it here too.
 
+### Contributed editor modes
+
+`modes_root` may also hold `editor_modes/<name>/editor_mode.yml` (see [Editor modes](../presets.md#editor-modes)).
+A plugin contributes an editor mode to a preset it does not own the same way, and it need not contribute any
+generation mode: `from` may name any generation mode of the target, including one the plugin contributes in the
+same `modes_root`. The editor mode belongs to the plugin (`source_plugin`), may name core tasks and the plugin's
+own tasks, and is dropped when the plugin is disabled. A core editor mode of the same name wins and the
+contribution is rejected with a load error under the plugin; between two plugins the earlier plugin id wins, as
+for modes. A `modes_root` with only `editor_modes/` is valid. Editor modes are derived before plugin
+`preset_extensions` run, so extension fields never reach them.
+
 A contributed mode's fields may keep the `@config:checkpoint_tags`/`text_encoder_tags`/`vae_tags`/`lora_tags` indirection, which resolves against the target preset's `configuration:`.
 
 ## Extending existing modes

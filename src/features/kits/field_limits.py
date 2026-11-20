@@ -2,6 +2,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
+from src.features.presets.templates import find_mode
+
 logger = logging.getLogger(__name__)
 
 FORM_MEDIA_TYPES = frozenset({"image", "video", "audio", "media"})
@@ -58,7 +60,7 @@ def _walk(fields: Any, found: Dict[str, FormLimit]) -> None:
 
 
 def form_limits(preset_template: Any, mode: Optional[str]) -> Dict[str, FormLimit]:
-    mode_data = (getattr(preset_template, "modes", None) or {}).get(mode)
+    mode_data = find_mode(preset_template, mode)
     found: Dict[str, FormLimit] = {}
     for form in getattr(mode_data, "forms", None) or []:
         _walk(getattr(form, "fields", None), found)

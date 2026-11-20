@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte';
+	import { getContext, type Snippet } from 'svelte';
 	import { readable } from 'svelte/store';
 	import ToolFooter from '$lib/media-tools/ToolFooter.svelte';
 	import { EDITOR_RUN_CONTEXT_KEY, type EditorRunContext } from './editorRunContext';
@@ -10,8 +10,10 @@
 	export let failureMessage: string | null = null;
 	export let allowReplace: boolean = true;
 	export let applyLabel: string = 'Apply';
+	export let applyIcon: boolean | undefined = undefined;
 	export let note: string | null = null;
 	export let reserveMessage: boolean = false;
+	export let lead: Snippet | undefined = undefined;
 	export let onCancel: () => void;
 	export let onSave: (mode: MediaEditorSaveMode) => void;
 
@@ -31,7 +33,7 @@
 	showModes={allowReplace}
 	{note}
 	{applyLabel}
-	applyIcon={applyLabel === 'Apply'}
+	applyIcon={applyIcon ?? applyLabel === 'Apply'}
 	disabled={busy || blockedReason !== null}
 	working={busy}
 	cancellable={running}
@@ -41,6 +43,7 @@
 	failure={failureMessage}
 	blocked={blockedReason}
 	{reserveMessage}
+	{lead}
 	onMode={(next) => (mode = next)}
 	{onCancel}
 	onApply={() => onSave(allowReplace ? mode : 'new')}

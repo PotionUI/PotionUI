@@ -6,10 +6,16 @@ holds them together. Framework-agnostic - uses ``ValueError`` for "not
 found"/"blocked" (the controller converts that to an HTTP response).
 """
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from src.platform.util.ids import generate_ulid
-from src.features.sessions.dto import Session, SaveSessionRequest, UpdateSessionRequest
+from src.features.sessions.dto import EDITOR_KIND, GENERATION_KIND, Session, SaveSessionRequest, UpdateSessionRequest
+from src.features.sessions.editor_data import (
+    ModeCheck,
+    OwnedFields,
+    check_editor_modes,
+    strip_editor_data,
+)
 from src.features.sessions.mappers import session_to_response_dict
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import SessionVersionRepository
@@ -59,6 +65,14 @@ def _owned_session(session_repository: SessionRepository, user_id: str, session_
     return session
 
 
+def _kind_mismatch(name: str, stored: str) -> ConflictError:
+    return ConflictError(
+        "session_kind_mismatch",
+        f"A {stored} session named '{name}' already exists for this preset; names are shared across kinds",
+        kind=stored,
+    )
+
+
 def _contended(session_id: str) -> ConflictError:
     return ConflictError("session_write_contended", f"Session {session_id} kept changing during the save; try again")
 
@@ -70,6 +84,9 @@ def _merge_mode_data(
 ) -> Dict[str, Any]:
     """Merge mode-specific data into existing session data."""
     existing_data = existing_data or {}
+
+    if mode and isinstance(new_data, dict) and set(new_data) == {mode} and isinstance(new_data[mode], dict) and "formData" in new_data[mode]:
+        new_data = new_data[mode]
 
     if not mode and isinstance(new_data, dict):
         # Mode-keyed data (dict of dicts) — shallow-merge so saving in one
@@ -141,12 +158,16 @@ def _create_new_session(
     user_id: str,
     request: SaveSessionRequest,
     origin: Optional[WriteOrigin] = None,
+    owned_fields: Optional[OwnedFields] = None,
+    mode_check: Optional[ModeCheck] = None,
 ) -> Tuple[Dict[str, Any], str]:
     """Create a new session.
 
     Raises:
         ValueError: If creation blocked or failed
     """
+    if request.kind == EDITOR_KIND:
+        check_editor_modes(request.data, request.mode, request.preset_id, mode_check)
     hook_data = run_veto_hook(
         plugin_registry,
         SESSION_HOOKS.before_create,
@@ -162,6 +183,11 @@ def _create_new_session(
 
     # Allow hooks to modify data
     session_data = hook_data.get("data", request.data)
+    kind = request.kind or GENERATION_KIND
+    if kind == EDITOR_KIND:
+        session_data = strip_editor_data(
+            _merge_mode_data({}, session_data, request.mode), request.preset_id, owned_fields
+        )
 
     session = Session(
         id=generate_ulid(),
@@ -169,6 +195,7 @@ def _create_new_session(
         preset_id=request.preset_id,
         name=request.name,
         data=session_data,
+        kind=kind,
     )
 
     created_session = session_repository.create(session, _stored(origin))
@@ -200,6 +227,8 @@ def _update_existing_session(
     user_id: str,
     request: SaveSessionRequest,
     origin: Optional[WriteOrigin],
+    owned_fields: Optional[OwnedFields] = None,
+    mode_check: Optional[ModeCheck] = None,
 ) -> Tuple[Dict[str, Any], str]:
     """Update an existing session (called from save_session when a session
     with the requested name already exists).
@@ -209,6 +238,8 @@ def _update_existing_session(
     """
     existing_session = _named_session(session_repository, user_id, request)
     _check_base(existing_session, request.base_version)
+    if existing_session.kind == EDITOR_KIND:
+        check_editor_modes(request.data, request.mode, existing_session.preset_id, mode_check)
 
     hook_data = run_veto_hook(
         plugin_registry,
@@ -232,6 +263,8 @@ def _update_existing_session(
             _check_base(existing_session, request.base_version)
 
         merged_data = _merge_mode_data(existing_session.data, new_data, request.mode)
+        if existing_session.kind == EDITOR_KIND:
+            merged_data = strip_editor_data(merged_data, existing_session.preset_id, owned_fields)
 
         updated_session = Session(
             id=existing_session.id,
@@ -240,6 +273,7 @@ def _update_existing_session(
             name=existing_session.name,
             data=merged_data,
             created_at=existing_session.created_at,
+            kind=existing_session.kind,
         )
 
         result = session_repository.update(updated_session, existing_session.version, _stored(origin))
@@ -273,6 +307,8 @@ def save_session(
     user_id: str,
     request: SaveSessionRequest,
     origin: Optional[WriteOrigin] = None,
+    owned_fields: Optional[OwnedFields] = None,
+    mode_check: Optional[ModeCheck] = None,
 ) -> Tuple[Dict[str, Any], str]:
     """Save a new session or update an existing one with the same name.
 
@@ -288,6 +324,8 @@ def save_session(
     )
 
     if existing_session:
+        if existing_session.kind != (request.kind or GENERATION_KIND):
+            raise _kind_mismatch(request.name, existing_session.kind)
         return _update_existing_session(
             session_repository,
             plugin_registry,
@@ -296,9 +334,19 @@ def save_session(
             user_id,
             request,
             origin,
+            owned_fields,
+            mode_check,
         )
     return _create_new_session(
-        session_repository, plugin_registry, version_repository, file_preset_repository, user_id, request, origin
+        session_repository,
+        plugin_registry,
+        version_repository,
+        file_preset_repository,
+        user_id,
+        request,
+        origin,
+        owned_fields,
+        mode_check,
     )
 
 
@@ -311,6 +359,8 @@ def update_session(
     session_id: str,
     request: UpdateSessionRequest,
     origin: Optional[WriteOrigin] = None,
+    owned_fields: Optional[OwnedFields] = None,
+    mode_check: Optional[ModeCheck] = None,
 ) -> Dict[str, Any]:
     """Update an existing session by ID.
 
@@ -322,6 +372,8 @@ def update_session(
         ValueError: If session not found, access denied, name conflict, or update blocked
     """
     session = _owned_session(session_repository, user_id, session_id)
+    if request.kind and request.kind != session.kind:
+        raise _kind_mismatch(session.name, session.kind)
     _check_base(session, request.base_version)
 
     if request.name != session.name:
@@ -330,6 +382,9 @@ def update_session(
         )
         if existing_with_name:
             raise ConflictError("session_name_exists", f"Session with name '{request.name}' already exists for this preset")
+
+    if session.kind == EDITOR_KIND:
+        check_editor_modes(request.data, request.mode, session.preset_id, mode_check)
 
     hook_data = run_veto_hook(
         plugin_registry,
@@ -354,6 +409,8 @@ def update_session(
             _check_base(session, request.base_version)
 
         merged_data = _merge_mode_data(session.data, new_data, request.mode)
+        if session.kind == EDITOR_KIND:
+            merged_data = strip_editor_data(merged_data, session.preset_id, owned_fields)
 
         updated_session = Session(
             id=session_id,
@@ -362,6 +419,7 @@ def update_session(
             name=request.name,
             data=merged_data,
             created_at=session.created_at,
+            kind=session.kind,
         )
 
         result = session_repository.update(updated_session, session.version, _stored(origin))

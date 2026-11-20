@@ -35,7 +35,7 @@ export function createFormulasApi(client: AxiosInstance) {
 
 		async planFormula(
 			formulaId: string,
-			request: { form_name: string | null; current_values: Record<string, unknown>; lora_mode: LoraMode }
+			request: { form_name: string | null; mode?: string | null; current_values: Record<string, unknown>; lora_mode: LoraMode }
 		): Promise<APIResponse<ServerPlan>> {
 			const response = await client.post(`/api/formulas/${formulaId}/plan`, request);
 			const body = response.data as APIResponse<Record<string, unknown>>;

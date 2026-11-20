@@ -240,6 +240,30 @@ def test_list_is_scoped_to_owner_preset_and_mode(collaborators, forms):
     assert [formula.id for formula in listed] == [mine.id]
 
 
+def test_listing_by_an_editor_key_also_finds_the_formulas_of_its_from_mode(collaborators, forms):
+    forms.forms[("preset-a", "editor:video")] = forms.forms[("preset-a", "video")]
+    forms.from_modes = {("preset-a", "editor:video"): "video"}
+    forms.from_mode_of = lambda preset_id, mode: forms.from_modes.get((preset_id, mode))
+    inherited = create(collaborators, name="Alpha")
+    own = create(collaborators, mode="editor:video", name="Beta")
+    create(collaborators, owner="user-2", name="Theirs")
+
+    editor = operations.list_formulas(collaborators, "user-1", "preset-a", "editor:video")
+    plain = operations.list_formulas(collaborators, "user-1", "preset-a", "video")
+
+    assert [formula.id for formula in editor] == [inherited.id, own.id]
+    assert [formula.id for formula in plain] == [inherited.id]
+
+
+def test_an_editor_key_without_a_from_mode_lists_only_its_own_formulas(collaborators, forms):
+    forms.forms[("preset-a", "editor:video")] = forms.forms[("preset-a", "video")]
+    forms.from_mode_of = lambda preset_id, mode: None
+    create(collaborators, name="Alpha")
+    own = create(collaborators, mode="editor:video", name="Beta")
+
+    assert [f.id for f in operations.list_formulas(collaborators, "user-1", "preset-a", "editor:video")] == [own.id]
+
+
 @pytest.mark.parametrize(
     "call",
     [

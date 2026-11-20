@@ -8,6 +8,7 @@ describe('settingsGroupHasFooter', () => {
 
 	it('hides the footer for the API keys table, whose changes apply as they are made', () => {
 		expect(settingsGroupHasFooter('api_keys')).toBe(false);
+		expect(settingsGroupHasFooter('media_tools')).toBe(false);
 	});
 
 	it('maps the API key settings to the Access group', () => {
@@ -16,7 +17,7 @@ describe('settingsGroupHasFooter', () => {
 
 	it('shows the footer for every other group', () => {
 		for (const group of SETTINGS_GROUPS) {
-			if (group.id === 'logs' || group.id === 'api_keys') continue;
+			if (group.id === 'logs' || group.id === 'api_keys' || group.id === 'media_tools') continue;
 			expect(settingsGroupHasFooter(group.id)).toBe(true);
 		}
 	});

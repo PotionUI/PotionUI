@@ -1,7 +1,12 @@
-import type { ImageEditPlan } from '$lib/media/editors/imageEditPlan';
+import { editorToolIcons } from '$lib/utils/iconGlyphs';
+import type { ImageEditPlan } from '$lib/media/imageEditPlan';
 import type { ToolDTO } from '$lib/media-tools/types';
 import type { EditStep, LanePair, StepDraft } from '$lib/tool-tabs/frame/editStack';
 import type { RailGroup } from '$lib/tool-tabs/frame/types';
+import { railFor, railTools } from '$lib/editors/railTools';
+import { stepKinds } from '$lib/editors/stepKinds';
+import { ensureCoreImageEditor } from './coreEditor';
+import { imageEffects } from './shaderEffect';
 import { sliceSummary, type SliceParams } from './slice/model';
 
 export const GEOMETRY_LANE = 'geometry';
@@ -27,6 +32,7 @@ export interface PaintParams {
 	layer: string;
 	url: string;
 	layers: number;
+	name?: string;
 }
 
 export interface LookParams {
@@ -62,23 +68,40 @@ export const CATALOG_TOOL: Record<string, string> = {
 	subject: 'crop_subject'
 };
 
-const HANDLED_CATALOG_IDS = new Set(['crop', 'resize', 'rotate', 'flip', 'fit_canvas', 'color_key', 'crop_subject', 'paint_layer', 'slice']);
+const HANDLED_CATALOG_IDS = new Set(['crop', 'resize', 'rotate', 'flip', 'fit_canvas', 'color_key', 'crop_subject', 'paint_layer', 'place_patch', 'slice', 'replace_background']);
 
-const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; lane?: string }> = {
-	crop: { label: 'Crop', icon: 'editor-crop', lane: GEOMETRY_LANE },
-	resize: { label: 'Resize', icon: 'editor-resize', lane: GEOMETRY_LANE },
-	canvas: { label: 'Canvas', icon: 'editor-canvas', lane: GEOMETRY_LANE },
-	slice: { label: 'Slice', icon: 'editor-slice', lane: OUTPUT_LANE },
-	paint: { label: 'Paint', icon: 'editor-paint', lane: PAINT_LANE },
+export const CORE_TOOLS: Record<CoreImageTool, { label: string; icon: string; lane?: string }> = {
+	crop: { label: 'Crop', icon: editorToolIcons.crop, lane: GEOMETRY_LANE },
+	resize: { label: 'Resize', icon: editorToolIcons.resize, lane: GEOMETRY_LANE },
+	canvas: { label: 'Canvas', icon: editorToolIcons.canvas, lane: GEOMETRY_LANE },
+	slice: { label: 'Slice', icon: editorToolIcons.slice, lane: OUTPUT_LANE },
+	paint: { label: 'Paint', icon: editorToolIcons.brush, lane: PAINT_LANE },
 	mask: { label: 'Mask', icon: 'editor-mask' },
-	effects: { label: 'Looks', icon: 'editor-effects' },
+	effects: { label: 'Looks', icon: editorToolIcons.looks },
 	adjust: { label: 'Adjust', icon: 'adjustments-horizontal' },
-	colorKey: { label: 'Color key', icon: 'editor-color-key' },
+	colorKey: { label: 'Color key', icon: editorToolIcons.color_key },
 	subject: { label: 'Subject', icon: 'editor-subject', lane: GEOMETRY_LANE }
 };
 
+export interface CoreRailGroup {
+	id: string;
+	label: string;
+	fold?: number;
+	tools: readonly CoreImageTool[];
+}
+
+export const CORE_RAIL: readonly CoreRailGroup[] = [
+	{ id: 'shape', label: 'Transform', fold: 6, tools: ['crop', 'resize', 'canvas', 'slice'] },
+	{ id: 'look', label: 'Light and colour', fold: 4, tools: [] },
+	{ id: 'fx', label: 'Effects', fold: 1, tools: [] },
+	{ id: 'looks', label: 'Looks', tools: ['effects'] },
+	{ id: 'tools', label: 'Cut out', fold: 2, tools: ['colorKey', 'subject'] }
+];
+
+export const LEGACY_TOOL_ALIAS: Readonly<Record<string, string>> = { adjust: 'light', mask: 'edit_region', paint: 'paint.brush' };
+
 export function isRailTool(id: string | null | undefined, catalog: readonly ToolDTO[] = []): id is string {
-	return !!id && (isCoreTool(id) || editorCatalogTools(catalog).some((tool) => tool.id === id));
+	return !!id && (isCoreTool(id) || !!railTools.get('image', id) || editorCatalogTools(catalog).some((tool) => tool.id === id));
 }
 
 export function isCoreTool(id: string): id is CoreImageTool {
@@ -91,6 +114,11 @@ export function catalogToolId(tool: string): string {
 
 export function toolMeta(id: string, catalog: readonly ToolDTO[] = []): { label: string; icon: string; lane?: string } {
 	if (isCoreTool(id)) return CORE_TOOLS[id];
+	const registered = railTools.get('image', id);
+	if (registered) {
+		const lane = stepKinds.get('image', id)?.lane;
+		return lane ? { label: registered.label, icon: registered.icon, lane } : { label: registered.label, icon: registered.icon };
+	}
 	const entry = catalog.find((tool) => tool.id === id);
 	return { label: entry?.label ?? id, icon: entry?.icon ?? 'extension' };
 }
@@ -108,18 +136,20 @@ export function editorCatalogTools(catalog: readonly ToolDTO[]): ToolDTO[] {
 }
 
 export function imageRail(catalog: readonly ToolDTO[] = []): RailGroup[] {
-	const rail = (id: CoreImageTool) => ({ id, label: CORE_TOOLS[id].label, icon: CORE_TOOLS[id].icon });
-	return [
-		{ id: 'shape', label: 'Shape', tools: [rail('crop'), rail('resize'), rail('canvas'), rail('slice')] },
-		{ id: 'paint', label: 'Paint', tools: [rail('paint'), rail('mask')] },
-		{ id: 'look', label: 'Look', tools: [rail('effects'), rail('adjust')] },
-		{
-			id: 'tools',
-			label: 'Tools',
-			tools: [rail('colorKey'), rail('subject'), ...editorCatalogTools(catalog).map((tool) => ({ id: tool.id, label: tool.label, icon: tool.icon || 'extension' }))]
-		}
-	];
+	ensureCoreImageEditor();
+	const catalogTools = editorCatalogTools(catalog)
+		.filter((tool) => !railTools.get('image', tool.id))
+		.map((tool) => ({ id: tool.id, label: tool.label, icon: tool.icon || 'extension' }));
+	const rail = railFor('image', { editor: 'image', hasSource: true }, { tools: catalogTools });
+	if (!catalog.length) return rail;
+	const present = new Set(imageEffects(catalog).map((effect) => effect.id));
+	return rail.map((group) => ({
+		...group,
+		tools: group.tools.map((tool) => (EFFECT_BACKED.has(tool.id) && !present.has(tool.id) ? { ...tool, disabled: true, reason: 'Not available on this server' } : tool))
+	}));
 }
+
+const EFFECT_BACKED: ReadonlySet<string> = new Set(['lut', 'film_grain', 'vignette']);
 
 export function pluralLayers(count: number): string {
 	return `${count} ${count === 1 ? 'layer' : 'layers'}`;
@@ -141,6 +171,7 @@ export function resizeDraft(params: ResizeParams): StepDraft<ResizeParams> {
 }
 
 export function paintDraft(params: PaintParams, size: { width: number; height: number }): StepDraft<PaintParams> {
+	if (params.name) return draft('paint', params.name, 'Paint layer', params);
 	return draft('paint', `Paint · ${pluralLayers(params.layers)}`, `${size.width}×${size.height}`, params);
 }
 
@@ -207,4 +238,26 @@ export function curveMaster(values: Record<string, number>): [number, number][] 
 export function adjustRecipeStep(params: AdjustParams): Record<string, unknown> & { op: string } {
 	if (params.op === 'curves') return { op: 'curves', master: curveMaster(params.values) };
 	return { op: params.op, ...params.values };
+}
+
+export const BUNDLE_OPS: Readonly<Record<string, readonly string[]>> = {
+	light: ['exposure', 'tone', 'fade'],
+	colour: ['white_balance', 'tone', 'vibrance']
+};
+
+export function isBundleOp(op: string): boolean {
+	return op in BUNDLE_OPS;
+}
+
+export function adjustRecipeSteps(params: AdjustParams): (Record<string, unknown> & { op: string })[] {
+	const ops = BUNDLE_OPS[params.op];
+	if (!ops) return [adjustRecipeStep(params)];
+	return ops.map((op) => {
+		const step: Record<string, unknown> & { op: string } = { op };
+		for (const [key, value] of Object.entries(params.values)) {
+			const at = key.indexOf('.');
+			if (at > 0 && key.slice(0, at) === op) step[key.slice(at + 1)] = value;
+		}
+		return step;
+	});
 }

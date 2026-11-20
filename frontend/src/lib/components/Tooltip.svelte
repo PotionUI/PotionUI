@@ -8,6 +8,7 @@
 	setContext(INSIDE_TOOLTIP_CONTEXT_KEY, true);
 
 	export let text: string;
+	export let detail: string = '';
 	export let position: 'top' | 'bottom' | 'left' | 'right' = 'top';
 	export let delay: number = 200;
 	export let kbd: string | string[] | undefined = undefined;
@@ -52,5 +53,5 @@
 </div>
 
 {#if showTooltip && text}
-	<TooltipBubble {text} {id} {position} {kbd} anchor={triggerElement} />
+	<TooltipBubble {text} {detail} {id} {position} {kbd} anchor={triggerElement} />
 {/if}

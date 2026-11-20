@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushSync } from 'svelte';
+import { flushSync, tick } from 'svelte';
 import { get } from 'svelte/store';
 import { mountComponent } from '../helpers/mount';
-import { EMPTY_IMAGE_PLAN } from '$lib/media/editors/imageEditPlan';
+import { menuRow, openEditorMenu } from '../helpers/editorMenu';
+import { stubClientWidth } from '../helpers/stubClientWidth';
+import { EMPTY_IMAGE_PLAN } from '$lib/media/imageEditPlan';
 import { apply, beginEdit, createStack } from '$lib/tool-tabs/frame/editStack';
 import { emptyImageState, writeImageState } from '$lib/tool-tabs/image/state';
 import { cropDraft, lookDraft } from '$lib/tool-tabs/image/steps';
@@ -98,7 +100,10 @@ function pasteImage(target: EventTarget = document.body) {
 	return event;
 }
 
+let restoreWidth = () => {};
+
 beforeEach(() => {
+	restoreWidth = stubClientWidth(300);
 	confirmDialog.mockReset();
 	upload.mockReset();
 	upload.mockResolvedValue({ id: 'art-1', url: '/api/media-tools/artifacts/art-1.png', width: 10, height: 10 });
@@ -107,6 +112,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	restoreWidth();
 	tabsStore.reset();
 	document.body.innerHTML = '';
 	delete (globalThis as { __mounts?: string[] }).__mounts;
@@ -185,16 +191,23 @@ describe('replacing a tool tab source', () => {
 });
 
 describe('image editor Replace control', () => {
-	it('is offered while a picture is open and lists the same sources as the empty state', () => {
-		const { q } = renderEditor();
-		q<HTMLButtonElement>('[data-frame-replace]')!.click();
+	async function openReplaceSubmenu(q: (sel: string) => HTMLElement | null) {
+		await openEditorMenu(q('[data-editor-menubar]')!.parentElement!, 'file');
+		menuRow('file.replace')!.click();
 		flushSync();
-		const entries = Array.from(document.querySelectorAll<HTMLElement>('[data-replace-entry]')).map((row) => row.dataset.replaceEntry);
+		await tick();
+	}
+
+	it('is offered in the File menu while a picture is open and lists the same sources as the empty state', async () => {
+		const { q } = renderEditor();
+		await openReplaceSubmenu(q);
+		const entries = Array.from(document.querySelectorAll<HTMLElement>('[data-editor-submenu] [data-menu-row]')).map((row) => row.dataset.rowId);
 		expect(entries).toEqual(['history', 'library', 'kits', 'browse']);
 	});
 
-	it('is absent from the empty state', () => {
+	it('is absent from the empty state, which has no menu bar', () => {
 		const { q } = renderEditor({ source: null });
+		expect(q('[data-editor-menubar]')).toBeNull();
 		expect(q('[data-frame-replace]')).toBeNull();
 	});
 
@@ -204,7 +217,7 @@ describe('image editor Replace control', () => {
 			data: { generations: [{ files: [{ id: 777, file_path: OTHER.path, file_type: 'image', is_final: true }] }] }
 		});
 		const { q, replace } = renderEditor();
-		q<HTMLButtonElement>('[data-frame-replace]')!.click();
+		await openReplaceSubmenu(q);
 		await settle();
 		document.querySelector<HTMLButtonElement>('[data-recent-history] button')!.click();
 		await settle();
@@ -220,7 +233,7 @@ describe('image editor Replace control', () => {
 			data: { generations: [{ files: [{ id: 501, file_path: CURRENT.path, file_type: 'image', is_final: true }] }] }
 		});
 		const { q, replace } = renderEditor();
-		q<HTMLButtonElement>('[data-frame-replace]')!.click();
+		await openReplaceSubmenu(q);
 		await settle();
 		document.querySelector<HTMLButtonElement>('[data-recent-history] button')!.click();
 		await settle();

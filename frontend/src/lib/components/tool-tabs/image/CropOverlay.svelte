@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CanvasChip from '$lib/components/tool-tabs/frame/CanvasChip.svelte';
-	import { moveCropRect, resizeCropRect, type CropCorner, type CropRect } from '$lib/media/editors/cropGeometry';
+	import { moveCropRect, resizeCropRect, type CropCorner, type CropRect } from '$lib/media/cropGeometry';
 
 	let {
 		rect,

@@ -116,6 +116,7 @@ from src.features.generation.dto import GenerationStatus
 from src.features.generation.exceptions import (
     AdminAuthorityRequired,
     DuplicateIdempotencyKey,
+    ModeIsEditorError,
     IdempotencyKeyConflict,
     InvalidGenerationSourceException,
 )
@@ -127,7 +128,8 @@ from src.platform.plugins.limit_kinds import AdmissionRequest
 from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.operations.access import require_preset_access
-from src.features.presets.templates import PresetTemplate
+from src.features.presets.editor_modes import form_overrides_for
+from src.features.presets.templates import PresetTemplate, find_mode, is_editor_key
 from src.features.video_director import (
     apply_model_overlay,
     apply_preset_mode_overlay,
@@ -902,7 +904,7 @@ class GenerationOrchestrator:
 
     @staticmethod
     def _unresolved_slot_files(bound, pinned: set, preset_template, mode: Optional[str]) -> list:
-        mode_template = ((getattr(preset_template, "modes", None) or {}).get(mode)) if preset_template is not None else None
+        mode_template = find_mode(preset_template, mode) if preset_template is not None else None
         if mode_template is None:
             return []
         found = []
@@ -978,6 +980,12 @@ class GenerationOrchestrator:
 
         return overlay
 
+    @staticmethod
+    def _refuse_editor_mode(request) -> None:
+        mode = getattr(request, 'mode', None)
+        if is_editor_key(mode) and getattr(request, '_editor_run', False) is not True:
+            raise ModeIsEditorError(mode)
+
     async def preview_memory(self, request, user_id: str, acts_as_admin: bool = False) -> Dict[str, Any]:
         """A non-blocking request memory advisory for a request that has NOT
         started: binds the form, canonicalizes any Video/Music Director
@@ -1013,6 +1021,7 @@ class GenerationOrchestrator:
             NoBackendForEngineError / NoEligibleBackendError: no backend
                 available for this preset's engine / request.
         """
+        self._refuse_editor_mode(request)
         request._acts_as_admin = bool(acts_as_admin)
         self._enforce_preset_access(request.preset_id, user_id)
         preset_template = self.preset_template_loader.load_preset_by_id(request.preset_id)
@@ -1024,9 +1033,9 @@ class GenerationOrchestrator:
         storage_dir = self.settings.get_file_storage_directory(user_id)
         field_overrides = None
         if self.database_preset_repository is not None:
-            field_overrides = self.database_preset_repository.get_preset_form_overrides(
-                request.preset_id
-            ).get(mode, {})
+            field_overrides = form_overrides_for(
+                preset_template, mode, self.database_preset_repository.get_preset_form_overrides(request.preset_id)
+            )
         bound = self._bind(
             preset_template, mode, getattr(request, 'form_name', None),
             split_kit_rows(request.form_data)[0],
@@ -1109,6 +1118,7 @@ class GenerationOrchestrator:
         grid_cell: Optional['GridCellRef'] = None,
         acts_as_admin: bool = False,
     ) -> Dict[str, Any]:
+        self._refuse_editor_mode(request)
         request._acts_as_admin = bool(acts_as_admin)
         key = getattr(request, 'idempotency_key', None)
         if not isinstance(key, str) or not key:
@@ -1337,9 +1347,9 @@ class GenerationOrchestrator:
             storage_dir = self.settings.get_file_storage_directory(user_id)
             field_overrides = None
             if self.database_preset_repository is not None:
-                field_overrides = self.database_preset_repository.get_preset_form_overrides(
-                    request.preset_id
-                ).get(mode, {})
+                field_overrides = form_overrides_for(
+                    preset_template, mode, self.database_preset_repository.get_preset_form_overrides(request.preset_id)
+                )
             form_for_bind, loaded_kits = split_kit_rows(request.form_data)
             bound = self._bind(
                 preset_template, mode, getattr(request, 'form_name', None), form_for_bind,
@@ -1516,6 +1526,10 @@ class GenerationOrchestrator:
 
             # Create database record (`mode` was already resolved above, for bind_form)
             prompt_state = getattr(request, 'prompt_state', None)
+            if prompt_state is None and len(getattr(request, 'prompts', None) or []) == 1:
+                submitted_positive, submitted_negative = _request_prompt_pair(request)
+                if submitted_positive or submitted_negative:
+                    prompt_state = {'prompt': submitted_positive, 'negativePrompt': submitted_negative}
 
             db_generation = Generation(
                 id=generation_id,
@@ -1541,6 +1555,7 @@ class GenerationOrchestrator:
                 grid_x=grid_cell.x if grid_cell else None,
                 grid_y=grid_cell.y if grid_cell else None,
                 axis_values=grid_cell.axis_values if grid_cell else None,
+                origin=getattr(request, '_origin', None),
             )
             generation_repo.create(db_generation)
             logger.debug(f"Created database record for generation {generation_id}")

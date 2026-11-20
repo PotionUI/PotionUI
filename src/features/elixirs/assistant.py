@@ -63,7 +63,7 @@ class SessionWriter:
 
     def find(self, user_id: str, preset_id: str, name: str) -> Optional[Dict[str, Any]]:
         session = self.session_repository.get_by_user_preset_and_name(user_id, preset_id, name)
-        if session is None:
+        if session is None or getattr(session, "kind", None) == "editor":
             return None
         return {
             "session_id": session.id,

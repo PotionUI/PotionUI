@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
-import { expectNoBoxOverlap, loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, expectNoBoxOverlap, loginAsOwner, ownerToken, scopedStorageKey, screenshot, selectRailTool, railButton } from './helpers';
 import { HEIGHT, WIDTH, sheetPng } from './sliceSheet';
 
 const JOURNEY = 'image-editor-slice';
@@ -186,10 +186,11 @@ async function openSheetInEditor(page: Page) {
 	await page.getByRole('button', { name: 'Add new tab' }).click();
 	await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 	const empty = page.getByTestId('tool-tab-empty');
-	await expect(empty.locator('[data-recent-history] button')).toHaveCount(1);
-	await empty.locator('[data-recent-history] button').first().click();
+	await expect(empty.locator('[data-start-source="history"]')).toBeVisible();
+	await empty.locator('[data-start-source="history"]').click();
+	await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
-	await rail(page, 'slice').click();
+	await selectRailTool(page, 'slice');
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'slice');
 	await expect(page.locator('[data-slice-detect]').first()).toBeVisible();
 }
@@ -212,6 +213,7 @@ test.describe('Slice on desktop', () => {
 		test.setTimeout(180000);
 		const log = await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await seedGenerationTab(page);
 		await page.goto('/generate');
 		await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
@@ -225,7 +227,7 @@ test.describe('Slice on desktop', () => {
 		await expect(page.locator('[data-slice-cut]')).toHaveCount(1);
 		await expect(page.locator('[data-slice-cut]')).toContainText('Cuts a panel');
 		await expect(page.locator('[data-slice-cut-merge]')).toHaveText('Merge 04 + 05');
-		await expect(rail(page, 'slice').locator('[data-tool-pending]')).toBeVisible();
+		await expect(railButton(page, 'slice').locator('[data-tool-pending]')).toBeVisible();
 
 		const knob = page.locator('[data-slice-knob="v"]').nth(1);
 		const box = (await knob.boundingBox())!;
@@ -263,7 +265,7 @@ test.describe('Slice on desktop', () => {
 
 		await page.locator('[data-slice-tab="output"]').click();
 		await expect(page.locator('[data-slice-name-row]')).toHaveCount(5);
-		await expect(page.locator('[data-slice-name-row="01"] input')).toHaveValue('mira-sheet-01');
+		await expect(page.locator('[data-slice-name-row="01"] input')).toHaveValue('a character sheet-01');
 		await expect(page.locator('[data-slice-strip] [data-strip-item]')).toHaveCount(4);
 		await expect(page.locator('[data-slice-strip] [data-strip-skipped]')).toHaveCount(1);
 		await screenshot(page, JOURNEY, '04-cell-options-1440');
@@ -284,7 +286,7 @@ test.describe('Slice on desktop', () => {
 		await primary.click();
 		await expect.poll(() => log.runs.length).toBe(1);
 		const body = log.runs[0] as { steps: { tool: string; params: Json }[]; output: Json };
-		expect(body.output).toEqual({ mode: 'new' });
+		expect(body.output).toEqual({ mode: 'new', name: 'a character sheet' });
 		expect(body.steps[body.steps.length - 1].tool).toBe('slice');
 		const params = body.steps[body.steps.length - 1].params as { rects: { x: number; y: number; w: number; h: number; name: string }[]; fill: string };
 		expect(params.rects).toHaveLength(4);
@@ -293,7 +295,7 @@ test.describe('Slice on desktop', () => {
 			expect(rect.x + rect.w).toBeLessThanOrEqual(1.000001);
 			expect(rect.y + rect.h).toBeLessThanOrEqual(1.000001);
 		}
-		expect(params.rects.map((rect) => rect.name)).toEqual(['mira-sheet-01', 'mira-sheet-02', 'mira-sheet-03', 'mira-sheet-04']);
+		expect(params.rects.map((rect) => rect.name)).toEqual(['a character sheet-01', 'a character sheet-02', 'a character sheet-03', 'a character sheet-04']);
 		expect(params.rects[0].x).toBeCloseTo(24 / WIDTH, 2);
 		expect(params.fill).toBe('auto');
 
@@ -315,6 +317,7 @@ test.describe('Slice from History', () => {
 	test('Slice into references opens the editor on Slice with the panels detected', async ({ page }) => {
 		await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/history');
 		const card = page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`);
 		await expect(card).toBeVisible();
@@ -342,6 +345,7 @@ test.describe('Slice from E', () => {
 	test('E on a sheet offers a quiet Slice chip that opens Slice with the panels', async ({ page }) => {
 		await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/history');
 		const card = page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`);
 		await card.locator('.media-zoom').click();
@@ -360,6 +364,7 @@ test.describe('Slice from E', () => {
 	test('the Slice chip can be dismissed and stays dismissed for that picture', async ({ page }) => {
 		await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/history');
 		await page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`).locator('.media-zoom').click();
 		await expect(page.getByRole('toolbar', { name: 'Actions' })).toBeVisible();
@@ -387,6 +392,7 @@ test.describe('Slice on a phone', () => {
 	test('the dock shows Detect and the grids, lines get touch handles, and a tapped cell swaps the dock', async ({ page }) => {
 		await mockBackend(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/history');
 		const card = page.locator(`[data-generation-card][data-generation-id="${GENERATION_ID}"]`);
 		await expect(card).toBeVisible();

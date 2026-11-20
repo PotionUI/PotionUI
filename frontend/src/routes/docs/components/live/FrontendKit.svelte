@@ -159,11 +159,11 @@
 	<ComponentExample
 		title="EmptyState"
 		description="A consistent zero-data or zero-result state with an optional recovery action."
-		code={`<EmptyState title="No models" description="Add a model to get started." icon="model">\n  {#snippet actions()}<Button variant="primary">Add model</Button>{/snippet}\n</EmptyState>`}
+		code={`<EmptyState title="No models" description="Add a model to get started." icon="model">\n  {#snippet actions()}<Button variant="secondary">Add model</Button>{/snippet}\n</EmptyState>`}
 	>
 		<div class="w-full">
 			<EmptyState title="No models" description="Add a model to get started." icon="model" compact>
-				{#snippet actions()}<Button variant="primary" size="sm">Add model</Button>{/snippet}
+				{#snippet actions()}<Button size="sm" variant="secondary">Add model</Button>{/snippet}
 			</EmptyState>
 		</div>
 	</ComponentExample>

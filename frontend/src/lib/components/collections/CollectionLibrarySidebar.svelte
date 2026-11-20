@@ -2,7 +2,7 @@
 	import { getContext, onMount, untrack } from 'svelte';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, IconButton, Input, Menu } from '$lib/components/ui';
+	import { Button, EmptyState, IconButton, Input, Menu } from '$lib/components/ui';
 	import { autoOrganizeCounts, autoOrganizeHref, type AutoOrganizeSubject } from '$lib/stores/autoOrganizeCounts';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
@@ -390,12 +390,13 @@
 		ondrop={(e) => handleDrop(e, null)}
 	>
 		{#if visibleTree.length === 0}
-			<div class="px-3 py-6 text-center text-sm leading-[1.8] text-fg-muted">
-				<p>{collections.length === 0 ? 'No collections yet.' : 'No matching collections.'}</p>
-				<Button size="sm" variant="secondary" class="mt-3" onclick={() => (createName = query.trim())}>
-					{query.trim() ? `Create “${query.trim()}”` : 'Create collection'}
-				</Button>
-			</div>
+			<EmptyState compact icon="folder" title={collections.length === 0 ? 'No collections yet' : 'No matching collections'}>
+				{#snippet actions()}
+					<Button size="sm" variant="secondary" onclick={() => (createName = query.trim())}>
+						{query.trim() ? `Create “${query.trim()}”` : 'Create collection'}
+					</Button>
+				{/snippet}
+			</EmptyState>
 		{:else}
 			<PaneTree
 				nodes={visibleTree}

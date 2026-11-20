@@ -13,6 +13,7 @@ from src.features.formulas.records import Formula
 from src.features.formulas.repository import FormulaLimitReached, FormulaNameTaken
 from src.features.formulas.signatures import field_signature, owning_field
 from src.features.formulas.sources import FormUnavailable
+from src.features.presets.templates import is_editor_key
 
 def _name_taken(name: str) -> FormulaError:
     return FormulaError("formula_name_exists", f"A formula named '{name}' already exists for this preset and mode", 409)
@@ -91,7 +92,13 @@ def _limit_reached() -> FormulaError:
 
 
 def list_formulas(collaborators: FormulaCollaborators, owner_id: str, preset_id: str, mode: str) -> List[Formula]:
-    return collaborators.repository.list_for_owner(owner_id, preset_id, mode)
+    own = collaborators.repository.list_for_owner(owner_id, preset_id, mode)
+    from_mode = getattr(collaborators.forms, "from_mode_of", None)
+    inherited = from_mode(preset_id, mode) if is_editor_key(mode) and callable(from_mode) else None
+    if not inherited:
+        return own
+    both = [*own, *collaborators.repository.list_for_owner(owner_id, preset_id, inherited)]
+    return sorted(both, key=lambda formula: (formula.name.lower(), formula.id))
 
 
 def get_formula(collaborators: FormulaCollaborators, owner_id: str, formula_id: str) -> Formula:

@@ -7,6 +7,7 @@
 
 	let {
 		text,
+		detail = '',
 		anchor,
 		position = 'top',
 		kbd,
@@ -14,6 +15,7 @@
 		id
 	}: {
 		text: string;
+		detail?: string;
 		anchor: HTMLElement;
 		position?: Position;
 		kbd?: string | string[];
@@ -62,7 +64,11 @@
 	style="{wrap ? 'max-width: min(360px, calc(100vw - 24px));' : 'min-width: max-content; max-width: 300px;'} {style}"
 	class="fixed z-tooltip px-2 py-1 text-sm font-medium text-fg bg-surface-3 rounded-md shadow-lg pointer-events-none animate-in fade-in duration-150 break-words flex items-center gap-1.5"
 >
-	<span>{text}</span>
+	{#if detail}
+		<span class="flex flex-col"><span>{text}</span><span class="font-normal text-fg-muted" data-tooltip-detail>{detail}</span></span>
+	{:else}
+		<span>{text}</span>
+	{/if}
 	{#if kbd}
 		<Kbd keys={kbd} />
 		<span class="sr-only">{kbdLabel}</span>

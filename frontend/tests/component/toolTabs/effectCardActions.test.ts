@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '../helpers/mount';
+import { menuRow, openEditorMenu } from '../helpers/editorMenu';
 import { effectGroups, effectTools } from '$lib/effects/catalog';
 import { apply, beginEdit, createStack } from '$lib/tool-tabs/frame/editStack';
 import { draftFor } from '$lib/tool-tabs/video/videoSteps';
@@ -15,8 +16,6 @@ import { EFFECT_CATALOG } from '../fixtures/effectCatalog';
 
 const { default: EffectCardActions } = await import('$lib/components/tool-tabs/frame/EffectCardActions.svelte');
 const { default: OptionsPanel } = await import('$lib/components/tool-tabs/frame/OptionsPanel.svelte');
-const { default: VideoToolOptions } = await import('$lib/components/tool-tabs/video/VideoToolOptions.svelte');
-const { default: EffectsOptions } = await import('$lib/components/tool-tabs/image/EffectsOptions.svelte');
 const { default: VideoEditorTab } = await import('$lib/components/tool-tabs/video/VideoEditorTab.svelte');
 const { default: ImageEditorTab } = await import('$lib/components/tool-tabs/image/ImageEditorTab.svelte');
 
@@ -71,113 +70,6 @@ describe('OptionsPanel footer', () => {
 	});
 });
 
-function videoPanel(props: Record<string, unknown> = {}) {
-	const calls: string[] = [];
-	const view = mountComponent(VideoToolOptions, {
-		tool: 'effects',
-		op: 'film_grain',
-		params: GRAIN,
-		effect: 'film_grain',
-		effects: groups,
-		clip: { width: 1920, height: 1080, duration: 8 },
-		playhead: 1,
-		outputLength: 8,
-		onparams: () => undefined,
-		onaspect: () => undefined,
-		oneffect: () => undefined,
-		onsetin: () => undefined,
-		onsetout: () => undefined,
-		onpreview: () => undefined,
-		oncancelpreview: () => undefined,
-		onframe: () => undefined,
-		onpickaudio: () => undefined,
-		onapplyeffect: () => calls.push('apply'),
-		onreseteffect: () => calls.push('reset'),
-		effectUpdating: false,
-		canApplyEffect: true,
-		canResetEffect: true,
-		...props
-	});
-	return { view, calls, q: <T extends Element = HTMLElement>(sel: string) => view.target.querySelector<T>(sel) };
-}
-
-describe('Video effect cards', () => {
-	it('opens the picked card with its params and keeps the actions in the options bar', () => {
-		const { view, q } = videoPanel();
-		const card = q('[data-effect-card="film_grain"]')!;
-		expect(card.dataset.open).toBe('true');
-		expect(card.querySelector('[data-effect-description]')).not.toBeNull();
-		expect(view.target.querySelectorAll('[data-effect-actions]')).toHaveLength(0);
-		expect(view.target.querySelectorAll('[data-options-apply]')).toHaveLength(0);
-		expect(q('[data-effect-card="fix_colors"]')!.dataset.open).toBeUndefined();
-	});
-
-	it('reports a param edit with the whole values of the effect', () => {
-		const changes: unknown[] = [];
-		const { q } = videoPanel({ onparams: (op: string, params: unknown) => changes.push([op, params]) });
-		const input = q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!;
-		input.value = '55';
-		input.dispatchEvent(new Event('input', { bubbles: true }));
-		expect(changes).toEqual([['film_grain', { ...GRAIN, amount: 55 }]]);
-	});
-
-	it('lists the effects as a strip on a phone', () => {
-		const { view, q } = videoPanel({ phone: true });
-		expect(q('[data-effect-strip] [data-effect-chip="film_grain"]')).not.toBeNull();
-		expect(view.target.querySelectorAll('[data-effect-actions]')).toHaveLength(0);
-	});
-
-	it('has no effect cards on other tools', () => {
-		const { view } = videoPanel({ tool: 'speed', op: 'speed', params: { speed: 1 } });
-		expect(view.target.querySelector('[data-effect-card]')).toBeNull();
-	});
-});
-
-function imageOptions(params: EffectParams | null, props: Record<string, unknown> = {}) {
-	const changes: EffectParams[] = [];
-	const view = mountComponent(EffectsOptions, {
-		params,
-		effects: tools,
-		onapply: () => changes.push({ kind: 'look', filter: 'applied', name: '', intensity: 0 }),
-		onchange: (next: EffectParams) => changes.push(next),
-		...props
-	});
-	return { view, changes, q: <T extends Element = HTMLElement>(sel: string) => view.target.querySelector<T>(sel) };
-}
-
-const GRAIN_PARAMS: EffectParams = { kind: 'effect', tool: 'film_grain', name: 'Film grain', values: { ...GRAIN } };
-
-describe('Image effect cards', () => {
-	it('opens the picked effect card with its params and no actions of its own', () => {
-		const { view, q } = imageOptions(GRAIN_PARAMS);
-		const card = q('[data-effect-card="film_grain"]')!;
-		expect(card.dataset.open).toBe('true');
-		expect(card.querySelector('[data-effect-description], input')).not.toBeNull();
-		expect(view.target.querySelectorAll('[data-effect-actions]')).toHaveLength(0);
-		expect(view.target.querySelectorAll('[data-options-apply]')).toHaveLength(0);
-		expect(q('[data-effect-card="fix_colors"]')!.dataset.open).toBeUndefined();
-	});
-
-	it('reports a pick as a change with the effect defaults', () => {
-		const { q, changes } = imageOptions(null);
-		q<HTMLButtonElement>('[data-effect-card="film_grain"] button')!.click();
-		expect(changes).toHaveLength(1);
-		expect(changes[0]).toMatchObject({ kind: 'effect', tool: 'film_grain', name: 'Film grain' });
-	});
-
-	it('lists the effects as a strip on a phone', () => {
-		const { view, q } = imageOptions(GRAIN_PARAMS, { phone: true });
-		expect(view.target.querySelectorAll('[data-effect-actions]')).toHaveLength(0);
-		expect(q('[data-effect-strip] [data-effect-chip="film_grain"]')!.getAttribute('aria-selected')).toBe('true');
-	});
-
-	it('shows only the look hint until something is picked', () => {
-		const { q } = imageOptions(null);
-		expect(q('[data-looks-hint]')).not.toBeNull();
-		expect(q('[data-look-properties]')).toBeNull();
-	});
-});
-
 const SOURCE: MediaRef = {
 	path: 'outputs/2026-11-01/gen-1/observatory-dusk.png',
 	relative_path: 'outputs/2026-11-01/gen-1/observatory-dusk.png',
@@ -219,6 +111,11 @@ function renderImageEditor(activeTool: string, state: unknown) {
 	return { view, q: <T extends Element = HTMLElement>(sel: string) => view.target.querySelector<T>(sel), all: (sel: string) => Array.from(view.target.querySelectorAll<HTMLElement>(sel)) };
 }
 
+async function tick() {
+	for (let i = 0; i < 40; i++) await Promise.resolve();
+	flushSync();
+}
+
 async function settle() {
 	for (let i = 0; i < 6; i++) await Promise.resolve();
 	flushSync();
@@ -233,31 +130,34 @@ describe('Image editor footer', () => {
 		vi.useRealTimers();
 	});
 
-	it('sits in the options bar for Looks, never in the properties panel', () => {
+	it('sits in the footer of the options panel for Looks, below its body', () => {
 		const { q, all } = renderImageEditor('effects', pendingLookState());
 		expect(all('[data-options-apply]')).toHaveLength(1);
 		expect(all('[data-options-reset]')).toHaveLength(1);
-		expect(q('[data-options-apply]')!.closest('[data-options-actions]')).not.toBeNull();
-		expect(q('[data-options-apply]')!.closest('[data-options-panel]')).toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-footer]')).not.toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-panel]')).not.toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-body]')).toBeNull();
 		expect(text(q('[data-options-apply]'))).toBe('Apply look ↵');
 	});
 
-	it('sits in the options bar for Crop', () => {
+	it('sits in the footer of the options panel for Crop', () => {
 		const { q, all } = renderImageEditor('crop', emptyImageState('crop'));
 		expect(all('[data-options-apply]')).toHaveLength(1);
-		expect(q('[data-options-apply]')!.closest('[data-options-actions]')).not.toBeNull();
+		expect(q('[data-options-apply]')!.closest('[data-options-footer]')).not.toBeNull();
 		expect(text(q('[data-options-apply]'))).toContain('Apply crop');
 	});
 
-	it('has no Apply for Adjust, only Reset all', () => {
-		const { q, all } = renderImageEditor('adjust', emptyImageState('adjust'));
+	it('has no Apply for Light, and Reset is in the panel footer and the Edit menu', async () => {
+		const { q, all } = renderImageEditor('light', emptyImageState('light'));
 		expect(all('[data-options-apply]')).toHaveLength(0);
-		expect(text(q('[data-options-reset]'))).toBe('Reset all');
+		expect(all('[data-options-footer] [data-options-reset]')).toHaveLength(1);
+		await openEditorMenu(q('[data-editor-menubar]')!.parentElement!, 'edit');
+		expect(text(menuRow('edit.reset'))).toContain('Reset');
 	});
 
 	it('applies the open effect on Enter', async () => {
 		const { all } = renderImageEditor('effects', pendingLookState());
-		const rows = () => all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status);
+		const rows = () => all('[data-edit-stack] [data-stack-row]').sort((a, b) => Number(a.dataset.stackIndex) - Number(b.dataset.stackIndex)).map((row) => row.dataset.status);
 		expect(rows()).toEqual(['original', 'applied', 'pending']);
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 		await settle();
@@ -274,7 +174,7 @@ function grainState(...amounts: number[]) {
 	return writeImageState({ ...emptyImageState('effects'), stack });
 }
 
-describe('Image effect opened from the list', () => {
+describe('Image effect entries', () => {
 	beforeEach(() => {
 		resetMediaToolCatalog(EFFECT_CATALOG);
 	});
@@ -283,54 +183,73 @@ describe('Image effect opened from the list', () => {
 		resetMediaToolCatalog([]);
 	});
 
-	function open(view: ReturnType<typeof renderImageEditor>, id: string) {
-		flushSync();
-		view.q<HTMLButtonElement>(`[data-effect-card="${id}"] button`)!.click();
-		flushSync();
-	}
+	const rows = (view: ReturnType<typeof renderImageEditor>) => view.all('[data-edit-stack] [data-stack-row]').sort((a, b) => Number(a.dataset.stackIndex) - Number(b.dataset.stackIndex)).map((row) => row.dataset.status);
+	const grainInput = (view: ReturnType<typeof renderImageEditor>) => view.q<HTMLInputElement>('[data-entry-options="film_grain"] input[type="range"], [data-entry-options="film_grain"] input[type="number"]')!;
 
-	const rows = (view: ReturnType<typeof renderImageEditor>) => view.all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status);
-
-	it('edits the existing step: its values, Update, disabled until a value differs', () => {
-		const view = renderImageEditor('effects', grainState(55));
-		open(view, 'film_grain');
-		const button = view.q<HTMLButtonElement>('[data-options-apply]')!;
-		expect(text(button)).toBe('Update effect ↵');
-		expect(button.disabled).toBe(true);
-		expect(view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value).toBe('55');
-		expect(rows(view)).toEqual(['original', 'pending']);
+	it('opens the stored Film grain step in its own panel with its values and no Apply', async () => {
+		const view = renderImageEditor('film_grain', grainState(55));
+		await tick();
+		expect(grainInput(view).value).toBe('55');
+		expect(view.q('[data-options-apply]')).toBeNull();
+		expect(rows(view)).toEqual(['original', 'current']);
+		expect(view.q('[data-tool-rail] button[data-tool="film_grain"] [data-tool-applied]')).not.toBeNull();
 	});
 
-	it('shows the defaults and Add for an effect that is not in the edits', () => {
-		const view = renderImageEditor('effects', grainState(55));
-		open(view, 'retro-tape.scanlines');
-		expect(text(view.q('[data-options-apply]'))).toBe('Add effect ↵');
-		expect(view.q<HTMLButtonElement>('[data-options-apply]')!.disabled).toBe(false);
+	it('edits the latest of two stored copies live, without a new step', async () => {
+		const view = renderImageEditor('film_grain', grainState(20, 70));
+		await tick();
+		expect(grainInput(view).value).toBe('70');
+		grainInput(view).value = '80';
+		grainInput(view).dispatchEvent(new Event('input', { bubbles: true }));
+		await tick();
+		expect(rows(view)).toEqual(['original', 'applied', 'current']);
 	});
 
-	it('Update replaces the step so the stack keeps its length, and undo restores the old values', async () => {
-		const view = renderImageEditor('effects', grainState(55));
-		open(view, 'film_grain');
+	it('moves Film grain in one undo step per drag, however long the drag pauses', async () => {
+		vi.useFakeTimers();
+		try {
+			const view = renderImageEditor('film_grain', grainState(55));
+			await tick();
+			const drag = async (value: string) => {
+				grainInput(view).value = value;
+				grainInput(view).dispatchEvent(new Event('input', { bubbles: true }));
+				await tick();
+			};
+			await drag('60');
+			await vi.advanceTimersByTimeAsync(1500);
+			await drag('65');
+			expect(rows(view)).toEqual(['original', 'current']);
+			grainInput(view).dispatchEvent(new Event('change', { bubbles: true }));
+			await tick();
+			view.q<HTMLButtonElement>('[data-frame-undo]')!.click();
+			await tick();
+			expect(grainInput(view).value).toBe('55');
+			expect(rows(view)).toEqual(['original', 'current']);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('Reset removes the Film grain step', async () => {
+		const view = renderImageEditor('film_grain', grainState(55));
+		await tick();
 		view.q<HTMLButtonElement>('[data-options-reset]')!.click();
-		flushSync();
-		expect(text(view.q('[data-options-apply]'))).toBe('Update effect ↵');
-		view.q<HTMLButtonElement>('[data-options-apply]')!.click();
-		await settle();
+		await tick();
+		expect(rows(view)).toEqual(['current']);
+		view.q<HTMLButtonElement>('[data-frame-undo]')!.click();
+		await tick();
 		expect(rows(view)).toEqual(['original', 'current']);
-		expect(view.all('[data-edit-stack] [data-stack-row]')).toHaveLength(2);
-		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
-		await settle();
-		expect(rows(view)).toEqual(['original', 'current']);
-		open(view, 'film_grain');
-		expect(view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value).toBe('55');
+		expect(grainInput(view).value).toBe('55');
 	});
 
-	it('edits the latest of two copies', () => {
-		const view = renderImageEditor('effects', grainState(20, 70));
-		open(view, 'film_grain');
-		expect(text(view.q('[data-options-apply]'))).toBe('Update effect ↵');
-		expect(view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value).toBe('70');
-		expect(rows(view)).toEqual(['original', 'applied', 'pending']);
+	it('another effect from the catalog is its own entry with Add effect and Apply', async () => {
+		const view = renderImageEditor('crop', emptyImageState('crop'));
+		await tick();
+		view.q<HTMLButtonElement>('[data-tool-rail] button[data-tool="retro-tape.scanlines"]')!.click();
+		await settle();
+		expect(text(view.q('[data-options-apply]'))).toBe('Add effect ↵');
+		expect(view.q('[data-entry-options="retro-tape.scanlines"]')).not.toBeNull();
+		expect(rows(view)).toEqual(['original', 'pending']);
 	});
 });
 
@@ -373,7 +292,7 @@ function renderVideoEditor(state: unknown) {
 	return { view, q, all: (sel: string) => Array.from(view.target.querySelectorAll<HTMLElement>(sel)) };
 }
 
-describe('Video effect opened from the list', () => {
+describe('Video effect entries', () => {
 	beforeEach(() => {
 		resetMediaToolCatalog(EFFECT_CATALOG);
 	});
@@ -382,69 +301,60 @@ describe('Video effect opened from the list', () => {
 		resetMediaToolCatalog([]);
 	});
 
-	const amount = (view: ReturnType<typeof renderVideoEditor>) => view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!.value;
-	const rows = (view: ReturnType<typeof renderVideoEditor>) => view.all('[data-edit-stack] [data-stack-row]').map((row) => row.dataset.status);
+	const input = (view: ReturnType<typeof renderVideoEditor>) => view.q<HTMLInputElement>('[data-entry-options] input[type="range"], [data-entry-options] input[type="number"]')!;
+	const amount = (view: ReturnType<typeof renderVideoEditor>) => input(view).value;
+	const rows = (view: ReturnType<typeof renderVideoEditor>) => view.all('[data-edit-stack] [data-stack-row]').sort((a, b) => Number(a.dataset.stackIndex) - Number(b.dataset.stackIndex)).map((row) => row.dataset.status);
 
-	function openEffects(view: ReturnType<typeof renderVideoEditor>) {
-		view.q<HTMLButtonElement>('[data-tool-rail] [data-tool="effects"]')!.click();
-		flushSync();
+	async function open(view: ReturnType<typeof renderVideoEditor>, id: string) {
+		view.q<HTMLButtonElement>(`[data-tool-rail] [data-tool="${id}"]`)!.click();
+		await tick();
 	}
 
-	function openCard(view: ReturnType<typeof renderVideoEditor>, id: string) {
-		view.q<HTMLButtonElement>(`[data-effect-card="${id}"] button`)!.click();
-		flushSync();
-	}
-
-	it('shows the latest copy of an effect already in the edits and leaves it applied', () => {
+	it('shows the latest copy of an effect already in the edits and leaves it applied', async () => {
 		const view = renderVideoEditor(videoGrainState(20, 70));
-		openEffects(view);
+		await open(view, 'film_grain');
 		expect(view.q('[data-options-apply]')).toBeNull();
 		expect(amount(view)).toBe('70');
 		expect(rows(view)).toEqual(['original', 'applied', 'current']);
 	});
 
-	it('adds a new effect as a pending step with Add effect, then edits it live once it is applied', () => {
+	it('keeps a changed new effect as a pending step without an Apply button, and applies it on leaving', async () => {
 		const view = renderVideoEditor(videoGrainState(20));
-		openEffects(view);
-		openCard(view, 'retro-tape.scanlines');
+		await open(view, 'retro-tape.scanlines');
 		expect(view.q('[data-options-apply]')).toBeNull();
-		const scanlines = view.q<HTMLInputElement>('[data-effect-card="retro-tape.scanlines"] input[type="range"], [data-effect-card="retro-tape.scanlines"] input[type="number"]')!;
+		const scanlines = input(view);
 		scanlines.value = String(Number(scanlines.value) + 1);
 		scanlines.dispatchEvent(new Event('input', { bubbles: true }));
-		flushSync();
-		expect(text(view.q('[data-options-apply]'))).toBe('Add effect ↵');
-		expect(rows(view)).toEqual(['original', 'applied', 'pending']);
-		view.q<HTMLButtonElement>('[data-options-apply]')!.click();
-		flushSync();
-		expect(rows(view)).toEqual(['original', 'applied', 'current']);
+		await tick();
 		expect(view.q('[data-options-apply]')).toBeNull();
-		openCard(view, 'film_grain');
+		expect(rows(view)).toEqual(['original', 'applied', 'pending']);
+		await open(view, 'film_grain');
+		expect(rows(view)).toEqual(['original', 'applied', 'current']);
 		expect(amount(view)).toBe('20');
 	});
 
-	it('moves an applied effect live into its one step, one undo per drag', () => {
+	it('moves an applied effect live into its one step, one undo per drag', async () => {
 		const view = renderVideoEditor(videoGrainState(70));
-		openEffects(view);
-		const range = () => view.q<HTMLInputElement>('[data-effect-card="film_grain"] input[type="range"], [data-effect-card="film_grain"] input[type="number"]')!;
+		await open(view, 'film_grain');
 		for (const value of ['75', '80', '85']) {
-			range().value = value;
-			range().dispatchEvent(new Event('input', { bubbles: true }));
-			flushSync();
+			input(view).value = value;
+			input(view).dispatchEvent(new Event('input', { bubbles: true }));
+			await tick();
 		}
 		expect(rows(view)).toEqual(['original', 'current']);
 		expect(view.q('[data-options-apply]')).toBeNull();
 		expect(amount(view)).toBe('85');
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }));
-		flushSync();
+		await tick();
 		expect(amount(view)).toBe('70');
 		expect(rows(view)).toEqual(['original', 'current']);
 	});
 
-	it('Reset puts the defaults back without removing the step', () => {
+	it('Reset puts the defaults back without removing the step', async () => {
 		const view = renderVideoEditor(videoGrainState(70));
-		openEffects(view);
+		await open(view, 'film_grain');
 		view.q<HTMLButtonElement>('[data-options-reset]')!.click();
-		flushSync();
+		await tick();
 		expect(amount(view)).toBe('30');
 		expect(rows(view)).toEqual(['original', 'current']);
 	});

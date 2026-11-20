@@ -26,6 +26,7 @@ CREATE TABLE sessions (
     pinned_at TIMESTAMP,
     version INTEGER NOT NULL DEFAULT 1,
     last_origin TEXT,
+    kind TEXT NOT NULL DEFAULT 'generation',
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     UNIQUE(user_id, preset_id, name)
 );

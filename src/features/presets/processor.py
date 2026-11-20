@@ -28,7 +28,7 @@ from src.platform.security.user import AccountType
 from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 from src.platform.templating.errors import TemplateEvaluationError
-from src.features.presets.templates import PresetTemplate, default_form_name
+from src.features.presets.templates import PresetTemplate, default_form_name, find_mode
 from src.features.presets.negative_prompt import negative_prompt_applies
 
 from .loader import PresetTemplateLoader
@@ -460,7 +460,9 @@ class PresetProcessor:
         mode = generation_data['mode']
         form = generation_data.get('form_data') or {}
 
-        mode_data = preset_template.modes[mode]
+        mode_data = find_mode(preset_template, mode)
+        if mode_data is None:
+            raise KeyError(mode)
 
         # Which form "variant" this submission came from (see docs/presets.md
         # "Variants"), resolved to the mode's default when the caller (or an

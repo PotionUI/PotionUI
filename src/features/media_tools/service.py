@@ -3,6 +3,7 @@ import io
 import logging
 import math
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -11,7 +12,7 @@ import uuid
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union, TYPE_CHECKING
+from typing import Any, Callable, Iterator, List, Mapping, Optional, Sequence, Tuple, Union, TYPE_CHECKING
 
 from PIL import Image, ImageOps
 from pydantic import ValidationError
@@ -38,6 +39,8 @@ from src.features.media_tools.jobs import (
     RunOutcome,
 )
 from src.features.media.validators import UPLOAD_PURPOSE_DERIVED
+from src.features.media_tools.pool_metrics import REJECTION_PREVIEW_BUSY
+from src.features.media_tools.preview_slots import PreviewSlots
 from src.features.media_tools.previews import FramePreview, PreviewCache, digest, is_preview_id
 from src.features.media_tools.publisher import MediaToolPublisher, to_item
 from src.features.media_tools.repository import MediaToolParamsRepository
@@ -75,6 +78,7 @@ from src.platform.media_tools.types import MEDIA_KINDS, ToolMedia
 
 if TYPE_CHECKING:
     from src.features.collections.repository import CollectionRepository
+    from src.features.edits.repository import EditRepository
     from src.features.generation.file_repository import FileRepository
     from src.features.media.media_types import MediaTypeResolver
     from src.features.media.store import MediaStore
@@ -121,6 +125,12 @@ class _Plan:
     attachments: dict
     target: Optional[ResolvedInput] = None
     collection_id: Optional[str] = None
+    edit_link: Optional[dict] = None
+    name_hint: Optional[str] = None
+
+
+def _tool_ids(steps: Sequence[Step]) -> List[str]:
+    return [step[0].id for step in steps]
 
 
 def _ref_key(ref: Mapping[str, Any]) -> str:
@@ -147,6 +157,12 @@ def _shared_generation_id(inputs: List[ResolvedInput]) -> Optional[str]:
 
 def _user_id(user: Any) -> str:
     return str(getattr(user, "id", user))
+
+
+def _hint_stem(hint: Optional[str]) -> Optional[str]:
+    cleaned = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", " ", hint or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    return cleaned[:120].strip(" .") or None
 
 
 def _safe_stem(name: Optional[str]) -> str:
@@ -247,8 +263,10 @@ class MediaToolService:
         preview_wait_seconds: float = PREVIEW_WAIT_SECONDS,
         artifact_store: Optional["MediaStore"] = None,
         collection_repository: Optional["CollectionRepository"] = None,
+        edit_repository: Optional["EditRepository"] = None,
     ):
         self.registry = registry
+        self.edit_repo = edit_repository
         self.collection_repo = collection_repository
         self.upload_repo = upload_repository
         self.artifact_store = artifact_store
@@ -266,7 +284,7 @@ class MediaToolService:
         self.scratch_root = Path(scratch_root) if scratch_root else Path(tempfile.gettempdir())
         self._scratch_lock = threading.Lock()
         self._live_scratch: set = set()
-        self._preview_slots = threading.BoundedSemaphore(PREVIEW_CONCURRENCY)
+        self._preview_slots = PreviewSlots(lambda: self.jobs.limits().max_previews)
         self._preview_wait = preview_wait_seconds
         self.previews = PreviewCache(self._preview_dir)
         if sweep_stale:
@@ -444,7 +462,7 @@ class MediaToolService:
         plan = self._plan(user_id, steps, inputs, output)
         if plan.mode == "new":
             self.publisher.precheck(user_id)
-        return self.jobs.submit(user_id, self._work(user_id, plan))
+        return self.jobs.submit(user_id, self._work(user_id, plan), tools=_tool_ids(plan.steps))
 
     def list_runs(self, user: Any) -> List[RunDTO]:
         return self.jobs.list(_user_id(user))
@@ -460,6 +478,35 @@ class MediaToolService:
         if run is None:
             raise NotFoundError("not_found", "Run not found")
         return run
+
+    def admin_cancel_run(self, run_id: str) -> RunDTO:
+        run = self.jobs.cancel_any(run_id)
+        if run is None:
+            raise NotFoundError("not_found", "Run not found")
+        return run
+
+    def pool_overview(self) -> dict:
+        state = self.jobs.pool_state()
+        limits = state["limits"]
+        clips_running = sum(1 for job in state["jobs"] if job["kind"] == "preview" and job["status"] == "running")
+        return {
+            "limits": {
+                "max_concurrent": limits.max_concurrent,
+                "max_previews": limits.max_previews,
+                "max_running_per_user": limits.max_running_per_user,
+                "max_queued_per_user": limits.max_queued_per_user,
+                "ffmpeg_threads": limits.ffmpeg_threads,
+            },
+            "running": state["running"],
+            "queued": state["queued"],
+            "previews": {
+                "limit": limits.max_previews,
+                "in_use": self._preview_slots.in_use,
+                "clips_running": clips_running,
+            },
+            "jobs": state["jobs"],
+            "metrics": state["metrics"],
+        }
 
     def run_blocking(
         self,
@@ -554,6 +601,7 @@ class MediaToolService:
     @contextmanager
     def _preview_slot(self):
         if not self._preview_slots.acquire(timeout=self._preview_wait):
+            self.jobs.metrics.record_rejection(REJECTION_PREVIEW_BUSY)
             raise DomainError(
                 "preview_busy", "Too many previews are rendering; try again in a moment", status_code=429
             )
@@ -600,6 +648,61 @@ class MediaToolService:
             data = _encode_frame(result, int(max_side), fmt)
         self.previews.store_frame(user_id, key, data, media_type, width, height)
         return FramePreview(data=data, media_type=media_type, cached=False, width=width, height=height)
+
+    @contextmanager
+    def render_picture(self, user: Any, input_ref: InputLike, steps: Sequence[StepLike]) -> Iterator[Path]:
+        user_id = _user_id(user)
+        resolved = self.resolver.resolve(user_id, _model(InputRef, input_ref, "input"))
+        if resolved.kind != "image":
+            raise InvalidInputError("unsupported_media", f"A {resolved.kind} file is not a picture")
+        chain = self._editor_steps(steps)
+        attachments = self._resolve_attachments(user_id, chain)
+        with self._scratch() as scratch, ExitStack() as stack:
+            ctx = ToolContext(scratch, user_id=user_id)
+            path = stack.enter_context(self.resolver.stage(resolved))
+            if not chain:
+                yield path
+                return
+            try:
+                media = ctx.probe(path, resolved.kind)
+                bound = self._bind(chain, attachments, stack, ctx)
+                outputs = run_chain(bound, [media], ctx, validate=False)
+            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                raise _refusal(exc) from exc
+            if len(outputs) != 1:
+                raise ToolFailed("The edits did not produce exactly one picture")
+            yield outputs[0].path
+
+    @contextmanager
+    def render_clip(self, user: Any, input_ref: InputLike, steps: Sequence[StepLike]) -> Iterator[Path]:
+        user_id = _user_id(user)
+        resolved = self.resolver.resolve(user_id, _model(InputRef, input_ref, "input"))
+        if resolved.kind != "video":
+            subject = "A picture" if resolved.kind == "image" else f"A {resolved.kind} file"
+            raise InvalidInputError("unsupported_media", f"{subject} is not a video")
+        chain = self._editor_steps(steps)
+        attachments = self._resolve_attachments(user_id, chain)
+        with self._scratch() as scratch, ExitStack() as stack:
+            ctx = ToolContext(scratch, user_id=user_id)
+            path = stack.enter_context(self.resolver.stage(resolved))
+            if not chain:
+                yield path
+                return
+            try:
+                media = ctx.probe(path, resolved.kind)
+                bound = self._bind(chain, attachments, stack, ctx)
+                outputs = run_chain(bound, [media], ctx, validate=False)
+            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                raise _refusal(exc) from exc
+            if len(outputs) != 1:
+                raise ToolFailed("The edits did not produce exactly one video")
+            yield outputs[0].path
+
+    @contextmanager
+    def open_input(self, user: Any, input_ref: InputLike) -> Iterator[Path]:
+        resolved = self.resolver.resolve(_user_id(user), _model(InputRef, input_ref, "input"))
+        with self.resolver.stage(resolved) as path:
+            yield path
 
     def start_clip_preview(
         self,
@@ -650,7 +753,7 @@ class MediaToolService:
                 )
                 return RunOutcome(preview=clip)
 
-        return ClipPreviewResponse(run_id=self.jobs.submit(user_id, work, kind="preview"))
+        return ClipPreviewResponse(run_id=self.jobs.submit(user_id, work, kind="preview", tools=_tool_ids(chain)))
 
     def preview_clip_file(self, user: Any, preview_id: str) -> Tuple[Path, str]:
         found = self.previews.clip_file(_user_id(user), preview_id) if is_preview_id(preview_id) else None
@@ -917,7 +1020,27 @@ class MediaToolService:
             attachments=attachments,
             target=target,
             collection_id=collection_id,
+            edit_link=self._edit_link(user_id, spec_out),
+            name_hint=(spec_out.name or "").strip() or None,
         )
+
+    def _edit_link(self, user_id: str, spec_out: OutputSpec) -> Optional[dict]:
+        ref = spec_out.edit
+        if ref is None or self.edit_repo is None:
+            return None
+        try:
+            edit = self.edit_repo.get(user_id, ref.id)
+        except Exception:
+            logger.exception("Could not verify the edit behind a media tool save")
+            return None
+        if edit is None:
+            return None
+        return {
+            "id": edit.id,
+            "tool": edit.tool,
+            "revision": max(1, min(ref.revision, edit.revision)),
+            "continuable": spec_out.mode != "replace",
+        }
 
     def _check_collection(self, user_id: str, spec_out: OutputSpec) -> Optional[str]:
         if not spec_out.collection_id:
@@ -1045,7 +1168,9 @@ class MediaToolService:
             if len(outputs) != 1:
                 raise ToolFailed("The tool did not produce exactly one result")
             source = plan.target if plan.mode == "update" else plan.inputs[0]
-            updated = self.publisher.publish_replace(user_id, source.upload, source.key, outputs[0])
+            updated = self.publisher.publish_replace(
+                user_id, source.upload, source.key, outputs[0], edit_link=plan.edit_link
+            )
             return RunOutcome(items=[to_item(updated)], replaced=True)
         rows = self.publisher.publish_new(
             user_id,
@@ -1067,8 +1192,16 @@ class MediaToolService:
         except Exception:
             logger.exception("Could not file media tool outputs into collection %s", plan.collection_id)
 
+    @classmethod
+    def _provenance(cls, plan: _Plan, outputs: list) -> Optional[List[Optional[dict]]]:
+        marks = cls._slice_provenance(plan, outputs)
+        if plan.edit_link is None:
+            return marks
+        base = marks if marks is not None else [None] * len(outputs)
+        return [{**(mark or {}), "edit": dict(plan.edit_link)} for mark in base]
+
     @staticmethod
-    def _provenance(plan: _Plan, outputs: list) -> Optional[List[Optional[dict]]]:
+    def _slice_provenance(plan: _Plan, outputs: list) -> Optional[List[Optional[dict]]]:
         spec, params = plan.steps[-1]
         if spec.id != SLICE_TOOL or len(plan.inputs) != 1:
             return None
@@ -1102,7 +1235,7 @@ class MediaToolService:
         for index, media in enumerate(outputs):
             matched = last.cardinality == "one_to_one" and len(plan.inputs) == total
             source = plan.inputs[index] if matched else plan.inputs[0]
-            stem = _safe_stem(source.original_filename)
+            stem = (len(plan.inputs) == 1 and _hint_stem(plan.name_hint)) or _safe_stem(source.original_filename)
             extension = media.path.suffix
             if last.cardinality == "one_to_many" or (fanned and total > len(plan.inputs)):
                 names.append(f"{stem} — part {index + 1} of {total}{extension}")
@@ -1115,7 +1248,7 @@ class MediaToolService:
     @staticmethod
     def _slice_names(plan: _Plan, outputs: list) -> List[Optional[str]]:
         spec, params = plan.steps[-1]
-        stem = _safe_stem(plan.inputs[0].original_filename)
+        stem = _hint_stem(plan.name_hint) or _safe_stem(plan.inputs[0].original_filename)
         typed = cell_names(params)
         used: set = set()
         names: List[Optional[str]] = []

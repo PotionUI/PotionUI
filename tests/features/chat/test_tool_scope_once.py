@@ -137,6 +137,7 @@ class TestToolServicesHolder:
         assert context.model_index_manager == "models"
         assert context.session_metadata == {"k": 1}
         assert context.llm_id == "cfg"
+        assert context.origin == {"kind": "chat"}
 
         runtime.tool_services = replace(runtime.tool_services, llm_memory_repository="swapped")
         assert dispatcher.tool_context(session, "u1", False, None).llm_memory_repository == "swapped"

@@ -1,5 +1,5 @@
 import type { ToolParam } from '$lib/media-tools/types';
-import { deriveMediaSizeOptions } from '$lib/media/editors/mediaSizeOptions';
+import { deriveMediaSizeOptions } from '$lib/media/mediaSizeOptions';
 
 export function volumeParams(duration: number): ToolParam[] {
 	const fadeMax = Math.max(0.5, Math.min(10, Math.floor(duration * 10) / 10));

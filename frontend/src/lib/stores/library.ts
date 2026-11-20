@@ -248,7 +248,7 @@ function createLibraryStore() {
 		clearFilters() {
 			update((state) => ({
 				...state,
-				filters: { ...DEFAULT_LIBRARY_FILTERS },
+				filters: { ...DEFAULT_LIBRARY_FILTERS, sortBy: state.filters.sortBy, sortDir: state.filters.sortDir },
 				currentPage: 1,
 				freshIds: [],
 				placedIds: []

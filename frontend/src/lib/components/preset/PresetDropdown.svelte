@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, type Snippet } from 'svelte';
 	import type { PresetGalleryItem, PresetInfo } from '$lib/types/api';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import { api } from '$lib/services/api/index';
@@ -34,6 +34,9 @@
 		isReloading = false,
 		anchor,
 		fullscreen = false,
+		disabledReasons = {},
+		recordRecent = true,
+		footer,
 		onSelect,
 		onReload,
 		onClose
@@ -44,6 +47,9 @@
 		isReloading?: boolean;
 		anchor: HTMLElement | undefined;
 		fullscreen?: boolean;
+		disabledReasons?: Record<string, string>;
+		recordRecent?: boolean;
+		footer?: Snippet;
 		onSelect: (presetId: string) => void;
 		onReload: () => void;
 		onClose: () => void;
@@ -88,8 +94,9 @@
 	});
 
 	function choose(presetId: string) {
+		if (disabledReasons[presetId]) return;
 		if (presetId !== selectedPreset) {
-			void presetPickerState.pushRecent(presetId);
+			if (recordRecent) void presetPickerState.pushRecent(presetId);
 			onSelect(presetId);
 		}
 		onClose();
@@ -198,7 +205,7 @@
 	label="Choose preset"
 	{anchor}
 	width={480}
-	fill={presets.length > 0}
+	fill={presets.length > 0 && view === 'details'}
 	{fullscreen}
 	{onClose}
 	onEscape={handleEscape}
@@ -220,9 +227,9 @@
 				{#snippet actions()}
 					{#if emptyState.showSetupLink}
 						{#if installModels}
-							<Button variant="primary" size="sm" href={installModels.href} icon="download">{installModels.label}</Button>
+							<Button size="sm" variant="secondary" href={installModels.href} icon="download">{installModels.label}</Button>
 						{:else}
-							<Button variant="primary" size="sm" href="/setup" icon="arrow-right">Go to Setup</Button>
+							<Button size="sm" variant="secondary" href="/setup" icon="arrow-right">Go to Setup</Button>
 						{/if}
 					{/if}
 				{/snippet}
@@ -307,7 +314,7 @@
 				</Button>
 			{/if}
 			<span class="flex-1"></span>
-			<Button variant="primary" size="sm" icon="check" onclick={() => choose(details.id)}>
+			<Button variant="primary" size="sm" icon="check" disabled={!!disabledReasons[details.id]} onclick={() => choose(details.id)}>
 				{details.id === selectedPreset ? 'Keep selected' : 'Use this preset'}
 			</Button>
 		</div>
@@ -384,12 +391,14 @@
 				<span class="ml-auto font-mono text-sm tabular-nums text-fg-subtle">{presets.length} presets</span>
 			</div>
 		{/if}
+		{@render footer?.()}
 	{/if}
 </DropdownShell>
 
 {#snippet row(preset: PresetInfo, index: number)}
 	{@const current = preset.id === selectedPreset}
 	{@const issue = presetIssue(preset, gpuGb)}
+	{@const unavailable = disabledReasons[preset.id]}
 	{@const parts = matchParts(preset.name)}
 	<li
 		class="preset-row relative mx-1.5 flex items-center rounded"
@@ -400,16 +409,18 @@
 		aria-labelledby="{uid}-name-{index}"
 		aria-describedby="{uid}-sub-{index}"
 		aria-selected={current}
+		aria-disabled={unavailable ? 'true' : undefined}
 		data-preset-row={preset.id}
 	>
 		<button
 			type="button"
 			tabindex="-1"
-			class="row-main flex min-w-0 flex-1 items-center gap-3 rounded pl-2 pr-1 text-left {fullscreen ? 'h-14' : 'h-[52px]'}"
+			class="row-main flex min-w-0 flex-1 items-center gap-3 rounded pl-2 pr-1 text-left {unavailable ? 'cursor-not-allowed' : ''} {fullscreen ? 'h-14' : 'h-[52px]'}"
 			use:tooltip={issue ? { text: issue.detail, position: 'right', delay: 300 } : null}
+			disabled={!!unavailable}
 			onclick={() => choose(preset.id)}
 		>
-			<span class="flex flex-shrink-0 {issue?.blocking ? 'opacity-[0.45]' : ''}">
+			<span class="flex flex-shrink-0 {issue?.blocking || unavailable ? 'opacity-[0.45]' : ''}">
 				<PresetThumbnail
 					presetId={preset.id}
 					presetName={preset.name}
@@ -420,10 +431,15 @@
 				/>
 			</span>
 			<span class="flex min-w-0 flex-1 flex-col gap-0.5">
-				<span id="{uid}-name-{index}" class="truncate text-base font-medium leading-[18px] {issue?.blocking ? 'text-fg-muted' : 'text-fg'}">
+				<span id="{uid}-name-{index}" class="truncate text-base font-medium leading-[18px] {issue?.blocking || unavailable ? 'text-fg-muted' : 'text-fg'}">
 					{#if parts}{parts[0]}<b class="font-semibold text-fg">{parts[1]}</b>{parts[2]}{:else}{preset.name}{/if}
 				</span>
-				{#if issue}
+				{#if unavailable}
+					<span id="{uid}-sub-{index}" class="flex min-w-0 items-center gap-1.5 text-sm leading-4 text-warning" data-preset-unavailable>
+						<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-current" aria-hidden="true"></span>
+						<span class="truncate">{unavailable}</span>
+					</span>
+				{:else if issue}
 					<span
 						id="{uid}-sub-{index}"
 						class="flex min-w-0 items-center gap-1.5 text-sm leading-4 {issue.kind === 'backend' ? 'text-danger' : 'text-warning'}"

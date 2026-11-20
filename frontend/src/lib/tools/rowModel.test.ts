@@ -213,3 +213,43 @@ describe('buildRowContext', () => {
 		expect(buildRowContext('library', ctx.items).items).toEqual(ctx.items);
 	});
 });
+
+describe('editing a picture that was made in the editor', () => {
+	const link = { editId: 'ed_1', tool: 'image', revision: 3, available: true, continuable: true };
+	const linked = (extra: Partial<typeof link> = {}) => item('image', { madeInEditor: { ...link, ...extra } });
+	const editRows = (items: MediaToolItem[]) => buildRowModel(buildRowContext('library', items)).edit.filter((entry) => entry.action !== 'catalog');
+
+	it('offers Continue this edit before Edit this picture', () => {
+		const rows = editRows([linked()]);
+		expect(rows.map((entry) => [entry.id, entry.label, entry.action])).toEqual([
+			['continue-edit', 'Continue this edit', 'continue-edit'],
+			['edit-image', 'Edit this picture', 'edit-image']
+		]);
+		expect(rows.every((entry) => entry.enabled && entry.opens?.[0] === 'image')).toBe(true);
+	});
+
+	it('keeps the plain Edit row when the edit is gone', () => {
+		expect(editRows([linked({ available: false })]).map((entry) => [entry.id, entry.label])).toEqual([['edit-image', 'Open in Image editor']]);
+	});
+
+	it('keeps the plain Edit row when the picture was saved over the original', () => {
+		expect(editRows([linked({ continuable: false })]).map((entry) => entry.id)).toEqual(['edit-image']);
+	});
+
+	it('keeps the plain Edit row when the picture has no link or the server sends none', () => {
+		expect(editRows([item('image')]).map((entry) => entry.id)).toEqual(['edit-image']);
+		expect(editRows([item('image', { madeInEditor: null })]).map((entry) => entry.id)).toEqual(['edit-image']);
+	});
+
+	it('keeps the plain Edit row when several pictures are selected', () => {
+		const rows = editRows([linked(), { ...linked(), id: 'i2' }]);
+		expect(rows.map((entry) => entry.id)).toEqual(['edit-image']);
+		expect(rows[0].label).toBe('Open in Image editor');
+	});
+
+	it('carries the link from a library item into the tool item', () => {
+		const row = { id: 'lib-1', filename: 'a.png', media_type: 'image', url: '/a.png', tags: [], made_in_editor: { edit_id: 'ed_9', tool: 'image', revision: 2, available: true, continuable: true } } as LibraryItem;
+		expect(buildLibraryToolContext([row], null).items[0].madeInEditor).toMatchObject({ editId: 'ed_9', continuable: true });
+		expect(buildLibraryToolContext([{ ...row, made_in_editor: undefined }], null).items[0]).not.toHaveProperty('madeInEditor');
+	});
+});

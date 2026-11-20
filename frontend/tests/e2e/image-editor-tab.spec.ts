@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { clearEdits, editorMenu, loginAsOwner, ownerToken, scopedStorageKey, screenshot, selectRailTool, railButton } from './helpers';
 import { solidPng } from './mediaToolMocks';
 
 const JOURNEY = 'image-editor-tab';
@@ -187,23 +187,24 @@ async function openEditorOnDusk(page: Page) {
 	await page.getByRole('menu', { name: 'New tab' }).getByRole('menuitem', { name: /Image editor/ }).click();
 	const empty = page.getByTestId('tool-tab-empty');
 	await expect(empty).toContainText('Open a picture to edit');
-	await expect(empty.locator('[data-recent-history] button')).toHaveCount(1);
+	await expect(empty.locator('[data-start-source="history"]')).toBeVisible();
 	return empty;
 }
 
 async function stackRows(page: Page) {
 	return page.locator('[data-edit-stack="panel"] [data-stack-row]').evaluateAll((rows) =>
-		rows.map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`)
+		rows.sort((a, b) => Number(a.getAttribute('data-stack-index')) - Number(b.getAttribute('data-stack-index'))).map((row) => `${row.getAttribute('data-status')}${row.hasAttribute('data-hidden') ? ':hidden' : ''}:${row.textContent?.replace(/\s+/g, '')}`)
 	);
 }
 
-const ORIGINAL = 'original:00Original640×480·PNG';
+const ORIGINAL = 'original:Original640×480·PNG';
 const CROP = '01Crop1:1·480×480';
 const REEL = '02ReelIntensity100';
 
 async function start(page: Page, seed = false): Promise<Log> {
 	const log = await mockEditor(page);
 	await loginAsOwner(page);
+	await clearEdits(page);
 	if (seed) await seedGenerationTab(page);
 	await page.goto('/generate');
 	await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
@@ -213,7 +214,8 @@ async function start(page: Page, seed = false): Promise<Log> {
 async function openDusk(page: Page, shoot = false) {
 	const empty = await openEditorOnDusk(page);
 	if (shoot) await screenshot(page, JOURNEY, '06-empty-1440');
-	await empty.locator('[data-recent-history] button').first().click();
+	await empty.locator('[data-start-source="history"]').click();
+	await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 	await expect(page.locator('[data-image-editor]')).toHaveAttribute('data-tool', 'crop');
 	await expect(page.locator('[data-crop-overlay]')).toBeVisible();
 }
@@ -221,18 +223,18 @@ async function openDusk(page: Page, shoot = false) {
 async function cropSquare(page: Page, shoot = false) {
 	await page.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 	await expect(page.locator('[data-options-panel] [data-crop-output]')).toHaveText('480×480');
-	await expect(rail(page, 'crop').locator('[data-tool-pending]')).toBeVisible();
+	await expect(railButton(page, 'crop').locator('[data-tool-pending]')).toBeVisible();
 	if (shoot) await screenshot(page, JOURNEY, '02-crop-1440');
 	await page.locator('[data-options-apply]').click();
 	await expect.poll(() => stackRows(page)).toEqual([ORIGINAL, `current:${CROP}`]);
 }
 
 async function applyReel(page: Page, shoot = false) {
-	await rail(page, 'effects').click();
-	await expect(page.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
-	await page.locator('[data-tray-item="reel"]').click();
+	await selectRailTool(page, 'effects');
+	await expect(page.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
+	await page.locator('[data-look-item="reel"]').click();
 	await expect(page.locator('[data-stack-row="pending"]')).toContainText('Reel');
-	await page.locator('[data-frame-compare]').click();
+	await editorMenu(page, 'View', 'Before / after');
 	await expect(page.locator('[data-canvas-divider]')).toBeVisible();
 	await expect(page.locator('[data-editor-before]')).toBeVisible();
 	if (shoot) await screenshot(page, JOURNEY, '03-effects-compare-1440');
@@ -274,7 +276,7 @@ test.describe('the Image editor tab on desktop', () => {
 				{ tool: 'paint_layer', params: { layer: { item_id: 'art-1' } } }
 			],
 			inputs: [{ generation_file_id: String(FILE_ID) }],
-			output: { mode: 'new' }
+			output: { mode: 'new', name: 'observatory-dusk', edit: { id: expect.any(String), revision: expect.any(Number) } }
 		});
 		await expect(page.getByText('Saved to Library').first()).toBeVisible();
 		await expect(page.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/);
@@ -290,7 +292,7 @@ test.describe('the Image editor tab on desktop', () => {
 				{ tool: 'paint_layer', params: { layer: { item_id: 'art-2' } } }
 			],
 			inputs: [{ generation_file_id: String(FILE_ID) }],
-			output: { mode: 'update', target_item_id: 'copy-run-1' }
+			output: { mode: 'update', name: 'observatory-dusk', target_item_id: 'copy-run-1', edit: { id: expect.any(String), revision: expect.any(Number) } }
 		});
 	});
 
@@ -326,8 +328,9 @@ test.describe('the Image editor tab on desktop', () => {
 		await expect.poll(() => stackRows(page), { timeout: 15000 }).toEqual([ORIGINAL, `applied:${CROP}`, `current:${REEL}`]);
 		await expect(page.locator('[data-frame-save]')).toHaveText(/^\s*Save\s*$/);
 
-		await rail(page, 'colorKey').click();
+		await selectRailTool(page, 'colorKey');
 		await expect(page.locator('[data-catalog-tool="color_key"]')).toBeVisible();
+		await screenshot(page, JOURNEY, '12-catalog-tool-color-key-1440');
 		await page.locator('[data-options-apply]').click();
 		await expect.poll(() => log.frames.length).toBeGreaterThan(0);
 		const frame = log.frames[log.frames.length - 1] as { input: Json; steps: Array<{ tool: string }>; format: string };
@@ -341,20 +344,23 @@ test.describe('the Image editor tab on desktop', () => {
 test.describe('painting and masking in the Image editor tab', () => {
 	test.use({ viewport: { width: 1440, height: 900 } });
 
-	test('a paint session lands as one step and the mask rides along with Send', async ({ page }) => {
+	test('a stroke makes one paint layer and the mask rides along with Send', async ({ page }) => {
 		const log = await mockEditor(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await seedGenerationTab(page);
 		await page.goto('/generate');
 		await expect(page.locator('.tab-bar-container')).toBeVisible({ timeout: 15000 });
 		const empty = await openEditorOnDusk(page);
-		await empty.locator('[data-recent-history] button').first().click();
+		await empty.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 		await expect(page.locator('[data-crop-overlay]')).toBeVisible();
 
-		await rail(page, 'paint').click();
+		await selectRailTool(page, 'paint.brush');
 		const stage = page.locator('[data-paint-stage] canvas[aria-label="Drawing canvas"]');
 		await expect(stage).toBeVisible();
-		await expect(page.locator('[data-paint-tools]')).toBeVisible();
+		await expect(page.locator('[data-paint-tool-panel="brush"]')).toBeVisible();
+		await expect(page.locator('[data-paint-tools]')).toHaveCount(0);
 		const box = (await stage.boundingBox())!;
 		const cx = box.x + box.width / 2;
 		const cy = box.y + box.height / 2;
@@ -364,21 +370,21 @@ test.describe('painting and masking in the Image editor tab', () => {
 		await page.mouse.up();
 		await expect(page.locator('[data-frame-undo]')).toBeEnabled();
 		await screenshot(page, JOURNEY, 'paint-1440');
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => stackRows(page)).toEqual(['original:00Original640×480·PNG', 'current:01Paint·1layer640×480']);
-		expect(log.artifacts).toBe(1);
+		await expect.poll(() => stackRows(page)).toEqual(['original:Original640×480·PNG', 'current:Paint1Paintlayer100%']);
+		await expect.poll(() => log.artifacts).toBe(1);
 
-		await rail(page, 'mask').click();
+		await selectRailTool(page, 'edit_region');
 		const mask = page.locator('[data-mask-layer]');
 		await expect(mask).toBeVisible();
+		await options(page).getByRole('button', { name: 'Brush', exact: true }).click();
 		const area = (await mask.boundingBox())!;
 		await page.mouse.move(area.x + area.width * 0.3, area.y + area.height * 0.4);
 		await page.mouse.down();
 		await page.mouse.move(area.x + area.width * 0.6, area.y + area.height * 0.5, { steps: 6 });
 		await page.mouse.up();
 		await screenshot(page, JOURNEY, 'mask-1440');
-		await page.locator('[data-options-apply]').click();
-		await expect.poll(() => log.uploads).toBe(1);
+		await expect(page.locator('[data-options-apply]')).toHaveCount(0);
+		expect(log.uploads).toBe(0);
 		await expect.poll(() => stackRows(page)).toHaveLength(2);
 
 		await page.locator('[data-frame-save-menu]').click();
@@ -397,23 +403,25 @@ test.describe('the Image editor tab on a phone', () => {
 	test('docks the options above the tool strip with Save in the top bar', async ({ page }) => {
 		await mockEditor(page);
 		await loginAsOwner(page);
+		await clearEdits(page);
 		await page.goto('/generate');
 		await expect(page.locator('.studio-topbar')).toBeVisible({ timeout: 15000 });
 		await page.getByRole('button', { name: /^Open tabs/ }).click();
 		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
 		const phone = page.getByTestId('phone-tool-tab');
 		await expect(phone.getByTestId('tool-tab-empty')).toContainText('Open a picture to edit');
-		await phone.locator('[data-recent-history] button').first().click();
+		await phone.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
 
 		await expect(phone.locator('[data-editor-frame="phone"]')).toBeVisible();
 		await expect(phone.locator('[data-tool-rail="strip"]')).toBeVisible();
 		await expect(phone.locator('[data-options-panel="phone"]')).toBeVisible();
-		await phone.locator('[data-crop-aspects] button', { hasText: '1:1' }).click();
+		await phone.locator('[data-options-panel] [data-crop-aspects] button', { hasText: '1:1' }).click();
 		await phone.locator('[data-options-apply]').click();
 		await expect(phone.locator('[data-frame-edits]')).toContainText('1 edit');
 		await phone.locator('[data-tool-rail="strip"] button[data-tool="effects"]').click();
-		await expect(phone.locator('[data-tray-item="reel"]')).toBeVisible({ timeout: 15000 });
-		await phone.locator('[data-tray-item="reel"]').click();
+		await expect(phone.locator('[data-look-item="reel"]')).toBeVisible({ timeout: 15000 });
+		await phone.locator('[data-look-item="reel"]').click();
 		await screenshot(page, JOURNEY, '08-phone-effects-390');
 
 		const overflowX = await page.evaluate(() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth);
@@ -428,5 +436,147 @@ test.describe('the Image editor tab on a phone', () => {
 		await phone.locator('[data-frame-edits]').click();
 		await expect(page.getByRole('dialog', { name: 'Edits' })).toBeVisible();
 		await screenshot(page, JOURNEY, '04-edits-sheet-390');
+	});
+});
+
+async function maskAlpha(page: Page, fx: number, fy: number): Promise<number> {
+	return page.locator('[data-mask-layer]').evaluate(
+		(canvas, [x, y]) =>
+			(canvas as HTMLCanvasElement)
+				.getContext('2d', { willReadFrequently: true })!
+				.getImageData(Math.floor(x * (canvas as HTMLCanvasElement).width), Math.floor(y * (canvas as HTMLCanvasElement).height), 1, 1).data[3],
+		[fx, fy] as [number, number]
+	);
+}
+
+async function drag(page: Page, path: Array<[number, number]>, finish = true) {
+	const box = (await page.locator('[data-mask-layer]').boundingBox())!;
+	const at = ([fx, fy]: [number, number]) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+	const [first, ...rest] = path;
+	await page.mouse.move(at(first).x, at(first).y);
+	await page.mouse.down();
+	for (const point of rest) await page.mouse.move(at(point).x, at(point).y, { steps: 4 });
+	if (finish) await page.mouse.up();
+}
+
+const options = (page: Page) => page.locator('[data-options-panel]');
+
+test.describe('the lasso in the Image editor tab', () => {
+	test.use({ viewport: { width: 1440, height: 900 } });
+
+	test('a lasso and a brush mark one area that rides along with Send', async ({ page }) => {
+		const log = await start(page, true);
+		await openDusk(page);
+		await cropSquare(page);
+
+		await selectRailTool(page, 'edit_region');
+		await expect(page.locator('[data-mask-layer]')).toBeVisible();
+		await expect(options(page).getByRole('group', { name: 'Marking tool' })).toBeVisible();
+		await expect(options(page).getByRole('group', { name: 'Lasso mode' })).toBeVisible();
+		await options(page).getByRole('button', { name: 'Brush', exact: true }).click();
+		await expect(options(page).getByRole('group', { name: 'Mask brush' })).toBeVisible();
+		await expect(options(page)).toContainText('Brush size');
+
+		await drag(page, [[0.2, 0.3], [0.32, 0.3]]);
+		await expect.poll(() => maskAlpha(page, 0.26, 0.3)).toBe(255);
+		await screenshot(page, JOURNEY, '10b-mask-brush-1440');
+
+		await options(page).getByRole('button', { name: 'Lasso', exact: true }).click();
+		await expect(options(page).getByRole('group', { name: 'Lasso mode' })).toBeVisible();
+		await expect(options(page)).toContainText('Release to close the shape.');
+		await expect(options(page)).not.toContainText('Brush size');
+
+		const shape: Array<[number, number]> = [[0.55, 0.3], [0.8, 0.3], [0.86, 0.55], [0.6, 0.68], [0.5, 0.5]];
+		await drag(page, shape, false);
+		await expect(page.locator('[data-lasso-outline]')).toBeVisible();
+		await page.mouse.up();
+		await expect(page.locator('[data-lasso-outline]')).toHaveCount(0);
+		await expect(page.locator('[data-mask-area]')).toBeVisible();
+		await expect(options(page).locator('[data-mask-area-readout]')).not.toContainText('None');
+		await expect.poll(() => maskAlpha(page, 0.7, 0.45)).toBe(255);
+		await expect.poll(() => maskAlpha(page, 0.26, 0.3)).toBe(255);
+		await screenshot(page, JOURNEY, '10-mask-lasso-1440');
+
+		await options(page).getByRole('button', { name: 'Subtract', exact: true }).click();
+		await drag(page, [[0.64, 0.4], [0.74, 0.4], [0.74, 0.5], [0.64, 0.5]]);
+		await expect.poll(() => maskAlpha(page, 0.69, 0.45)).toBe(0);
+		expect(await maskAlpha(page, 0.78, 0.4)).toBe(255);
+		expect(await maskAlpha(page, 0.26, 0.3)).toBe(255);
+
+		await options(page).getByRole('button', { name: 'Add', exact: true }).click();
+		const before = await options(page).locator('[data-mask-area-readout]').textContent();
+		await drag(page, [[0.05, 0.85]]);
+		expect(await maskAlpha(page, 0.05, 0.85)).toBe(0);
+		await drag(page, [[0.1, 0.8], [0.3, 0.8], [0.3, 0.95]], false);
+		await expect(page.locator('[data-lasso-outline]')).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(page.locator('[data-lasso-outline]')).toHaveCount(0);
+		await page.mouse.up();
+		expect(await maskAlpha(page, 0.2, 0.82)).toBe(0);
+		await expect(options(page).locator('[data-mask-area-readout]')).toHaveText(before ?? '');
+
+		await expect(page.locator('[data-options-apply]')).toHaveCount(0);
+		expect(log.uploads).toBe(0);
+
+		await page.locator('[data-frame-save-menu]').click();
+		const send = page.locator('[data-save-row="send"]');
+		await expect(send).toContainText('MASK');
+		await send.click();
+		await expect(bookTab(page, 'Portrait study')).toHaveClass(/active/);
+		await expect.poll(() => log.uploads).toBe(2);
+		await expect(page.locator('[data-field-name="image"]').first().locator('img[src*="sent-2.png"]').first()).toBeVisible();
+	});
+
+	test('the outline and the marked pixels follow a zoomed picture', async ({ page }) => {
+		await start(page, true);
+		await openDusk(page);
+		await cropSquare(page);
+		await selectRailTool(page, 'edit_region');
+		await options(page).getByRole('button', { name: 'Lasso', exact: true }).click();
+
+		await page.getByRole('button', { name: 'Zoom in' }).click();
+		await page.getByRole('button', { name: 'Zoom in' }).click();
+		await drag(page, [[0.42, 0.42], [0.58, 0.42], [0.58, 0.58], [0.42, 0.58]]);
+		await expect.poll(() => maskAlpha(page, 0.5, 0.5)).toBe(255);
+		expect(await maskAlpha(page, 0.35, 0.5)).toBe(0);
+		expect(await maskAlpha(page, 0.65, 0.5)).toBe(0);
+	});
+});
+
+test.describe('the lasso on a phone', () => {
+	test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+	test('docks Brush and Lasso above the tool strip', async ({ page }) => {
+		await mockEditor(page);
+		await loginAsOwner(page);
+		await clearEdits(page);
+		await page.goto('/generate');
+		await expect(page.locator('.studio-topbar')).toBeVisible({ timeout: 15000 });
+		await page.getByRole('button', { name: /^Open tabs/ }).click();
+		await page.getByRole('dialog', { name: 'Tabs' }).getByRole('button', { name: 'Image editor' }).click();
+		const phone = page.getByTestId('phone-tool-tab');
+		await phone.locator('[data-start-source="history"]').click();
+		await page.getByTestId('history-file-tile').first().locator('[data-pick-main]').click();
+		await expect(phone.locator('[data-editor-frame="phone"]')).toBeVisible();
+		await phone.locator('[data-tool-rail="strip"] [data-group-button="generate"]').click();
+		await page.locator('[data-rail-sheet="generate"] [data-sheet-item="edit_region"]').click();
+		await expect(page.locator('[data-rail-sheet]')).toHaveCount(0);
+		const presets = page.locator('[role="dialog"][aria-label="Choose preset"]');
+		await presets.waitFor({ state: 'visible', timeout: 4000 }).catch(() => undefined);
+		if (await presets.isVisible()) await page.keyboard.press('Escape');
+		await expect(page.locator('[data-frame-sheet]')).toHaveCount(0);
+		await expect(phone.locator('[data-mask-layer]')).toBeVisible();
+		await expect(phone.locator('[data-task-mark-bar]')).toBeVisible();
+		await screenshot(page, JOURNEY, '10b-mask-brush-390');
+
+		await phone.locator('[data-task-mark-bar]').getByRole('button', { name: 'Lasso', exact: true }).click();
+		await expect(phone.locator('[data-task-mark-bar]').getByRole('group', { name: 'Lasso mode' })).toBeVisible();
+		await drag(page, [[0.55, 0.3], [0.8, 0.35], [0.82, 0.6], [0.6, 0.7]]);
+		await expect(phone.locator('[data-mask-area]')).toBeVisible();
+		await expect.poll(() => maskAlpha(page, 0.7, 0.5)).toBe(255);
+		await screenshot(page, JOURNEY, '10-mask-lasso-390');
+
+		const overflowX = await page.evaluate(() => document.scrollingElement!.scrollWidth - document.scrollingElement!.clientWidth);
+		expect(overflowX).toBeLessThanOrEqual(0);
 	});
 });

@@ -8,7 +8,7 @@
 	import { nsfwFilterStore, type NsfwFilterMode } from '$lib/stores/nsfwFilter';
 	import { notifications } from '$lib/stores/notifications';
 	import type { NotificationTypePref } from '$lib/services/api/notifications';
-	import { Button, Card, Input, Spinner, Switch, Alert } from '$lib/components/ui';
+	import { Button, Card, EmptyState, Input, Spinner, Switch, Alert } from '$lib/components/ui';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import PlanUsageCard from '$lib/plans/components/PlanUsageCard.svelte';
@@ -528,9 +528,7 @@
 							{/each}
 
 							{#if prefTypes.length === 0}
-								<div class="py-10 text-center">
-									<p class="text-sm text-fg-muted">No configurable notification types.</p>
-								</div>
+								<EmptyState compact icon="bell" title="No configurable notification types" />
 							{/if}
 						{/if}
 					</Card>

@@ -1,0 +1,28 @@
+schema_version: 1
+task: edit_region
+from: edit
+region: crop
+inputs:
+  source: source_image
+fixed:
+  output_size: match
+fields:
+  add:
+  - into:
+      tab: advanced
+    fields:
+    - name: region_context
+      type: select
+      label: Surroundings
+      audience: advanced
+      default: '0.5'
+      ai_hint: How much of the picture around the marked area the model sees. Wide
+        helps the change match large neighbouring shapes.
+      configuration:
+        options:
+        - label: Tight
+          value: '0.25'
+        - label: Balanced
+          value: '0.5'
+        - label: Wide
+          value: '1.0'

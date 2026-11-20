@@ -694,6 +694,13 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 	let aboveShown = $state<string | null>(null);
 	let shownTarget: { id: string | null; layer: Layer } | null = null;
 	let paintCurrent = $state(false);
+	let paintInSync = $derived(
+		paintCurrent &&
+			!!paintTarget &&
+			paintTarget.id === paintTargetId &&
+			paintBaseKey === paintBelowKey &&
+			aboveShown === `${paintAboveKey}#${paintBase?.canvas.width}x${paintBase?.canvas.height}`
+	);
 
 	let thumbOf = $derived.by(() => {
 		void layerRevision;
@@ -2863,7 +2870,7 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 					session={paintSession}
 					tool={paintToolOfEntry(activeTool!)}
 					zoomControl={!phone}
-					locked={busy || !paintCurrent}
+					locked={busy || !paintInSync}
 					onstate={(session, snapshot) => {
 						if (session === paintSession) paintState = snapshot;
 					}}

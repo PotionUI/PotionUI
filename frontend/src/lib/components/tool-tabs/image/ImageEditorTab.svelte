@@ -663,7 +663,11 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 		void layerRevision;
 		return paintSplit ? layerStore.display(paintSplit.below) : null;
 	});
-	let paintBelowKey = $derived(paintBelowDraft ? stepsKey(paintBelowDraft) : null);
+	let paintBelowKey = $derived(
+		paintBelowDraft
+			? stepsKey(paintBelowDraft.map((step) => (step.tool === 'paint' && layerStore.has(step.id) ? { ...step, params: { ...(step.params as object), layer: '' } } : step)))
+			: null
+	);
 	let paintBelow = $derived.by(() => {
 		void paintBelowKey;
 		return untrack(() => paintBelowDraft);

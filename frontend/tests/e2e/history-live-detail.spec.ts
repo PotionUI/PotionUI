@@ -167,6 +167,30 @@ test.describe('a running generation opens from History and turns into the finish
 		await page.screenshot({ path: join(dirname(shot), 'origin-header-1440.png'), clip: { x: 104, y: 68, width: 1224, height: 72 } });
 	});
 
+	test('a generation started from a Generate tab opens with its live state and replayed preview, and a queued one opens as queued', async ({ page }) => {
+		test.setTimeout(90000);
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await install(page, null);
+		await page.goto('/history');
+		await expect(tile(page, RUN)).toBeVisible({ timeout: 20000 });
+		await tile(page, RUN).locator('.media-zoom').click();
+		const running = dialog(page);
+		await expect(running.locator('[data-live-stage]')).toBeVisible({ timeout: 10000 });
+		await expect(running.locator('[data-live-step]')).toContainText('step 17/28');
+		await expect(running.locator('[data-live-preview]')).toBeVisible();
+		await expect(running.locator('[data-live-action="cancel"]')).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(dialog(page)).toHaveCount(0);
+
+		await expect(tile(page, QUEUED)).toBeVisible();
+		await tile(page, QUEUED).locator('.media-zoom').click();
+		const queued = dialog(page);
+		await expect(queued.locator('[data-live-stage]')).toBeVisible({ timeout: 10000 });
+		await expect(queued.locator('[data-live-step]')).toContainText('Waiting in the queue');
+		await expect(queued.locator('[data-live-waiting]')).toContainText('Waiting in the queue');
+		await expect(queued.locator('[data-live-action="cancel"]')).toBeVisible();
+	});
+
 	test('a failure shows the error where the media was and keeps the parameters', async ({ page }) => {
 		test.setTimeout(90000);
 		await page.setViewportSize({ width: 1440, height: 900 });

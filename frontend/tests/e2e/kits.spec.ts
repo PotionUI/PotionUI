@@ -335,7 +335,7 @@ test.describe('Kits in the Library', () => {
 				await expect(area).toBeVisible();
 				if (view.url === '/library') await expect(page.locator('[data-library-card-body]').first()).toBeVisible();
 				if (view.url.includes('view=kits') && !view.url.includes('kit=')) await expect(page.locator('[data-kit-card]').first()).toBeVisible();
-				if (view.url.includes('kit=')) await expect(page.getByRole('button', { name: 'Delete kit' })).toBeVisible();
+				if (view.url.includes('kit=')) await expect(page.getByRole('button', { name: 'More actions' })).toBeVisible();
 				const header = area.locator('.sticky, header').first();
 				const frame = async () => ({
 					page: await page.evaluate(() => document.scrollingElement!.scrollTop),
@@ -365,11 +365,13 @@ test.describe('Kits in the Library', () => {
 		await mockLibrary(page);
 		const backend = await mockKits(page, [seedMara()]);
 		await page.goto('/library?view=kits&kit=kt_7f3a1c2e');
-		await page.getByRole('button', { name: 'Delete kit' }).click();
+		await page.getByRole('button', { name: 'More actions' }).click();
+		await page.getByRole('menuitem', { name: 'Delete kit' }).click();
 		await expect(page.getByRole('alertdialog')).toBeVisible();
 		await page.keyboard.press('Escape');
 		expect(backend.kits).toHaveLength(1);
-		await page.getByRole('button', { name: 'Delete kit' }).click();
+		await page.getByRole('button', { name: 'More actions' }).click();
+		await page.getByRole('menuitem', { name: 'Delete kit' }).click();
 		await page.getByRole('alertdialog').getByRole('button', { name: 'Delete kit' }).click();
 		await expect.poll(() => backend.kits.length).toBe(0);
 		await expect(page).toHaveURL(/view=kits$/);

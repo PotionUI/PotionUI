@@ -34,8 +34,8 @@ export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
 	{ id: 'housekeeping', label: 'Housekeeping', icon: 'trash' },
 	{ id: 'search_tagging', label: 'Search & Tagging', icon: 'search' },
 	{ id: 'generation', label: 'Generation', icon: 'image' },
-	{ id: 'media_tools', label: 'Media tools', icon: 'film' },
 	{ id: 'diagnostics', label: 'Diagnostics', icon: 'flask' },
+	{ id: 'media_tools', label: 'Media tools', icon: 'film' },
 	{ id: 'external_login', label: 'External Login', icon: 'globe' },
 	{ id: 'logs', label: 'Logs', icon: 'clipboard-list' }
 ];

@@ -245,8 +245,8 @@ async def test_a_tile_without_a_picture_fails_the_run(upscaling):
     run = await manager.start(USER, "upscale", upscale_body(edit_id, scale=4))
     for index in range(9):
         await until(lambda: len(fakes.requests) == index + 1)
-        results = [] if index == 8 else [structured(2048, 2048, index)]
-        await settle_part(manager, fakes, f"g{index + 1}", results=results, size=(2048, 2048))
+        results = [] if index == 8 else [structured(8, 8, index)]
+        await settle_part(manager, fakes, f"g{index + 1}", results=results)
 
     done = await until_terminal(manager, USER, run["id"])
 

@@ -27,6 +27,7 @@ from tests.features.presets.editor_mode_trees import (
     ROOT,
     SDXL,
     copy_preset,
+    shipped_editor_issues,
     write_editor_mode,
 )
 
@@ -75,9 +76,8 @@ def test_a_valid_editor_mode_lints_clean(tree):
     assert messages(issues, "warning") == []
 
 
-def test_the_shipped_editor_modes_lint_clean():
-    issues = PresetLinter([str(ROOT / "content" / "presets" / "marketplace")]).lint()
-    editor = [issue for issue in issues if "editor_mode" in issue.message]
+def test_the_shipped_editor_modes_lint_clean(shipped_editor_issues):
+    editor = [issue for issue in shipped_editor_issues if "editor_mode" in issue.message]
     assert [issue for issue in editor if issue.level != "info"] == []
 
 

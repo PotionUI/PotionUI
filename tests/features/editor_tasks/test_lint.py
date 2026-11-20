@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from src.features.presets.linter import PresetLinter
+from tests.features.presets.editor_mode_trees import shipped_editor_issues
 from tests.features.editor_tasks.support import (
     BASE_FIELDS,
     CROP,
@@ -117,11 +118,11 @@ def test_an_editor_yml_alone_is_not_reported(root):
     assert editor_issues(root) == []
 
 
-def test_the_shipped_editor_modes_have_no_errors_and_no_warnings():
+def test_the_shipped_editor_modes_have_no_errors_and_no_warnings(shipped_editor_issues):
     files = sorted(MARKETPLACE.glob("*/editor_modes/*/editor_mode.yml"))
 
     assert len(files) == 32
-    issues = [issue for issue in editor_issues(MARKETPLACE) if issue.level != "info"]
+    issues = [issue for issue in shipped_editor_issues if issue.level != "info"]
     assert [issue.message for issue in issues] == []
 
 

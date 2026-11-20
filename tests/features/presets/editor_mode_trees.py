@@ -1,13 +1,29 @@
 import shutil
+from functools import lru_cache
 from pathlib import Path
 
+import pytest
 import yaml
+
+from src.features.presets.linter import PresetLinter
 
 ROOT = Path(__file__).resolve().parents[3]
 MARKETPLACE = ROOT / "content" / "presets" / "marketplace"
 KREA2 = "Krea2"
 SDXL = "SDXL"
 KREA2_ID = "4TK1KBQZ2XMB8ME0PTMXS1YJQP"
+
+
+@lru_cache(maxsize=1)
+def scan_shipped_editor_issues():
+    issues = PresetLinter([str(MARKETPLACE)]).lint()
+    return tuple(issue for issue in issues if "editor_mode" in issue.message or "editor.yml" in issue.message)
+
+
+@pytest.fixture(scope="session")
+def shipped_editor_issues():
+    return scan_shipped_editor_issues()
+
 
 KREA_EDITOR = {
     "schema_version": 1,

@@ -42,6 +42,11 @@ def field(name, type_="string", **configuration):
     return FieldTemplate(type=type_, name=name, configuration=configuration or None)
 
 
+@pytest.fixture(autouse=True)
+def warmed_linter(shipped_editor_issues):
+    return shipped_editor_issues
+
+
 @pytest.fixture
 def tree(tmp_path):
     root = tmp_path / "presets"

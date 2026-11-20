@@ -14,6 +14,7 @@ export type SettingsGroupId =
 	| 'housekeeping'
 	| 'search_tagging'
 	| 'generation'
+	| 'media_tools'
 	| 'diagnostics'
 	| 'external_login'
 	| 'logs';
@@ -33,6 +34,7 @@ export const SETTINGS_GROUPS: SettingsGroupDescriptor[] = [
 	{ id: 'housekeeping', label: 'Housekeeping', icon: 'trash' },
 	{ id: 'search_tagging', label: 'Search & Tagging', icon: 'search' },
 	{ id: 'generation', label: 'Generation', icon: 'image' },
+	{ id: 'media_tools', label: 'Media tools', icon: 'film' },
 	{ id: 'diagnostics', label: 'Diagnostics', icon: 'flask' },
 	{ id: 'external_login', label: 'External Login', icon: 'globe' },
 	{ id: 'logs', label: 'Logs', icon: 'clipboard-list' }
@@ -50,7 +52,7 @@ export function resolveSettingsGroupId(requested: string | null): SettingsGroupI
 }
 
 export function settingsGroupHasFooter(id: SettingsGroupId): boolean {
-	return id !== 'logs' && id !== 'api_keys';
+	return id !== 'logs' && id !== 'api_keys' && id !== 'media_tools';
 }
 
 export function computeDirtyGroups(dirtyKeys: readonly string[]): Set<SettingsGroupId> {

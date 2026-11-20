@@ -21,6 +21,12 @@
 	import CostValue from './CostValue.svelte';
 	import GenerationRunReport from './GenerationRunReport.svelte';
 	import RunningGenerationsPanel from './RunningGenerationsPanel.svelte';
+	import { HeaderSegmented } from '$lib/components/page-header';
+	import MediaToolsActivity from './activity/MediaToolsActivity.svelte';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
+	import { getMediaToolPool, type MediaToolPool } from '$lib/services/api/mediaToolsPool';
+	import { POOL_POLL_MS } from './activity/mediaToolsPool';
+	import type { LibrarySectionMeta } from '$lib/components/library/librarySection';
 	import GenerationsFiltersPopover from './GenerationsFiltersPopover.svelte';
 	import { GENERATION_LIBRARY_SECTIONS, sectionFromStatus, statusFromSection, type GenerationSection } from './generations/generationsSections';
 	import { categoryLabel, durationFor, presetTitleFor, sortByFromSortState, sortStateFromSortBy } from './generations/generationsColumns';
@@ -33,6 +39,21 @@
 		type GenerationsFilters,
 		generationsFilters
 	} from './generationsFilters';
+
+	type ActivitySection = 'generations' | 'media_tools';
+
+	const ACTIVITY_SECTIONS: readonly LibrarySectionMeta<ActivitySection>[] = [
+		{ id: 'generations', label: 'Generations', icon: 'generation' },
+		{ id: 'media_tools', label: 'Media tools', icon: 'film' }
+	];
+
+	const STATUS_FACET_LABELS: Record<GenerationSection, string> = {
+		all: 'All',
+		completed: 'Completed',
+		running: 'Running',
+		failed: 'Failed',
+		cancelled: 'Cancelled'
+	};
 
 	const FILTER_PARAM_KEYS = ['q', 'status', 'category', 'user', 'from', 'to', 'sort_by'];
 
@@ -75,7 +96,36 @@
 	const sort = $derived(sortStateFromSortBy(filters.sortBy));
 
 	let sectionCountsCache = $state<Partial<Record<GenerationSection, number>>>({});
+	const view = $derived($page.url.searchParams.get('view') === 'media_tools' ? 'media_tools' : 'generations');
+	const onMediaTools = $derived(view === 'media_tools');
+	const shellSection = $derived<ActivitySection>(view);
+
+	let pool = $state<MediaToolPool | null>(null);
+	let poolLoaded = $state(false);
+	let poolError = $state<string | null>(null);
+
+	async function loadPool() {
+		try {
+			pool = await getMediaToolPool();
+			poolError = null;
+		} catch (e) {
+			logger.error('Failed to load the media tools pool:', e);
+			poolError = e instanceof Error ? e.message : 'Could not load the media tools pool.';
+		} finally {
+			poolLoaded = true;
+		}
+	}
+
+	const poolPoll = createVisiblePoll(loadPool, POOL_POLL_MS);
+
+	const poolCount = $derived(pool ? pool.running + pool.queued : 0);
+	const shellCounts = $derived<Partial<Record<ActivitySection, number>>>({
+		generations: sectionCountsCache.running,
+		media_tools: poolCount
+	});
+
 	const shownTotal = $derived(section === 'running' ? (sectionCountsCache.running ?? 0) : total);
+	const shellTotal = $derived(onMediaTools ? poolCount : shownTotal);
 
 	$effect(() => {
 		if (filtersKey !== lastFiltersKey) {
@@ -94,6 +144,12 @@
 			selected = new Set();
 			if (viewId) void loadDetail(viewId);
 		});
+	});
+
+	onMount(() => {
+		void loadPool();
+		poolPoll.start();
+		return () => poolPoll.stop();
 	});
 
 	onMount(async () => {
@@ -169,6 +225,7 @@
 	function applyFilters(next: GenerationsFilters) {
 		const url = new URL($page.url);
 		for (const key of FILTER_PARAM_KEYS) url.searchParams.delete(key);
+		url.searchParams.delete('view');
 		for (const [key, value] of generationsFilters.toSearchParams(next)) url.searchParams.set(key, value);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
@@ -199,9 +256,30 @@
 		applyFilters(generationsFilters.clearAll(filters));
 	}
 
-	function selectSection(id: GenerationSection) {
-		applyFilters({ ...filters, status: statusFromSection(id) });
+	function selectSection(id: ActivitySection) {
+		if (id === 'media_tools') {
+			const url = new URL($page.url);
+			for (const key of [...FILTER_PARAM_KEYS, 'id']) url.searchParams.delete(key);
+			url.searchParams.set('view', 'media_tools');
+			void goto(url, { keepFocus: true, noScroll: true });
+			return;
+		}
+		const url = new URL($page.url);
+		url.searchParams.delete('view');
+		void goto(url, { keepFocus: true, noScroll: true });
 	}
+
+	function selectStatus(id: string) {
+		applyFilters({ ...filters, status: statusFromSection(id as GenerationSection) });
+	}
+
+	const statusItems = $derived(
+		GENERATION_LIBRARY_SECTIONS.map((entry) => ({
+			value: entry.id,
+			label: STATUS_FACET_LABELS[entry.id],
+			count: sectionCountsCache[entry.id]
+		}))
+	);
 
 	function onRunningCountChange(count: number) {
 		sectionCountsCache = { ...untrack(() => sectionCountsCache), running: count };
@@ -301,22 +379,23 @@
 {/snippet}
 
 <LibraryShell
-	title="Generations"
+	title="Activity"
 	persistKey="admin-generations-library"
 	heightClass="h-full"
-	sections={GENERATION_LIBRARY_SECTIONS}
-	{section}
+	sections={ACTIVITY_SECTIONS}
+	section={shellSection}
 	onSelectSection={selectSection}
-	sectionCounts={sectionCountsCache}
-	count={shownTotal}
-	{detailOpen}
-	filterChips={chips}
+	sectionCounts={shellCounts}
+	count={shellTotal}
+	detailOpen={detailOpen && !onMediaTools}
+	filterChips={onMediaTools ? [] : chips}
 	{onRemoveChip}
 	onClearFilters={onClearAllFilters}
-	loadedCount={section === 'running' ? shownTotal : generations.length}
-	total={shownTotal}
+	loadedCount={onMediaTools ? poolCount : section === 'running' ? shownTotal : generations.length}
+	total={shellTotal}
 >
 	{#snippet toolbar()}
+		{#if !onMediaTools}
 		<LibraryFilterBar
 			q={filters.q}
 			{onQueryChange}
@@ -326,13 +405,21 @@
 			{onSortChange}
 			filterCount={activeFilterCount}
 		>
+			{#snippet afterSearch()}
+				<HeaderSegmented label="Status" items={statusItems} value={section} onchange={selectStatus} />
+			{/snippet}
 			{#snippet popover(close: () => void)}
 				<GenerationsFiltersPopover {filters} {users} onChange={onPopoverChange} onClose={close} />
 			{/snippet}
 		</LibraryFilterBar>
+		{/if}
 	{/snippet}
 
-	{#if detailOpen}
+	{#if onMediaTools}
+		<div class="flex flex-col gap-3 p-4">
+			<MediaToolsActivity {pool} loaded={poolLoaded} loadError={poolError} onReload={loadPool} />
+		</div>
+	{:else if detailOpen}
 		{#if detailLoading && !detail}
 			<div class="flex h-full items-center justify-center">
 				<Spinner size="lg" />

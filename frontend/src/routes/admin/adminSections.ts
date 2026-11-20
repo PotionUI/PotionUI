@@ -10,7 +10,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
 	{ key: 'presets', label: 'Presets', icon: 'cube' },
 	{ key: 'recipes', label: 'Recipes', icon: 'list' },
 	{ key: 'backends', label: 'Backends', icon: 'server' },
-	{ key: 'generations', label: 'Generations', icon: 'generation' },
+	{ key: 'generations', label: 'Activity', icon: 'generation' },
 	{ key: 'users', label: 'Users', icon: 'group' },
 	{ key: 'llm', label: 'LLM / Assistant', icon: 'model' },
 	{ key: 'plugins', label: 'Plugins', icon: 'extension' },

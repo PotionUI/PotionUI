@@ -101,7 +101,7 @@
 		{ id: 'presets', label: 'Presets' },
 		{ id: 'recipes', label: 'Recipes' },
 		{ id: 'backends', label: 'Backends' },
-		{ id: 'generations', label: 'Generations' },
+		{ id: 'generations', label: 'Activity' },
 		{ id: 'users', label: 'Users' },
 		{ id: 'llm', label: 'LLM / Assistant' },
 		{ id: 'plugins', label: 'Plugins' },

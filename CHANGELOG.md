@@ -3,6 +3,21 @@
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
 
+### 0.3.0 — 2026-11-20
+
+- Image editor: edits are saved on the server; every tab autosaves, a new tab opens on a list of recent edits to continue, a picture saved from the editor keeps its steps so Edit reopens it as you left it, closing a saved tab no longer asks, and Save as new and exports name the Library item from the tab name; Layers and Edits are two panels and edits apply to the whole layered picture; each paint layer is its own row with opacity, rename, reorder, Duplicate and Merge down, a paint or picture layer can be added at any time, and everything is one undo history; a generated step whose picture changed underneath is marked stale and can be regenerated; Generate has a floating prompt and a form beside the canvas; a lasso joins the brush as a region tool; the header is a menu bar, the canvas has an action bar, and Formulas and Settings sit in the dock with the applied count; the legacy modal editor is gone from media fields and media tool dialogs.
+- Editor tasks: Edit a region runs any preset mode on a marked region and blends the result back as a patch; Remove an object and Replace the background run in one click with no prompt writing; Expand puts a picture on a larger canvas in several formats at once, with social and banner sizes, a custom size and a draggable position; Upscale takes a factor or a size and runs tiled with feathered blending; Fix faces and hands finds faces to tick, accepts hand marks and a strength, and lands as a layer; each task can use a setup of your choice, with your own default.
+- Video editor: follows the Image editor with a rail of tools, options as form fields and the panel on the left; clips are saved as edits like pictures; extend, upscale, restore, refine faces, colorize, day to night and remove object run on the whole clip or a marked time range and splice back in.
+- Editor extensions: tools, rail entries, overlays, step kinds and tasks are registries that core and plugins use the same way; tool options are declared as fields rendered by the dynamic form; presets declare editor modes and the tasks their modes can do; editor sessions hold a mode's values and settings.
+- Kits: kit cards show every preview picture whole at its own aspect in a packed layout; the kits list has a Per page picker; the new manage_kits tool lets MCP and chat list, inspect, create, edit, fill and delete kits.
+- History: a running generation opens in Generation Details with its parameters and live preview and turns into the finished view in place; the origin badge sits in the details header; History has an origin filter; Reuse settings opens the Generate tab from History, prompts, model pages and the grid viewer.
+- Pages: Kits, Library, History, Inspirations, Models, Prompts, Phrasebook and Auto-organize share one list header with themed, searchable filters.
+- Admin: the Activity tab shows the media tools pool queue, with its limits in System Settings.
+- Native engine and models: LTX-2.5 gets Text to Video, Image to Video and First to Last Frame; MiniMax-Music3 compiles its depth decoder and replays the language model step as one CUDA graph, and lyrics are optional while Instrumental is on; sampling placement prices activations per token so a full-size Qwen-Image-2.1 edit evicts the co-resident models it needs to.
+- MCP: a LoRA can be attached to a generation by id, file name or path.
+- Fixes: RunPod provider moves to RunPod's REST API v2; Google Gemini lists the 22 October 2026 Veo 3.1 shutdown; Windows serves .js, .css, .wasm and .svg with the right content type, and the local storage driver retries renaming a file another handle briefly holds; MiniMax-H3 cover-crops reference pictures, clips and start pictures instead of squeezing them; the editor saves a mode-keyed session without nesting its values one level too deep; a paint stroke drawn while a layer is re-shown or right after adding one is no longer lost.
+- Upgrading: saved edits live in a new server table and old editor configuration files (editor.yml) are no longer read; on first start your existing editor sessions and each user's default task setups move to the new mode keys, and any that cannot be matched to a mode are left as they were; paint saved by an earlier version opens as a single layer; install the update, start once, and open the Image editor to continue earlier work.
+
 ### 0.2.0 — 2026-11-13
 
 - Kits: a kit is a named set of pictures, clips, audio and text in the Library; cite an item in a
@@ -261,137 +276,3 @@ The three most recent releases; older history lives in the
   Desktop the first driver-level GPU out-of-memory error stops new GPU runs until Restart Backend
   (`POTIONUI_CUDA_DRIVER_OOM=retry` keeps the old retrying); plugins that imported the fixed model
   type and folder alias lists read them from the live registry instead.
-
-### 0.0.18 — 2026-10-30
-
-- Onboarding: the first run explains what PotionUI is and that the owner account stays in this
-  install's own database, then a guide inside the app checks this computer's GPU, memory and free
-  space, picks a starter model that fits, asks where models live (Start fresh or Use an existing
-  folder), offers an optional Hugging Face token and installs the starter; the guide can be skipped
-  and resumed from the sidebar or Settings; the Hugging Face provider is on by default and Guided
-  setup enables the plugins it needs, so a fresh install no longer fails on the recipe download; a
-  remote claim without the setup token names the file that holds it; the password reset script
-  resets the owner when no username is given and can run from the Pinokio menu, and the Pinokio launcher now
-  installs from master.
-- Media tools: one catalog of operation tools (trim, crop, resize, rotate, flip, speed, fit canvas,
-  color key, crop to subject, frame, split, concat) runs through one cancellable ffmpeg runner, with
-  chained steps fused into a single run; the Tools menu and card menu on Library and History group
-  them as Edit and Effects submenus, the details window has a tool row, cards show progress with
-  Cancel, and Library edits offer Save as new or Replace original while an edit of a generation
-  always saves a new Library copy; Concat takes per-clip trims and crossfades;
-  images and videos get a Resize editor with sizes worked out from the original; canvas and resize
-  are capped at 8192 px, a video's audio is re-encoded when the container changes, audio trims keep
-  the source's sample format and color keying keeps transparency.
-- Media tools elsewhere: PotionAI chat and MCP can run any media tool from the live catalog,
-  saving new copies at once and asking approval only to replace; automations get a Media Tool action
-  that hands the result items to later nodes; presets can run media tools as a step; plugins add
-  their own tools; the old `/api/media/edit` and
-  `/api/media/split` API, the AudioTools preset and the seven pipes the catalog replaced are removed.
-- Details windows: History and Library details open with an action bar above the media (Reuse,
-  Edit, Effects, Favorite, Download and a menu for the rest), with E, D and F working as the hints
-  show and a sheet on phones; History and Library cards share one corner layout of checkbox,
-  Favorite and menu; an edit started from History opens the saved copy in the Library item window
-  over History without leaving the page, Back or Escape returns to the generation's details at the
-  same file and scroll position, Cancel or a failure reopens them, a failure offers Try again with
-  the settings kept, Library items made from a generation link back to it, and an edit that keeps
-  running after its editor closes shows a progress chip with Cancel.
-- Chat: a new LLM harness runs every turn as stored, resumable steps, so a turn paused for an
-  approval continues where it stopped, an interrupted or cancelled turn keeps its partial steps, and
-  a transient provider failure retries with backoff and a notice; Anthropic, OpenAI Responses,
-  Gemini and OpenRouter get their own adapters beside Ollama and OpenAI-compatible servers; a
-  reasoning model's thinking is kept across tool calls and approval pauses and shown as raw, summary
-  or hidden blocks with how long the model thought; read-only tools run in parallel; the tool list
-  only grows during a turn so the prompt cache survives, and Anthropic's one-hour cache is used when
-  asked for.
-- LLM profiles and cost: every model has a capability profile (context window, output limit, prices,
-  vision, reasoning controls, recommended sampling) resolved from the profiles PotionUI ships, what
-  the server reports and admin overrides, with a Profile tab in Admin showing where each value
-  came from; each step is priced with cached input, cache writes and reasoning counted, and every
-  provider step is traced; Temperature and Max tokens can be left empty for the model's own value;
-  a DeepSeek plugin adds deepseek-flash and deepseek-v4-pro, and plugins can add LLM configuration
-  types.
-- LTX-2.5: Restore, Colorize, Day to night, Add water, Remove object, Layout to render and
-  Cinemagraph modes join Extend and Refine faces, with captions in the format each Lightricks model
-  card gives and one prompt per image when variables or several images are used; Upscale can use the
-  Generative 2x or Refine details LoRA; edit modes keep the source audio and length, take the whole
-  clip in one pass when it fits in VRAM and otherwise run the fewest equal crossfaded windows, and
-  the DiT stays on the GPU through a decode that fits beside it; every mode follows the Krea-2 tab
-  layout with a speed profile and defaults to the Distilled profile (8 steps, CFG 1, also for
-  LTX-2), so runs are faster and no longer overbaked, while Balanced and Quality say they need the
-  dev checkpoint; Colorize defaults to 544p, the model's training size, and its caption follows the
-  model card (a grayscale reference half, the colours named in the COLORIZE half); Restore and
-  Upscale show all their task LoRAs or method models at once and require only the file for the
-  selected Fix or Method (preset authors get a form reaction that makes a field required or
-  optional); the log warns when a LoRA matched none of the model's weights.
-- MiniMax-H3: new Extend, Refine faces, Remix and Talking video modes; Extend continues a video or
-  adds a lead-in and joins it to the source; reference pictures narrower than 1:4 or wider than 4:1
-  are padded with white instead of rejected, transparent cutouts are flattened onto white, auto
-  resolution follows a reference video, and a reference video is decoded only as far as the clip
-  can reach; every H3 mode shares one layout with a References tab and a speed profile; Upscale no
-  longer turns the clip into a grid, because the latent upscaler now gets latents normalized the way
-  it was trained, and Video mode with latent upscale hands its first stage on in the right space; the
-  Upscale encode moves a resident DiT off the GPU when it needs the room, tiles to the free VRAM and
-  steps the tile down on out of memory, a decode-only VAE is refused for Upscale with a clear message,
-  a silent source clip no longer fails the audio step, and Upscale's prompt is optional and works
-  when left empty; Refine faces keeps the face clean; Talking video and other optional-prompt modes
-  no longer send a stale prompt when the box is left empty.
-- Qwen-Image 2.1: new Edit text, Restyle (style, background, lighting, colourise and restore tasks)
-  and Combine images (one edited image plus up to nine references pointed at with @) modes; Edit
-  image crops a painted region with scaled context and composites it back pixel-exact; the control
-  mode is now called Structure; Restyle and Edit text read the standard prompt, so segments,
-  phrasebooks and variables work there, and a preset can mark a prompt optional so Generate does not
-  wait for text.
-- Prompts and generation: the prompt section header shows batch prompts as tabs with rename,
-  duplicate and delete and a list of all prompts; prompt editor text no longer renders below 12px;
-  progress spans the whole run when a batch of prompts or a quantity above one renders several
-  images, instead of sticking at 100% after the first, and the panel describes each stage in plain
-  words; a mode can declare its own missing files, which flag and block only that mode, and a
-  just-downloaded LoRA unblocks Generate without a refresh; a mode names what its prompt is for
-  with a label and an example, so Edit text asks for placement and
-  style, Talking video for the scene and every LTX-2.5 edit mode for what it changes, while exact
-  text and spoken words stay in their fields; the Generate page no longer flashes a disconnected
-  banner or the wrong empty state while it loads.
-- PotionAI modes: History, Models and Phrasebook get their own welcome text and no longer follow
-  the Generate page's prompt-writing reply format, while every mode with tools is still told to act
-  rather than announce; the chat Stop button has an accessible name, and users see their LLM's
-  Show thinking setting.
-- Fixes: reopened History details show the real preset name; Library, History and Models titles
-  say 1 item, 1 generation, 1 model; Library type counts follow Favorites, a collection or Unsorted;
-  a new Library card shows a loading placeholder instead of black; every setup wizard step opens at
-  the top, the models path wraps only at a separator and the download consent reads as a sentence;
-  the paint editor footer matches the other editors; the generation details stage and the picker
-  tiles show a loading placeholder instead of black until the image has loaded; leaving the Tools
-  Edit submenu with Escape or ArrowLeft no longer logs a Svelte state error; a tab edit still
-  waiting to be saved is saved when the page is hidden or closed, so a quick reload keeps it; on Windows a joined video no longer loses the
-  last frame of every clip.
-- Library and pickers: Library items can be favorited from the card menu and the details corner,
-  with a Favorites view; the Uploads picker shows your library in the Library's justified mosaic,
-  with checkboxes and a preview magnifier; a painted inpaint mask reaches the form data, the mask
-  editor saves a clean black and white mask, and faint stray pixels no longer stretch the inpaint
-  region; the mode and variant pickers use the preset picker's dropdown and grow to fit their options,
-  and every new mode has its own icon, including a redrawn Upscale, Extend and Talking video, with
-  Cinemagraph and Combine images drawn so they no longer resemble well-known logos, and every media
-  tool (Rotate, Flip, Fit canvas, Color key, Crop to subject, Frame, Concat) has its own glyph
-  instead of the generic puzzle icon; a signed-in hard load no longer renders the page twice.
-- Privacy: the Artifacts panel is gone from the generation details for every viewer; artifacts
-  live in Admin → Generations and their files are served to admins only; regular users no longer
-  receive server file paths anywhere in generation progress, warnings or errors, only file names.
-- Security: the frontend takes undici 7.30.1, vite 6.4.5 and vitest 4.1.12, and the plugin build
-  toolchain takes zod 4.6.7.
-- Models and downloads: a model file gets its type verdict as soon as its header is read, keyed by a
-  hash of the header and shared by files with the same header; indexing reads files less, with a
-  moved file keeping its digest, downloads hashed while they stream and progress pushed instead of
-  polled; a download reports complete only after its model is indexed; a recommendation whose name
-  ends in a model file extension downloads under that name; the BiRefNet-general recommendations are
-  verified Hugging Face links, also offered by the matting pickers in Pixal3D and TRELLIS2.
-- Native engine and Windows: Resource profile times every sampling step with its attention mode,
-  step-cache skip and wait for streamed weights, and its report adds a step table; FLUX 3 Klein
-  INT8 ConvRot checkpoints load; nvfp4 layers build their dequant tables only when needed and warn
-  once per reason when they fall back; the frontend builds again when the shell starts in a
-  lowercase Windows drive letter.
-- Upgrading: existing chats are converted to stored steps on first start; OpenAI configurations that
-  point at a server other than api.openai.com become the openai-compatible type and configurations
-  on openrouter.ai become OpenRouter; a Temperature still at the old 0.7 default is cleared to Model
-  default, and the context window and `num_ctx` settings move from the configuration form to the
-  Profile tab; plugins that used the `history_tools` key move to `media_tools`, and anything that
-  called `/api/media/edit` or `/api/media/split` must use the media tools API.

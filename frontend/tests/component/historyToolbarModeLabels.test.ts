@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { get } from 'svelte/store';
 import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
@@ -67,16 +68,25 @@ describe('History filters show plain mode names', () => {
 	it('labels the mode filter options and keeps the keys as values', async () => {
 		byText('button', 'Filters')!.click();
 		await settle();
-		const select = document.getElementById('history-filter-mode') as HTMLSelectElement;
-		const options = Array.from(select.options).slice(1);
-		expect(options.map((o) => o.textContent?.trim())).toEqual(['Text to Image (4)', 'Image to Video (2)', 'Face Swap (1)']);
-		expect(options.map((o) => o.value)).toEqual(['txt2img', 'img2video', 'face_swap']);
+		document.querySelector<HTMLButtonElement>('button[aria-label="Mode"]')!.click();
+		await settle();
+		const options = Array.from(document.querySelectorAll<HTMLElement>('[role="listbox"][aria-label="Mode"] [role="option"]')).slice(1);
+		expect(options.map((o) => o.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+			'Text to Image 4',
+			'Image to Video 2',
+			'Face Swap 1'
+		]);
+		options[1].click();
+		await settle();
+		expect(get(historyStore).filters.mode).toBe('img2video');
 	});
 
 	it('shows the plain name on the active mode chip', async () => {
 		historyStore.setFilter('mode', 'img2video');
 		await settle();
-		const chip = document.querySelector<HTMLElement>('button.border-dashed')!;
-		expect(chip.textContent?.trim()).toBe('Image to Video');
+		byText('button', 'Filters')!.click();
+		await settle();
+		const chip = document.querySelector<HTMLElement>('[aria-label="Remove Image to Video"]')!;
+		expect(chip.parentElement?.textContent?.trim()).toBe('Image to Video');
 	});
 });

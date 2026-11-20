@@ -114,7 +114,7 @@ describe('prompt workspace create mode', () => {
 	it('opens the same form as editing, empty, with Create disabled, and hides the header toolbar', async () => {
 		mounted = mountWorkspace();
 		await settle();
-		expect(mounted.target.querySelector('input[type="search"]')).not.toBeNull();
+		expect(mounted.target.querySelector('[data-header-search] input')).not.toBeNull();
 
 		await mounted.component.startNewPrompt();
 		await settle();
@@ -125,7 +125,7 @@ describe('prompt workspace create mode', () => {
 		) as HTMLInputElement | null;
 		expect(nameField?.value).toBe('');
 		expect(findButton(mounted.target, 'Create')?.disabled).toBe(true);
-		expect(mounted.target.querySelector('input[type="search"]')).toBeNull();
+		expect(mounted.target.querySelector('[data-header-search] input')).toBeNull();
 	});
 
 	it('enables Create once a segment carries real content', async () => {
@@ -174,6 +174,6 @@ describe('prompt workspace create mode', () => {
 
 		expect(api.createPrompt).not.toHaveBeenCalled();
 		expect(mounted.target.textContent).toContain('No prompts yet');
-		expect(mounted.target.querySelector('input[type="search"]')).not.toBeNull();
+		expect(mounted.target.querySelector('[data-header-search] input')).not.toBeNull();
 	});
 });

@@ -264,8 +264,10 @@ describe('delete kit confirm', () => {
 		calls.getKitUsage.mockResolvedValue({ success: true, data: { sessions: 2, films: 1 } });
 		mountDialog(ConfirmHost, {});
 		mountDialog(KitDetailPane, { kitId: mara.id, onBack: vi.fn(), onDeleted: vi.fn(), onOpenKit: vi.fn() });
-		await vi.waitFor(() => expect(document.querySelector('[aria-label="Delete kit"]')).not.toBeNull());
-		document.querySelector<HTMLElement>('[aria-label="Delete kit"]')!.click();
+		await vi.waitFor(() => expect(document.querySelector('button[aria-label="More actions"]')).not.toBeNull());
+		document.querySelector<HTMLElement>('button[aria-label="More actions"]')!.click();
+		await vi.waitFor(() => expect(document.querySelector('[role="menuitem"]')).not.toBeNull());
+		Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === 'Delete kit')!.click();
 		await vi.waitFor(() => expect(dialog()).not.toBeNull());
 		expect(dialog()?.textContent).toContain('2 saved sessions and 1 Director film');
 		expect(dialog()?.contains(document.activeElement)).toBe(true);
@@ -281,8 +283,10 @@ describe('delete kit confirm', () => {
 		const onDeleted = vi.fn();
 		mountDialog(ConfirmHost, {});
 		mountDialog(KitDetailPane, { kitId: mara.id, onBack: vi.fn(), onDeleted, onOpenKit: vi.fn() });
-		await vi.waitFor(() => expect(document.querySelector('[aria-label="Delete kit"]')).not.toBeNull());
-		document.querySelector<HTMLElement>('[aria-label="Delete kit"]')!.click();
+		await vi.waitFor(() => expect(document.querySelector('button[aria-label="More actions"]')).not.toBeNull());
+		document.querySelector<HTMLElement>('button[aria-label="More actions"]')!.click();
+		await vi.waitFor(() => expect(document.querySelector('[role="menuitem"]')).not.toBeNull());
+		Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === 'Delete kit')!.click();
 		await vi.waitFor(() => expect(dialog()).not.toBeNull());
 		button('Delete kit')?.click();
 		await vi.waitFor(() => expect(onDeleted).toHaveBeenCalled());

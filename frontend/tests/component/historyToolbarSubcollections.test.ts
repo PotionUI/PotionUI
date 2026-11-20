@@ -162,7 +162,7 @@ describe('History filters: include subcollections', () => {
 		await openFilters('potions');
 		includeBox()!.click();
 		await settle();
-		const clearAll = Array.from(document.querySelectorAll<HTMLButtonElement>('[aria-label="Advanced filters"] button')).find(
+		const clearAll = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-filters-popover] button')).find(
 			(b) => b.textContent?.trim() === 'Clear all'
 		)!;
 		expect(clearAll.disabled).toBe(false);

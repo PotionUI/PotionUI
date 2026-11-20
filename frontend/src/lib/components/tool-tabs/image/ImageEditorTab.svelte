@@ -806,6 +806,7 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 				session.refresh();
 			}
 			paintCurrent = true;
+			queueMicrotask(autoSettle);
 		});
 	});
 

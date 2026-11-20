@@ -51,6 +51,8 @@ export interface WireThumbnail {
 	url: string | null;
 	thumbnail_small: string | null;
 	thumbnail_medium: string | null;
+	width?: number | null;
+	height?: number | null;
 }
 
 export interface WireKit {
@@ -100,8 +102,8 @@ function previewFrom(wire: WireKit, kitId: string): KitItem[] {
 		text: null,
 		url: thumb.url,
 		thumbnail_url: thumb.thumbnail_medium ?? thumb.thumbnail_small ?? (thumb.kind === 'image' ? thumb.url : null),
-		width: null,
-		height: null,
+		width: thumb.width ?? null,
+		height: thumb.height ?? null,
 		duration_seconds: null,
 		missing: false,
 		created_at: ''

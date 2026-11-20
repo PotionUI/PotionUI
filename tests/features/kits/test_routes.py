@@ -124,6 +124,7 @@ class TestKitRoutes(RoutesBase):
         self.assertEqual((row["counts"], row["item_count"]), ({"image": 1, "video": 0, "audio": 0, "text": 1}, 2))
         self.assertEqual(row["thumbnails"][0]["url"], "/api/media/uploads/a.png")
         self.assertEqual(row["thumbnails"][0]["thumbnail_small"], "/api/media/uploads/a.png?size=small")
+        self.assertEqual(sorted(set(row["thumbnails"][0]) & {"width", "height"}), ["height", "width"])
         self.assertNotIn("items", row)
 
     def test_patch_renames_and_clears_the_label_only_when_sent(self):

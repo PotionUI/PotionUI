@@ -75,6 +75,12 @@ def summary_to_dict(kit: Kit, counts: Dict[str, int], thumbnails: List[dict]) ->
     }
 
 
-def _thumbnail(upload: Upload) -> Dict[str, Optional[str]]:
+def _thumbnail(upload: Upload) -> Dict[str, Any]:
     media = media_to_dict(upload)
-    return {"url": media["url"], "thumbnail_small": media["thumbnail_small"], "thumbnail_medium": media["thumbnail_medium"]}
+    return {
+        "url": media["url"],
+        "thumbnail_small": media["thumbnail_small"],
+        "thumbnail_medium": media["thumbnail_medium"],
+        "width": media["width"],
+        "height": media["height"],
+    }

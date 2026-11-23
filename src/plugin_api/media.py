@@ -35,7 +35,7 @@ import numbers
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence, Union
 
-from src.features.media.validators import UPLOAD_PURPOSE_USER, UPLOAD_PURPOSES
+from src.features.media.validators import UPLOAD_PURPOSE_DERIVED, UPLOAD_PURPOSE_USER, UPLOAD_PURPOSES
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame as _extract_video_frame
 from src.pipelines.pipes.interpolator.rife.cadence import (
     Slot,
@@ -94,6 +94,7 @@ __all__ = [
     "VideoTranscodeError",
     "convert_image_to_base64",
     "copy_media_file",
+    "delete_user_media",
     "detect_faces",
     "embed_faces",
     "embed_images",
@@ -240,6 +241,33 @@ async def save_user_media(user, path: Union[str, Path], purpose: str = UPLOAD_PU
         raise MediaRefError("unsupported_media", "Only image, video, audio and 3D model files can be stored")
     data = await asyncio.to_thread(_read_admitted, store, source, user_id, purpose, content_type)
     return await _store(container, data, source.name, content_type, user_id, purpose)
+
+
+def _derived_upload(store, user_id: str, ref: LibraryMediaRef):
+    if not isinstance(ref, dict) or ref.get("kind") != "library" or set(ref) != {"kind", "item_id"}:
+        raise MediaRefError("invalid_ref", "Only a library reference can be deleted")
+    item_id = ref["item_id"]
+    if not isinstance(item_id, str) or not item_id:
+        raise MediaRefError("invalid_ref", "A library reference needs item_id")
+    upload = store.upload_repo.get_by_id(item_id, user_id)
+    if upload is None or upload.purpose != UPLOAD_PURPOSE_DERIVED:
+        raise MediaRefError("not_found", "The referenced media is not available")
+    return upload
+
+
+def _delete_derived(store, user_id: str, ref: LibraryMediaRef) -> None:
+    upload = _derived_upload(store, user_id, ref)
+    try:
+        store.delete_upload(upload.filename, user_id)
+    except ValueError:
+        raise MediaRefError("not_found", "The referenced media is not available") from None
+
+
+async def delete_user_media(user, ref: LibraryMediaRef) -> None:
+    user_id = getattr(user, "id", None)
+    if not user_id:
+        raise PermissionError("A user is required to delete media")
+    await asyncio.to_thread(_delete_derived, get_container().media_store, user_id, ref)
 
 
 _COPY_CHUNK = 1 << 20

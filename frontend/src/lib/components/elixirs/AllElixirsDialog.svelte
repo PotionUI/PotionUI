@@ -11,6 +11,7 @@
 	import { elixirsApi } from '$lib/services/api/elixirs';
 	import { ELIXIR_TOOL, closeElixirTabs, elixirIdOf, openElixirTab, renameElixirTabs } from '$lib/elixirs/tab';
 	import { elixirRenamed } from '$lib/elixirs/events';
+	import { whenPageVisible } from '$lib/elixirs/pageVisibility';
 	import { pollDelay } from '$lib/elixirs/listing';
 	import { MANAGE_FILTERS, copyName, deleteBlocked as baseBlocked, manageRows, rowStatus, stepWord, type PickerSummary } from '$lib/elixirs/picker';
 	import { relativeTime } from '$lib/elixirs/time';
@@ -54,6 +55,7 @@
 	let busyId = $state<string | null>(null);
 	let creating = $state(false);
 	let pollTimer: ReturnType<typeof setTimeout> | undefined;
+	let cancelVisible: (() => void) | undefined;
 	let alive = true;
 
 	let openTabs = $derived(
@@ -73,6 +75,7 @@
 	onDestroy(() => {
 		alive = false;
 		clearTimeout(pollTimer);
+		cancelVisible?.();
 	});
 
 	async function load() {
@@ -85,8 +88,13 @@
 			loadError = result.error.message;
 		}
 		clearTimeout(pollTimer);
+		cancelVisible?.();
 		const delay = pollDelay(elixirs);
-		if (delay !== null) pollTimer = setTimeout(() => void load(), delay);
+		if (delay !== null) {
+			pollTimer = setTimeout(() => {
+				cancelVisible = whenPageVisible(() => void load());
+			}, delay);
+		}
 	}
 
 	function open(elixir: PickerSummary) {

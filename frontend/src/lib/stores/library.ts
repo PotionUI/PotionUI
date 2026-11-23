@@ -6,6 +6,7 @@ import { tagCatalog } from '$lib/stores/tagCatalog';
 import { libraryCollectionsStore } from '$lib/stores/collections';
 import type { BulkDeleteLibraryByCriteriaRequest, LibraryFacetScope, LibraryItem } from '$lib/services/api/library';
 import { collectionQueryParams } from '$lib/components/collections/selection';
+import { createLatestRequest } from '$lib/models/latestRequest';
 import type { Tag } from '$lib/types/history';
 import {
 	DEFAULT_LIBRARY_FILTERS,
@@ -100,6 +101,7 @@ function createLibraryStore() {
 	}
 
 	let facetsScopeKey = '{}';
+	const listRequest = createLatestRequest();
 
 	function facetScope(filters: LibraryFilters): LibraryFacetScope {
 		return {
@@ -112,10 +114,12 @@ function createLibraryStore() {
 		if (!opts?.silent) update((state) => ({ ...state, loading: true }));
 
 		const { filters, currentPage, itemsPerPage } = snapshot();
+		const ticket = listRequest.begin();
 		try {
 			const response = await api.listLibraryItems(
 				buildLibraryQuery(filters, currentPage, itemsPerPage)
 			);
+			if (!listRequest.isCurrent(ticket)) return;
 			if (response.success && response.data) {
 				const data = response.data;
 				update((state) => ({
@@ -131,6 +135,7 @@ function createLibraryStore() {
 				update((state) => ({ ...state, loading: false }));
 			}
 		} catch (error) {
+			if (!listRequest.isCurrent(ticket)) return;
 			logger.error('Failed to load library items:', getErrorMessage(error));
 			update((state) => ({ ...state, loading: false }));
 		}

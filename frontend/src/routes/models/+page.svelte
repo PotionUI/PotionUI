@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { collectionQueryParams } from '$lib/components/collections/selection';
 	import { goto } from '$app/navigation';
 	import { replaceUrl } from '$lib/utils/replaceUrl';
@@ -9,6 +9,8 @@
 	import { isAxiosError } from 'axios';
 	import { api } from '$lib/services/api/index';
 	import { tagCatalog } from '$lib/stores/tagCatalog';
+	import { debounce } from '$lib/utils/time';
+	import { createLatestRequest } from '$lib/models/latestRequest';
 		import { authStore } from '$lib/stores/auth';
 	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
 	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
@@ -47,6 +49,7 @@
 	let selectedType = 'all';
 	let selectedTags: string[] = [];
 	let searchQuery = '';
+	let appliedSearch = '';
 	let searchMode: 'substring' | 'regex' = 'substring';
 	let searchError: string | null = null;
 	let typesRequest: AbortController | undefined;
@@ -108,14 +111,14 @@
 	$: installModels = resolveInstallModelsTarget($recipeCatalog, null, isAdmin);
 
 	// Update URL when filters change (after initialization)
-	$: if (browser && initialized && (selectedType || searchQuery !== undefined || searchMode || selectedTags || sortBy || sortOrder || indexedFrom || indexedTo || currentPage || itemsPerPage || favoritesOnly || collectionId || unsorted || directOnly)) {
+	$: if (browser && initialized && (selectedType || appliedSearch !== undefined || searchMode || selectedTags || sortBy || sortOrder || indexedFrom || indexedTo || currentPage || itemsPerPage || favoritesOnly || collectionId || unsorted || directOnly)) {
 		updateUrlParams();
 	}
 
 	function updateUrlParams() {
 		const params = new URLSearchParams();
 		if (selectedType !== 'all') params.set('type', selectedType);
-		if (searchQuery) params.set('q', searchQuery);
+		if (appliedSearch) params.set('q', appliedSearch);
 		if (searchMode === 'regex') params.set('q_mode', 'regex');
 		if (selectedTags.length > 0) params.set('tags', selectedTags.join(','));
 		if (sortBy !== 'filename') params.set('sort', sortBy);
@@ -186,19 +189,39 @@
 		currentPage = 1;
 	}
 
+	const modelsRequest = createLatestRequest();
+	const applySearch = debounce((value: string) => {
+		appliedSearch = value;
+	}, 300);
+
+	$: if (initialized) applySearch(searchQuery);
+
 	onMount(async () => {
 		loadFiltersFromUrl();
+		appliedSearch = searchQuery;
 		await Promise.all([loadModelTypes(), loadTags()]);
 		await loadModels();
 		loading = false;
 		initialized = true;
 	});
 
+	onDestroy(() => {
+		applySearch.cancel();
+		modelsRequest.invalidate();
+		typesRequest?.abort();
+	});
+
+	function refetch() {
+		if (!initialized) return;
+		void loadModels();
+		void loadModelTypes();
+	}
+
 
 	$: {
 		currentPage;
 		selectedType;
-		searchQuery;
+		appliedSearch;
 		searchMode;
 		selectedTags;
 		sortBy;
@@ -210,18 +233,16 @@
 		directOnly;
 		indexedFrom;
 		indexedTo;
-		if (!loading) {
-			loadModels();
-			loadModelTypes();
-		}
+		refetch();
 	}
 
 	async function loadModels() {
+		const ticket = modelsRequest.begin();
 		try {
 			const response = await api.getModels({
 				model_type: selectedType !== 'all' ? selectedType : undefined,
-				search: searchQuery || undefined,
-				q_mode: searchQuery && searchMode === 'regex' ? 'regex' : undefined,
+				search: appliedSearch || undefined,
+				q_mode: appliedSearch && searchMode === 'regex' ? 'regex' : undefined,
 				sort_by: sortBy,
 				sort_order: sortOrder,
 				limit: itemsPerPage,
@@ -234,12 +255,14 @@
 				...collectionQueryParams({ collectionId, unsorted, directOnly })
 			});
 
+			if (!modelsRequest.isCurrent(ticket)) return;
 			if (response.success && response.data) {
 				models = response.data.models;
 				totalCount = response.data.total;
 				searchError = null;
 			}
 		} catch (error) {
+			if (!modelsRequest.isCurrent(ticket)) return;
 			if (isAxiosError(error) && error.response?.status === 422) {
 				searchError = getApiErrorMessage(error, 'Invalid search');
 				models = [];
@@ -258,8 +281,8 @@
 			const response = await api.getModelTypes(
 				{
 					user_scoped: true,
-					search: searchQuery || undefined,
-					q_mode: searchQuery && searchMode === 'regex' ? 'regex' : undefined,
+					search: appliedSearch || undefined,
+					q_mode: appliedSearch && searchMode === 'regex' ? 'regex' : undefined,
 					tag_ids: selectedTags.length > 0 ? selectedTags.join(',') : undefined,
 					favorites_only: favoritesOnly || undefined,
 					indexed_from: indexedFrom || undefined,

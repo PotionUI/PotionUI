@@ -18,6 +18,7 @@
 	import { elixirsApi, type ElixirResult } from '$lib/services/api/elixirs';
 	import { elixirChanged, elixirRenamed, type ElixirChange } from '$lib/elixirs/events';
 	import { remoteAction } from '$lib/elixirs/remote';
+	import { whenPageVisible } from '$lib/elixirs/pageVisibility';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { embeddedTabFor, findGenerationTab } from '$lib/types/tabs';
 	import { createStepLive, stepGenerations, type StepLive } from '$lib/elixirs/stepLive';
@@ -261,6 +262,7 @@
 	let brewing = $state(false);
 	let runBusy = $state(false);
 	let pollTimer: ReturnType<typeof setTimeout> | undefined;
+	let cancelPollVisible: (() => void) | undefined;
 	let drafts = $state.raw<Record<string, string[]>>({});
 	let activeLanes = $state.raw<Record<string, string>>({});
 	let continuing = $state.raw(new Set<string>());
@@ -1143,13 +1145,16 @@
 
 	function schedulePoll() {
 		clearTimeout(pollTimer);
+		cancelPollVisible?.();
 		if (destroyed || !isPolling(run)) return;
 		const runId = run!.id as string;
-		pollTimer = setTimeout(async () => {
-			const result = await client.getRun(runId);
-			if (destroyed || run?.id !== runId) return;
-			if (result.ok) setRun(result.data);
-			else schedulePoll();
+		pollTimer = setTimeout(() => {
+			cancelPollVisible = whenPageVisible(async () => {
+				const result = await client.getRun(runId);
+				if (destroyed || run?.id !== runId) return;
+				if (result.ok) setRun(result.data);
+				else schedulePoll();
+			});
 		}, 2000);
 	}
 
@@ -1801,6 +1806,7 @@
 		for (const timer of draftTimers.values()) clearTimeout(timer);
 		clearTimeout(saveTimer);
 		clearTimeout(pollTimer);
+		cancelPollVisible?.();
 		if (saveState === 'dirty' && record && definition) {
 			client.updateElixir(id, { expected_revision: record.revision, name: name.trim() || 'Untitled elixir', run_mode: runMode, definition: holdUnsavableVariables(definition, lastSaved) });
 		}

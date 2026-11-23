@@ -1,6 +1,7 @@
 import { writable, derived } from 'svelte/store';
 import { logger, getErrorMessage } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
+import { createLatestRequest } from '$lib/models/latestRequest';
 import type { InspirationDto } from '$lib/services/api/inspirations';
 import {
 	DEFAULT_INSPIRATIONS_FILTERS,
@@ -38,14 +39,18 @@ function createInspirationsStore() {
 		return state;
 	}
 
+	const listRequest = createLatestRequest();
+
 	async function load(opts?: { silent?: boolean }) {
 		if (!opts?.silent) update((state) => ({ ...state, loading: true }));
 
 		const { filters, currentPage } = snapshot();
+		const ticket = listRequest.begin();
 		try {
 			const response = await api.listInspirations(
 				buildInspirationsQuery(filters, currentPage, INSPIRATIONS_ITEMS_PER_PAGE)
 			);
+			if (!listRequest.isCurrent(ticket)) return;
 			if (response.success && response.data) {
 				const data = response.data;
 				update((state) => ({ ...state, items: data.items, totalCount: data.total, loading: false }));
@@ -53,6 +58,7 @@ function createInspirationsStore() {
 				update((state) => ({ ...state, loading: false }));
 			}
 		} catch (error) {
+			if (!listRequest.isCurrent(ticket)) return;
 			logger.error('Failed to load inspirations:', getErrorMessage(error));
 			update((state) => ({ ...state, loading: false }));
 		}

@@ -8,6 +8,7 @@
 	import { Button, IconButton, Spinner, EmptyState, LoadErrorState, Pagination } from '$lib/components/ui';
 	import StatusDot from '$lib/components/elixirs/StatusDot.svelte';
 	import { relativeTime } from '$lib/elixirs/time';
+	import { pollWhileVisible } from '$lib/elixirs/pageVisibility';
 	import { ACTIVE_RUN_STATUSES, runElapsed, runLabel } from '$lib/elixirs/runs';
 	import { elixirsApi } from '$lib/services/api/elixirs';
 	import { toasts } from '$lib/stores/toast';
@@ -173,10 +174,10 @@
 		if (!anyActiveShown) return;
 		now = Date.now();
 		const tick = setInterval(() => (now = Date.now()), 1000);
-		const poll = setInterval(() => void refresh(), 3000);
+		const stopPoll = pollWhileVisible(refresh, 3000);
 		return () => {
 			clearInterval(tick);
-			clearInterval(poll);
+			stopPoll();
 		};
 	});
 

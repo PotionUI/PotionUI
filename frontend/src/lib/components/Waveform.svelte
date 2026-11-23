@@ -268,68 +268,68 @@
 		}
 	}
 
-	function drawWaveform() {
-		if (!ctx || !canvas || waveformData.length === 0) return;
-		const context = ctx;
+	let hoverFrame: number | null = null;
+	let layers: { source: number[]; key: string; unplayed: HTMLCanvasElement; played: HTMLCanvasElement } | null = null;
 
-		// Clear canvas
-		context.fillStyle = mergedConfig.backgroundColor;
-		context.fillRect(0, 0, canvasWidth, canvasHeight);
-
+	function buildLayer(color: string, dpr: number): HTMLCanvasElement {
+		const layer = document.createElement('canvas');
+		layer.width = Math.max(1, Math.round(canvasWidth * dpr));
+		layer.height = Math.max(1, Math.round(canvasHeight * dpr));
+		const layerContext = layer.getContext('2d');
+		if (!layerContext) return layer;
+		layerContext.scale(dpr, dpr);
 		const barWidth = mergedConfig.barWidth!;
 		const barGap = mergedConfig.barGap!;
-		const barRadius = mergedConfig.barRadius!;
-		const progress = audioElement ? audioElement.currentTime / audioElement.duration : 0;
-
+		const radius = Math.min(mergedConfig.barRadius!, barWidth / 2);
+		layerContext.fillStyle = color;
+		layerContext.beginPath();
 		waveformData.forEach((amplitude, index) => {
 			const x = index * (barWidth + barGap);
 			const barHeight = amplitude * canvasHeight * 0.8;
 			const y = (canvasHeight - barHeight) / 2;
-
-			// Determine bar color based on progress
-			const barProgress = index / waveformData.length;
-			const isPlayed = barProgress <= progress;
-
-			context.fillStyle = isPlayed ? mergedConfig.progressColor : mergedConfig.waveColor;
-
-			// Draw rounded rectangle
-			drawRoundedRect(context, x, y, barWidth, barHeight, barRadius);
+			if (typeof layerContext.roundRect === 'function') layerContext.roundRect(x, y, barWidth, barHeight, radius);
+			else layerContext.rect(x, y, barWidth, barHeight);
 		});
+		layerContext.fill();
+		return layer;
+	}
 
-		// Draw cursor at current position if hovering
+	function layersFor(dpr: number) {
+		const key = `${canvasWidth}x${canvasHeight}@${dpr}|${mergedConfig.waveColor}|${mergedConfig.progressColor}|${mergedConfig.barWidth}|${mergedConfig.barGap}|${mergedConfig.barRadius}`;
+		if (layers && layers.source === waveformData && layers.key === key) return layers;
+		layers = { source: waveformData, key, unplayed: buildLayer(mergedConfig.waveColor!, dpr), played: buildLayer(mergedConfig.progressColor!, dpr) };
+		return layers;
+	}
+
+	function drawWaveform() {
+		if (!ctx || !canvas || waveformData.length === 0) return;
+		const context = ctx;
+		const dpr = window.devicePixelRatio;
+
+		context.fillStyle = mergedConfig.backgroundColor;
+		context.fillRect(0, 0, canvasWidth, canvasHeight);
+
+		const progress = audioElement ? audioElement.currentTime / audioElement.duration : 0;
+		const built = layersFor(dpr);
+		context.drawImage(built.unplayed, 0, 0, canvasWidth, canvasHeight);
+
+		if (progress >= 0) {
+			const playedBars = Math.min(waveformData.length, Math.floor(progress * waveformData.length) + 1);
+			const playedWidth = Math.min(canvasWidth, playedBars * (mergedConfig.barWidth! + mergedConfig.barGap!));
+			if (playedWidth > 0) {
+				context.drawImage(built.played, 0, 0, playedWidth * dpr, built.played.height, 0, 0, playedWidth, canvasHeight);
+			}
+		}
+
 		if (isHovering) {
 			context.fillStyle = mergedConfig.cursorColor;
 			context.fillRect(hoverPosition, 0, 2, canvasHeight);
 		}
 
-		// Draw playback cursor
 		if (audioElement && !isNaN(progress)) {
-			const cursorX = progress * canvasWidth;
 			context.fillStyle = mergedConfig.cursorColor;
-			context.fillRect(cursorX, 0, 2, canvasHeight);
+			context.fillRect(progress * canvasWidth, 0, 2, canvasHeight);
 		}
-	}
-
-	function drawRoundedRect(
-		ctx: CanvasRenderingContext2D,
-		x: number,
-		y: number,
-		width: number,
-		height: number,
-		radius: number
-	) {
-		ctx.beginPath();
-		ctx.moveTo(x + radius, y);
-		ctx.lineTo(x + width - radius, y);
-		ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-		ctx.lineTo(x + width, y + height - radius);
-		ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-		ctx.lineTo(x + radius, y + height);
-		ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-		ctx.lineTo(x, y + radius);
-		ctx.quadraticCurveTo(x, y, x + radius, y);
-		ctx.closePath();
-		ctx.fill();
 	}
 
 	function handleCanvasClick(event: MouseEvent) {
@@ -352,7 +352,12 @@
 
 		const rect = canvas.getBoundingClientRect();
 		hoverPosition = event.clientX - rect.left;
-		drawWaveform();
+		if (animationFrame === null && hoverFrame === null) {
+			hoverFrame = requestAnimationFrame(() => {
+				hoverFrame = null;
+				drawWaveform();
+			});
+		}
 	}
 
 	function handleCanvasEnter() {
@@ -365,6 +370,8 @@
 	}
 
 	function cleanup() {
+		if (hoverFrame !== null) cancelAnimationFrame(hoverFrame);
+		hoverFrame = null;
 		detachFromElement();
 	}
 </script>

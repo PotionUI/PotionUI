@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick, untrack } from 'svelte';
+	import { flushSync, onDestroy, onMount, tick, untrack } from 'svelte';
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
@@ -145,6 +145,7 @@
 		type SavedCopy
 	} from '$lib/tool-tabs/video/videoState';
 	import { loadPeaks, runStrip } from '$lib/tool-tabs/video/stripScheduler';
+	import { createScrubSeek } from '$lib/tool-tabs/video/scrubSeek';
 	import { acquireFrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
 	import { frameCache, settleWidth, tileLayout, tileTimes } from '$lib/tool-tabs/video/stripTiles';
 	import { effectTiles, tileById, tileMatches, type EffectTile } from '$lib/tool-tabs/video/effectTiles';
@@ -692,52 +693,18 @@
 		setParams('trim', { start: current.start, end: Math.round(end * 1000) / 1000 });
 	}
 
-	let playheadTimer: ReturnType<typeof setTimeout> | null = null;
-	let pendingPlayhead: number | null = null;
+	const scrub = createScrubSeek({
+		video: () => video ?? null,
+		duration: () => duration,
+		setPlayhead: (seconds) => {
+			playhead = seconds;
+			closeClipPreview();
+		},
+		storePlayhead: (seconds) => (storedPlayhead = seconds)
+	});
 
-	function commitPlayhead(seconds: number) {
-		if (playheadTimer) clearTimeout(playheadTimer);
-		playheadTimer = null;
-		pendingPlayhead = null;
-		storedPlayhead = seconds;
-	}
-
-	function schedulePlayhead(seconds: number) {
-		if (playheadTimer) clearTimeout(playheadTimer);
-		pendingPlayhead = seconds;
-		playheadTimer = setTimeout(() => commitPlayhead(seconds), 500);
-	}
-
-	let seekTarget: number | null = null;
-	let seekFrame = 0;
-
-	function issueSeek() {
-		seekFrame = 0;
-		if (!video || seekTarget === null) return;
-		const target = seekTarget;
-		seekTarget = null;
-		video.currentTime = target;
-	}
-
-	function scrubTo(seconds: number) {
-		video?.pause();
-		const next = Math.max(0, Math.min(duration || 0, seconds));
-		playhead = next;
-		closeClipPreview();
-		if (!video || !Number.isFinite(next)) return;
-		seekTarget = next;
-		if (!seekFrame) seekFrame = requestAnimationFrame(issueSeek);
-	}
-
-	function seekTo(seconds: number) {
-		seekTarget = null;
-		if (seekFrame) cancelAnimationFrame(seekFrame);
-		seekFrame = 0;
-		const next = Math.max(0, Math.min(duration || 0, seconds));
-		playhead = next;
-		if (video && Number.isFinite(next)) video.currentTime = next;
-		closeClipPreview();
-	}
+	const commitPlayhead = scrub.commit;
+	const seekTo = scrub.seekNow;
 
 	function step(direction: -1 | 1) {
 		video?.pause();
@@ -785,6 +752,7 @@
 		if (video?.ended && loop) return;
 		playing = false;
 		cancelAnimationFrame(raf);
+		if (scrub.pending()) return;
 		if (video) playhead = video.currentTime;
 		commitPlayhead(playhead);
 	}
@@ -1524,7 +1492,7 @@
 			},
 			pause: async () => {
 				await abortableWait(0, controller.signal);
-				while ((playing || seekTarget !== null) && !controller.signal.aborted) await abortableWait(200, controller.signal);
+				while ((playing || scrub.pending()) && !controller.signal.aborted) await abortableWait(200, controller.signal);
 			}
 		}).finally(() => grabber.dispose());
 		return () => controller.abort();
@@ -1602,9 +1570,19 @@
 		}
 	});
 
+	function hostStateFor(playheadAt: number) {
+		return withEditLink({ ...writeVideoState({ ...stateSnapshot(), playhead: playheadAt }) }, editLink);
+	}
+
 	$effect(() => {
 		hostApi.setState(withEditLink({ ...writeVideoState(stateSnapshot()) }, editLink));
 	});
+
+	function flushPlayhead() {
+		scrub.flush();
+		flushSync();
+		tabsStore.persistNow();
+	}
 
 	$effect(() => {
 		const doc = videoEditDoc(stateSnapshot(), clipNow);
@@ -1733,13 +1711,8 @@
 	onDestroy(() => void autosave.close());
 
 	onDestroy(() => {
-		if (seekFrame) cancelAnimationFrame(seekFrame);
-		if (playheadTimer) clearTimeout(playheadTimer);
-		playheadTimer = null;
-		if (pendingPlayhead !== null) {
-			hostApi.setState(withEditLink({ ...writeVideoState({ ...stateSnapshot(), playhead: pendingPlayhead }) }, editLink));
-			pendingPlayhead = null;
-		}
+		const held = scrub.dispose();
+		if (held !== null) hostApi.setState(hostStateFor(held));
 		destroyed = true;
 		generate.dispose();
 		if (liveTimer) clearTimeout(liveTimer);
@@ -1752,6 +1725,9 @@
 		hostApi.setActions(null);
 	});
 </script>
+
+<svelte:window onpagehide={flushPlayhead} />
+<svelte:document onvisibilitychange={() => document.hidden && flushPlayhead()} />
 
 {#snippet emptyState()}
 	<VideoStartScreen {tabId} onpick={openReplacePicker} />
@@ -1906,6 +1882,7 @@
 									onloadedmetadata={onMetadata}
 									onplay={onPlay}
 									onpause={onPause}
+									onseeked={() => scrub.onSeeked()}
 									onended={onEnded}
 									onerror={() => (videoError = true)}
 									data-video-element
@@ -2005,8 +1982,8 @@
 					compact={phone}
 					active={ready && !pickers && !saveSheetOpen}
 					onseek={(seconds) => {
-						scrubTo(seconds);
-						schedulePlayhead(seconds);
+						scrub.scrub(seconds);
+						scrub.schedule(seconds);
 					}}
 					onin={setIn}
 					onout={setOut}

@@ -91,6 +91,15 @@
 	let headPct = $derived(pct(playhead));
 	let rangeStartPct = $derived(range ? pct(range.start) : 0);
 	let rangeEndPct = $derived(range ? pct(range.end) : 0);
+	let peakPath = $derived.by(() => {
+		if (!peaks || !peaks.length) return '';
+		let d = '';
+		for (let i = 0; i < peaks.length; i++) {
+			const h = Math.max(1.5, Math.min(1, peaks[i]) * 18);
+			d += `M${(i + 0.15).toFixed(2)} ${((20 - h) / 2).toFixed(2)}h0.7v${h.toFixed(2)}h-0.7z`;
+		}
+		return d;
+	});
 	let trimmed = $derived(duration > 0 && (inPoint > 0.005 || outPoint < duration - 0.005));
 
 	let ticks = $derived.by(() => {
@@ -102,10 +111,14 @@
 		return list;
 	});
 
-	function timeAt(clientX: number): number {
-		if (!track || !(duration > 0)) return 0;
+	function trackBox(): { left: number; width: number } | null {
+		if (!track) return null;
 		const box = track.getBoundingClientRect();
-		if (box.width <= 0) return 0;
+		return { left: box.left, width: box.width };
+	}
+
+	function timeAt(clientX: number, box: { left: number; width: number } | null = trackBox()): number {
+		if (!box || !(duration > 0) || box.width <= 0) return 0;
 		return Math.max(0, Math.min(1, (clientX - box.left) / box.width)) * duration;
 	}
 
@@ -115,8 +128,9 @@
 		event.stopPropagation();
 		const target = event.currentTarget as HTMLElement;
 		target.setPointerCapture?.(event.pointerId);
-		apply(timeAt(event.clientX));
-		const move = (next: PointerEvent) => apply(timeAt(next.clientX));
+		const box = trackBox();
+		apply(timeAt(event.clientX, box));
+		const move = (next: PointerEvent) => apply(timeAt(next.clientX, box));
 		const up = () => {
 			target.removeEventListener('pointermove', move);
 			target.removeEventListener('pointerup', up);
@@ -133,13 +147,14 @@
 		event.stopPropagation();
 		const target = event.currentTarget as HTMLElement;
 		target.setPointerCapture?.(event.pointerId);
-		const anchor = timeAt(event.clientX);
+		const box = trackBox();
+		const anchor = timeAt(event.clientX, box);
 		const originX = event.clientX;
 		let moved = false;
 		const move = (next: PointerEvent) => {
 			if (!moved && Math.abs(next.clientX - originX) < 4) return;
 			moved = true;
-			onrange?.(fromDrag(anchor, timeAt(next.clientX), duration));
+			onrange?.(fromDrag(anchor, timeAt(next.clientX, box), duration));
 		};
 		const up = () => {
 			if (!moved) onseek(anchor);
@@ -364,11 +379,10 @@
 		<div class="relative h-5 overflow-hidden rounded bg-surface-2" aria-hidden="true" data-scrub-wave={peaks ? 'ready' : 'empty'}>
 			{#if peaks && peaks.length}
 				<svg class="absolute inset-0 h-full w-full" viewBox="0 0 {peaks.length} 20" preserveAspectRatio="none">
-					{#each peaks as peak, i (i)}
-						{@const h = Math.max(1.5, Math.min(1, peak) * 18)}
-						{@const inside = ((i + 0.5) / peaks.length) * 100 >= inPct && ((i + 0.5) / peaks.length) * 100 <= outPct}
-						<rect x={i + 0.15} y={(20 - h) / 2} width="0.7" height={h} class={inside ? 'fill-fg-muted' : 'fill-fg-subtle opacity-40'} />
-					{/each}
+					<path d={peakPath} class="fill-fg-subtle opacity-40" />
+				</svg>
+				<svg class="absolute inset-0 h-full w-full" viewBox="0 0 {peaks.length} 20" preserveAspectRatio="none" style="clip-path: inset(0 {100 - outPct}% 0 {inPct}%)">
+					<path d={peakPath} class="fill-fg-muted" />
 				</svg>
 			{/if}
 			{#if fadeIn > 0}

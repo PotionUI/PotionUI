@@ -19,8 +19,8 @@
 
 	$effect(() => {
 		const href = video.url;
-		const at = video.playhead;
 		if (video.playing || !href) return;
+		const at = video.playhead;
 		const controller = new AbortController();
 		const timer = setTimeout(() => {
 			if (!grabber || grabber.href !== href) {

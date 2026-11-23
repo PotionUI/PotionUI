@@ -74,7 +74,10 @@ describe('ScrubBar readouts', () => {
 		expect(q('[data-scrub-handle="in"]')!.className).toContain('bg-scrim-on');
 		expect(q('[data-scrub-playhead]')!.className).toContain('bg-signal');
 		expect(styleNumber(q('[data-scrub-playhead]'), 'left')).toBeCloseTo(39, 6);
-		expect(q('[data-scrub-wave="ready"] svg')!.querySelectorAll('rect')).toHaveLength(4);
+		const wave = q('[data-scrub-wave="ready"]')!;
+		expect(wave.querySelectorAll('svg')).toHaveLength(2);
+		expect(wave.querySelector('path')!.getAttribute('d')!.match(/M/g)).toHaveLength(4);
+		expect((wave.querySelectorAll('svg')[1] as SVGElement).style.clipPath).toBe('inset(0 20% 0 15%)');
 		expect(q('[data-scrub-frame]')).not.toBeNull();
 	});
 

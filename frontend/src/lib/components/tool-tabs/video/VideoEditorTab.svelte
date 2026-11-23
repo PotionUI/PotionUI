@@ -708,7 +708,31 @@
 		playheadTimer = setTimeout(() => commitPlayhead(seconds), 500);
 	}
 
+	let seekTarget: number | null = null;
+	let seekFrame = 0;
+
+	function issueSeek() {
+		seekFrame = 0;
+		if (!video || seekTarget === null) return;
+		const target = seekTarget;
+		seekTarget = null;
+		video.currentTime = target;
+	}
+
+	function scrubTo(seconds: number) {
+		video?.pause();
+		const next = Math.max(0, Math.min(duration || 0, seconds));
+		playhead = next;
+		closeClipPreview();
+		if (!video || !Number.isFinite(next)) return;
+		seekTarget = next;
+		if (!seekFrame) seekFrame = requestAnimationFrame(issueSeek);
+	}
+
 	function seekTo(seconds: number) {
+		seekTarget = null;
+		if (seekFrame) cancelAnimationFrame(seekFrame);
+		seekFrame = 0;
 		const next = Math.max(0, Math.min(duration || 0, seconds));
 		playhead = next;
 		if (video && Number.isFinite(next)) video.currentTime = next;
@@ -1705,6 +1729,7 @@
 	onDestroy(() => void autosave.close());
 
 	onDestroy(() => {
+		if (seekFrame) cancelAnimationFrame(seekFrame);
 		if (playheadTimer) clearTimeout(playheadTimer);
 		playheadTimer = null;
 		if (pendingPlayhead !== null) {
@@ -1976,8 +2001,7 @@
 					compact={phone}
 					active={ready && !pickers && !saveSheetOpen}
 					onseek={(seconds) => {
-						video?.pause();
-						seekTo(seconds);
+						scrubTo(seconds);
 						schedulePlayhead(seconds);
 					}}
 					onin={setIn}

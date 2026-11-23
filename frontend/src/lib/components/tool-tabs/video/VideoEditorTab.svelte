@@ -692,6 +692,22 @@
 		setParams('trim', { start: current.start, end: Math.round(end * 1000) / 1000 });
 	}
 
+	let playheadTimer: ReturnType<typeof setTimeout> | null = null;
+	let pendingPlayhead: number | null = null;
+
+	function commitPlayhead(seconds: number) {
+		if (playheadTimer) clearTimeout(playheadTimer);
+		playheadTimer = null;
+		pendingPlayhead = null;
+		storedPlayhead = seconds;
+	}
+
+	function schedulePlayhead(seconds: number) {
+		if (playheadTimer) clearTimeout(playheadTimer);
+		pendingPlayhead = seconds;
+		playheadTimer = setTimeout(() => commitPlayhead(seconds), 500);
+	}
+
 	function seekTo(seconds: number) {
 		const next = Math.max(0, Math.min(duration || 0, seconds));
 		playhead = next;
@@ -702,7 +718,7 @@
 	function step(direction: -1 | 1) {
 		video?.pause();
 		seekTo(playhead + direction / fps);
-		storedPlayhead = playhead;
+		commitPlayhead(playhead);
 	}
 
 	function togglePlay() {
@@ -746,7 +762,7 @@
 		playing = false;
 		cancelAnimationFrame(raf);
 		if (video) playhead = video.currentTime;
-		storedPlayhead = playhead;
+		commitPlayhead(playhead);
 	}
 
 	function onEnded() {
@@ -1689,6 +1705,12 @@
 	onDestroy(() => void autosave.close());
 
 	onDestroy(() => {
+		if (playheadTimer) clearTimeout(playheadTimer);
+		playheadTimer = null;
+		if (pendingPlayhead !== null) {
+			hostApi.setState(withEditLink({ ...writeVideoState({ ...stateSnapshot(), playhead: pendingPlayhead }) }, editLink));
+			pendingPlayhead = null;
+		}
 		destroyed = true;
 		generate.dispose();
 		if (liveTimer) clearTimeout(liveTimer);
@@ -1956,7 +1978,7 @@
 					onseek={(seconds) => {
 						video?.pause();
 						seekTo(seconds);
-						storedPlayhead = seconds;
+						schedulePlayhead(seconds);
 					}}
 					onin={setIn}
 					onout={setOut}

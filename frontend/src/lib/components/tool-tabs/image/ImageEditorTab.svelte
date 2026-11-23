@@ -1264,7 +1264,6 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 	}
 
 	let writeTimer: ReturnType<typeof setTimeout> | null = null;
-	let lastWritten = JSON.stringify(writeImageState(initial));
 	let pendingWrite: Record<string, unknown> | null = null;
 	let currentPayload: Record<string, unknown> = writeImageState(initial);
 	let autosaveStatus = $state<AutosaveStatus>('idle');
@@ -1295,7 +1294,6 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 		saved = next.saved;
 		const payload = writeImageState({ stack, activeTool, viewport, mask, saved });
 		currentPayload = payload;
-		lastWritten = JSON.stringify(payload);
 		lastContent = JSON.stringify(writeImageState({ stack, activeTool, viewport: fitViewport(), mask, saved }));
 		if (writeTimer) clearTimeout(writeTimer);
 		writeTimer = null;
@@ -1338,20 +1336,27 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 	let lastContent = JSON.stringify(writeImageState({ ...initial, viewport: fitViewport() }));
 
 	$effect(() => {
-		const payload = writeImageState({ stack, activeTool, viewport, mask, saved });
-		const json = JSON.stringify(payload);
-		if (json === lastWritten) return;
-		lastWritten = json;
-		const content = JSON.stringify(writeImageState({ stack, activeTool, viewport: fitViewport(), mask, saved }));
-		const viewOnly = content === lastContent;
+		const payload = writeImageState({ stack, activeTool, viewport: untrack(() => viewport), mask, saved });
+		const content = JSON.stringify({ ...payload, viewport: fitViewport() });
+		if (content === lastContent) return;
 		lastContent = content;
 		untrack(() => {
 			pendingWrite = payload;
 			currentPayload = payload;
 			autosave.observe(payload);
+			flushWrite();
+		});
+	});
+
+	$effect(() => {
+		const next = { ...viewport };
+		untrack(() => {
+			if (JSON.stringify(next) === JSON.stringify(currentPayload.viewport)) return;
+			const payload = { ...currentPayload, viewport: next };
+			pendingWrite = payload;
+			currentPayload = payload;
 			if (writeTimer) clearTimeout(writeTimer);
-			if (viewOnly) writeTimer = setTimeout(flushWrite, 150);
-			else flushWrite();
+			writeTimer = setTimeout(flushWrite, 150);
 		});
 	});
 

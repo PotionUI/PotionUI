@@ -207,10 +207,16 @@
 		return !!contextEl && contextEl.scrollWidth > contextEl.clientWidth + 1;
 	}
 
+	let fitSize = '';
+	function barSize(): string {
+		return `${barEl?.clientWidth ?? 0}|${pinnedEl?.clientWidth ?? 0}`;
+	}
+
 	async function refit() {
 		const token = ++fitToken;
 		const el = barEl;
 		if (!el) return;
+		fitSize = barSize();
 		const pinned = pinnedEl?.querySelectorAll('[data-testid="formulas-button"]').length ?? 0;
 		const narrow = el.clientWidth > 0 && el.clientWidth < TOOLS_BREAKPOINT;
 		let next: Fit = { visible: narrow ? 0 : Math.max(0, Math.min(tools.length, TOOL_CAP - pinned)), squeeze: 0, compact: false };
@@ -239,7 +245,9 @@
 	$effect(() => {
 		void disclosureKey;
 		if (!barEl || typeof ResizeObserver === 'undefined') return;
-		const observer = new ResizeObserver(() => void refit());
+		const observer = new ResizeObserver(() => {
+			if (barSize() !== fitSize) void refit();
+		});
 		observer.observe(barEl);
 		if (pinnedEl) observer.observe(pinnedEl);
 		const growth = new ResizeObserver(() => {

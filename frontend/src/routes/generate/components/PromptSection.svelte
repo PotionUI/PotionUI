@@ -19,7 +19,15 @@
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import PromptTabs from '$lib/components/PromptTabs.svelte';
 	import { DEFAULT_PROMPT_PLACEHOLDER, NO_PROMPT_COPY, promptTitle, type PromptCopy } from '$lib/utils/promptModeCopy';
-	import { Alert, Button, SegmentedControl } from '$lib/components/ui';
+	import { Alert, Button, LoadErrorState, SegmentedControl, Spinner } from '$lib/components/ui';
+
+	const editorImports = {
+		regional: (_attempt: number) => import('$lib/components/regional/RegionalPromptEditor.svelte'),
+		relay: (_attempt: number) => import('$lib/components/PromptRelayEditor.svelte'),
+		video: (_attempt: number) => import('$lib/components/video-director/VideoDirectorEditor.svelte'),
+		music: (_attempt: number) => import('$lib/components/music-director/MusicDirectorEditor.svelte')
+	};
+	let editorRetry = 0;
 	import {
 		BATCH_CAP_MESSAGE,
 		activePromptIndex,
@@ -34,7 +42,6 @@
 		selectPrompt,
 		type PromptListPatch
 	} from '$lib/generation/promptBatch';
-	import RegionalPromptEditor from '$lib/components/regional/RegionalPromptEditor.svelte';
 	import { compileMossPrompt } from '$lib/regional/compile';
 	import {
 		REGIONAL_FORM_KEY,
@@ -43,9 +50,6 @@
 		regionalSwitchCount,
 		type Region
 	} from '$lib/regional/regions';
-	import PromptRelayEditor from '$lib/components/PromptRelayEditor.svelte';
-	import VideoDirectorEditor from '$lib/components/video-director/VideoDirectorEditor.svelte';
-	import MusicDirectorEditor from '$lib/components/music-director/MusicDirectorEditor.svelte';
 	import VariableManagerModal from '$lib/components/VariableManagerModal.svelte';
 	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import StylesPicker from '$lib/components/StylesPicker.svelte';
@@ -315,6 +319,9 @@
 
 	{#if videoDirectorActive && videoDirectorCaps}
 		<!-- Video Director Mode -->
+		{#await editorImports.video(editorRetry)}
+			<div class="flex justify-center py-6"><Spinner /></div>
+		{:then { default: VideoDirectorEditor }}
 		<VideoDirectorEditor
 			value={videoDirectorValue}
 			capabilities={videoDirectorCaps}
@@ -336,19 +343,34 @@
 			resourceFieldLabels={promptResourceFieldLabels}
 			promptSyntax={promptSyntaxSpecs}
 		/>
+		{:catch}
+			<LoadErrorState title="Couldn't load the editor" message="The editor failed to load." onRetry={() => (editorRetry += 1)} />
+		{/await}
 	{:else if musicDirectorActive && musicDirectorCaps}
 		<!-- Music Director Mode -->
+		{#await editorImports.music(editorRetry)}
+			<div class="flex justify-center py-6"><Spinner /></div>
+		{:then { default: MusicDirectorEditor }}
 		<MusicDirectorEditor
 			value={musicDirectorValue}
 			capabilities={musicDirectorCaps}
 			onChange={(v) => tabsStore.updateTab(tabId, { musicDirector: v })}
 		/>
+		{:catch}
+			<LoadErrorState title="Couldn't load the editor" message="The editor failed to load." onRetry={() => (editorRetry += 1)} />
+		{/await}
 	{:else if promptRelayActive}
 		<!-- Prompt Relay (timeline) Mode -->
+		{#await editorImports.relay(editorRetry)}
+			<div class="flex justify-center py-6"><Spinner /></div>
+		{:then { default: PromptRelayEditor }}
 		<PromptRelayEditor
 			value={promptRelayValue}
 			on:change={(e) => tabsStore.updateTab(tabId, { promptRelay: e.detail })}
 		/>
+		{:catch}
+			<LoadErrorState title="Couldn't load the editor" message="The editor failed to load." onRetry={() => (editorRetry += 1)} />
+		{/await}
 	{:else}
 		<!-- Single Prompt Mode (Default) -->
 		<div class="prompt-composer">
@@ -381,11 +403,17 @@
 				{#snippet afterMain()}
 					{#if regionalOn && regionalValue}
 						<div class="mt-3">
+							{#await editorImports.regional(editorRetry)}
+			<div class="flex justify-center py-6"><Spinner /></div>
+		{:then { default: RegionalPromptEditor }}
 							<RegionalPromptEditor
 								items={regionalValue.items}
 								size={canvasSize}
 								onChange={(items) => writeRegional({ enabled: true, items })}
 							/>
+							{:catch}
+			<LoadErrorState title="Couldn't load the editor" message="The editor failed to load." onRetry={() => (editorRetry += 1)} />
+		{/await}
 						</div>
 					{/if}
 				{/snippet}

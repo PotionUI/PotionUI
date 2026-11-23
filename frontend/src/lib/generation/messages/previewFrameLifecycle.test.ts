@@ -35,7 +35,7 @@ function showFrame(id: string, generationId: string): string {
 
 describe('preview frame blob lifecycle', () => {
 	let created = 0;
-	let revoke: ReturnType<typeof vi.spyOn>;
+	let revoke: { mock: { calls: unknown[][] } };
 
 	beforeEach(() => {
 		vi.useFakeTimers();

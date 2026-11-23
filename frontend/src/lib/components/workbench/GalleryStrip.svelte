@@ -5,6 +5,7 @@
 	import { Badge, SegmentedControl } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
+	import { occurrenceKeys, tileThumbUrl } from './tileThumb';
 	import { groupByPrompt, isPromptBatch, type PromptEntry } from './promptGroups';
 
 	export let batchImages: ImageData[] = [];
@@ -12,6 +13,7 @@
 	export let batchAudios: AudioData[] = [];
 	export let batchMeshes: MeshData[] = [];
 	export let selectedIndex: number = 0;
+	$: imageKeys = occurrenceKeys(batchImages.map((image) => image.originalUrl || image.url));
 
 	const dispatch = createEventDispatcher<{
 		select: { item: any; index: number };
@@ -49,9 +51,9 @@
 	>
 		<div class="h-24 w-24 overflow-hidden rounded-lg border bg-surface-2 transition-colors {selectedIndex === tile.index ? 'border-line-hover' : 'border-line hover:border-line-hover'}">
 			{#if tile.kind === 'video'}
-				<video src={tile.item.url} class="h-full w-full object-cover" muted></video>
+				<video src={tile.item.url} class="h-full w-full object-cover" muted preload="metadata"></video>
 			{:else}
-				<img src={tile.item.url} alt="Prompt {group.promptIndex + 1}, image {tile.imageNumber}" class="h-full w-full object-cover" loading="lazy" />
+				<img src={tileThumbUrl(tile.item.url)} alt="Prompt {group.promptIndex + 1}, image {tile.imageNumber}" class="h-full w-full object-cover" loading="lazy" decoding="async" />
 			{/if}
 		</div>
 		<div class="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-sm font-medium tabular-nums text-white" data-output-label>
@@ -104,7 +106,7 @@
 		<div class="flex gap-3 overflow-x-auto pb-2" class:hidden={grouped && !hasOtherMedia}>
 			{#if !grouped}
 			<!-- Batch Images -->
-			{#each batchImages as imageData, index}
+			{#each batchImages as imageData, index (imageKeys[index])}
 				<div
 					class="relative group cursor-pointer flex-shrink-0"
 					class:tile-selected={selectedIndex === index}
@@ -115,10 +117,11 @@
 				>
 					<div class="w-32 h-32 bg-surface-2 rounded-lg overflow-hidden border {selectedIndex === index ? 'border-line-hover' : 'border-line hover:border-line-hover'} transition-colors">
 						<img
-							src={imageData.url}
+							src={tileThumbUrl(imageKeys[index])}
 							alt="Generated image {index + 1}"
 							class="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
 							loading="lazy"
+							decoding="async"
 						/>
 					</div>
 
@@ -155,6 +158,7 @@
 							src={videoData.url}
 							class="w-full h-full object-cover"
 							muted
+							preload="metadata"
 						></video>
 					</div>
 

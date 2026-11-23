@@ -5,6 +5,7 @@
 	import { createModeRequirementsRecheck } from '$lib/utils/modeRequirementsRecheck';
 	import { onModelInstalled } from '$lib/stores/modelInstalls';
 	import { onMount, onDestroy } from 'svelte';
+	import { tabChangedBeyondGeneration } from '$lib/stores/tabGate';
 	import { tabsStore, activeTab, activeToolTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
 	import ToolTabHost from '$lib/tool-tabs/ToolTabHost.svelte';
 	import { startToolTabWatchers } from '$lib/tool-tabs/watchers';
@@ -678,6 +679,8 @@
 	$: pruneKitNotices($tabsStore.tabs.map((entry) => entry.id));
 	$: activeTabId = $activeTab.id;
 	$: currentTab = $activeTab;
+	let gateTab: typeof currentTab = $activeTab;
+	$: if (tabChangedBeyondGeneration(gateTab, currentTab)) gateTab = currentTab;
 	$: stepBar = $activeToolTab ? $stepBars[$activeToolTab.id] ?? null : null;
 	$: embeddedActive = !!stepBar && !!$activeToolTab && isEmbeddedTab($activeTab) && $activeTab.embedded.toolTabId === $activeToolTab.id;
 	$: toolTabActive = !!$activeToolTab && !embeddedActive;
@@ -689,7 +692,7 @@
 		if (updates) tabsStore.updateTab(tab.id, updates);
 	}
 	$: generatingTabName = $generatingTab?.name;
-	$: panelPresetInfo = presets.find((preset: any) => preset.id === currentTab.selectedPreset);
+	$: panelPresetInfo = presets.find((preset: any) => preset.id === gateTab.selectedPreset);
 	$: panelPreset = panelPresetInfo
 		? {
 				id: panelPresetInfo.id,
@@ -698,42 +701,42 @@
 				category: panelPresetInfo.category ?? null
 			}
 		: null;
-	$: panelModeLabel = currentTab.selectedMode
-		? modeLabelIn(modesPerTab[currentTab.id] || [], currentTab.selectedMode)
+	$: panelModeLabel = gateTab.selectedMode
+		? modeLabelIn(modesPerTab[gateTab.id] || [], gateTab.selectedMode)
 		: '';
 	$: generation = currentTab.generation;
 	$: isGenerating = generation.isGenerating;
 
 	// Get num_prompts for current preset (default 1)
 	const requestContextFor = createRequestContextCache();
-	$: cloudModelId = selectedCloudModelId(currentTab.formData);
+	$: cloudModelId = selectedCloudModelId(gateTab.formData);
 	$: overlayTracker.select('video_director', cloudModelId);
-	$: directorOverlay = overlayRevision >= 0 ? directorOverlayFor(currentTab) : null;
+	$: directorOverlay = overlayRevision >= 0 ? directorOverlayFor(gateTab) : null;
 	$: requestContext = requestContextFor(
-		currentTab.selectedPreset || '',
-		presetVars[currentTab.selectedPreset || ''],
-		currentTab.selectedMode,
+		gateTab.selectedPreset || '',
+		presetVars[gateTab.selectedPreset || ''],
+		gateTab.selectedMode,
 		directorOverlay
 	);
-	$: canBatch = canBatchPrompts(presets.find((p: any) => p.id === currentTab.selectedPreset));
+	$: canBatch = canBatchPrompts(presets.find((p: any) => p.id === gateTab.selectedPreset));
 	$: batch = batchSummary({
-		prompts: promptCount(currentTab),
-		perPrompt: quantityOf(currentTab.formData),
+		prompts: promptCount(gateTab),
+		perPrompt: quantityOf(gateTab.formData),
 		canBatch
 	});
 	$: standardPromptActive = !promptlessActive && !videoDirectorActive && !musicDirectorActive && !promptRelayActive;
 	$: batchStatusLine = standardPromptActive ? batchLine(batch) : null;
-	$: currentPresetVars = presetVars[currentTab.selectedPreset || ''] || {};
+	$: currentPresetVars = presetVars[gateTab.selectedPreset || ''] || {};
 	// Preset-declared Segment Templates for the tab's selected mode — merged into
 	// the segment editors' apply picker beside the user's own library.
 	$: presetSegmentTemplates = resolvePresetSegmentTemplates(
-		currentTab.selectedPreset,
+		gateTab.selectedPreset,
 		currentPresetVars.prompt,
-		currentTab.selectedMode
+		gateTab.selectedMode
 	);
 	// Styles the tab's preset curates, from the same getPreset(id) response
 	// presetVars was populated from — see loadPresetVars.
-	$: presetStyles = presetStylesById[currentTab.selectedPreset || ''] || [];
+	$: presetStyles = presetStylesById[gateTab.selectedPreset || ''] || [];
 	$: negativePromptSupported =
 		currentPresetVars.supports_negative_prompt !== false &&
 		currentPresetVars.negative_prompt_supported !== false;
@@ -745,10 +748,10 @@
 		!musicDirectorActive &&
 		!promptlessActive &&
 		isNegativeInert(
-			presetNegativeById[currentTab.selectedPreset || ''],
-			currentTab.selectedMode,
-			currentTab.selectedVariant,
-			currentTab.formData
+			presetNegativeById[gateTab.selectedPreset || ''],
+			gateTab.selectedMode,
+			gateTab.selectedVariant,
+			gateTab.formData
 		);
 
 	// Prompt Relay: modes (per current preset) whose prompt section uses the
@@ -783,13 +786,13 @@
 		: musicDirectorActive
 			? "Compare isn't available while the Music Director is on."
 			: null;
-	$: if (currentTab?.id) setCompareBlocked(currentTab.id, compareBlockReason);
+	$: if (gateTab?.id) setCompareBlocked(gateTab.id, compareBlockReason);
 
 	let costNote: string | null = null;
 	let estimateTimer: ReturnType<typeof setTimeout> | undefined;
 	let estimateKey = '';
 	let estimateSeq = 0;
-	$: scheduleDirectorEstimate(currentTab, videoDirectorActive, videoDirectorCaps, directorCheckedByTab, isAdmin);
+	$: scheduleDirectorEstimate(gateTab, videoDirectorActive, videoDirectorCaps, directorCheckedByTab, isAdmin);
 
 	function resetDirectorEstimate() {
 		clearTimeout(estimateTimer);
@@ -848,10 +851,10 @@
 	// text into a still-untouched document, never overwrites or resurrects.
 	$: if (videoDirectorActive && videoDirectorCaps) {
 		const legacyPromptText =
-			currentTab.promptSegments && currentTab.promptSegments.length > 0
-				? resolvePromptSegments(currentTab.promptSegments)
-				: currentTab.prompt || '';
-		const seeded = seedDirectorPromptFromLegacyText(currentTab.videoDirector, videoDirectorCaps, legacyPromptText);
+			gateTab.promptSegments && gateTab.promptSegments.length > 0
+				? resolvePromptSegments(gateTab.promptSegments)
+				: gateTab.prompt || '';
+		const seeded = seedDirectorPromptFromLegacyText(gateTab.videoDirector, videoDirectorCaps, legacyPromptText);
 		if (seeded) {
 			tabsStore.updateTab(activeTabId, { videoDirector: seeded });
 		}
@@ -862,17 +865,17 @@
 	// longer requires prompt text. See docs/presets.md `promptless_modes`.
 	$: promptlessActive =
 		requestContext.promptlessActive ||
-		isPromptlessMode(currentPresetVars, currentTab.selectedMode, currentTab.formData);
+		isPromptlessMode(currentPresetVars, gateTab.selectedMode, gateTab.formData);
 	$: promptOptionalActive =
 		!promptlessActive &&
 		(requestContext.promptOptionalActive ||
-			isOptionalPromptMode(currentPresetVars, currentTab.selectedMode, currentTab.formData));
+			isOptionalPromptMode(currentPresetVars, gateTab.selectedMode, gateTab.formData));
 
-	$: promptCopy = promptModeCopy(currentPresetVars, currentTab.selectedMode, promptOptionalActive);
+	$: promptCopy = promptModeCopy(currentPresetVars, gateTab.selectedMode, promptOptionalActive);
 
 	// Load preset vars when preset changes
-	$: if (currentTab.selectedPreset && mounted) {
-		loadPresetVars(currentTab.selectedPreset);
+	$: if (gateTab.selectedPreset && mounted) {
+		loadPresetVars(gateTab.selectedPreset);
 	}
 
 	async function loadPresetVars(presetId: string) {
@@ -1289,6 +1292,23 @@
 		toasts.success(`Reused generation from ${timeAgo(generation.created_at)}`);
 		announceReuseConversion({ converted });
 	}
+
+	const tabHandlerCache = new Map<string, ReturnType<typeof createTabHandlers>>();
+	function tabHandlersFor(tabId: string) {
+		let handlers = tabHandlerCache.get(tabId);
+		if (!handlers) {
+			handlers = createTabHandlers(tabId);
+			tabHandlerCache.set(tabId, handlers);
+		}
+		return handlers;
+	}
+
+	function pruneTabHandlers(live: GenerationTab[]) {
+		if (tabHandlerCache.size <= live.length) return;
+		const ids = new Set(live.map((entry) => entry.id));
+		for (const id of tabHandlerCache.keys()) if (!ids.has(id)) tabHandlerCache.delete(id);
+	}
+	$: pruneTabHandlers(tabs);
 
 	function createTabHandlers(tabId: string) {
 		return {
@@ -1767,29 +1787,29 @@
 			// Promptless mode (upscale, slow-motion, …): no prompt is required.
 			hasPrompt = true;
 		} else if (videoDirectorActive && videoDirectorCaps) {
-			const doc = normalizeDirectorValue(currentTab.videoDirector, videoDirectorCaps);
+			const doc = normalizeDirectorValue(gateTab.videoDirector, videoDirectorCaps);
 			// Scoped to the console's own checked-row selection (empty = the
 			// whole film) -- an unselected shot's own problems must never block
 			// a valid selected one (directorPlanner.ts).
-			const directorChecked = directorCheckedByTab[currentTab.id] ?? new Set<string>();
-			const plan = planDirectorSelection(doc, videoDirectorCaps, currentTab.directorRuns, directorChecked);
+			const directorChecked = directorCheckedByTab[gateTab.id] ?? new Set<string>();
+			const plan = planDirectorSelection(doc, videoDirectorCaps, gateTab.directorRuns, directorChecked);
 			hasPrompt = plan.blockingReasons.length === 0;
 			noPromptReason = plan.blockingReasons[0] || noPromptReason;
 		} else if (musicDirectorActive && musicDirectorCaps) {
-			const doc = normalizeMusicDirectorValue(currentTab.musicDirector, musicDirectorCaps);
+			const doc = normalizeMusicDirectorValue(gateTab.musicDirector, musicDirectorCaps);
 			const result = validateMusicDirector(doc, musicDirectorCaps);
 			hasPrompt = result.ok;
 			noPromptReason = result.reasons[0] || noPromptReason;
 		} else if (promptRelayActive) {
 			// Prompt Relay mode: prompts come from the timeline editor (segments or global prompt)
-			const relay = currentTab.promptRelay;
+			const relay = gateTab.promptRelay;
 			const hasSegmentText = (relay?.timeline?.segments || []).some(
 				(s) => (s.text || '').trim().length > 0
 			);
 			const hasGlobal = (relay?.global_prompt || '').trim().length > 0;
 			hasPrompt = hasSegmentText || hasGlobal;
 		} else {
-			const sentPrompts = canBatch ? promptList(currentTab) : promptList(currentTab).slice(0, 1);
+			const sentPrompts = canBatch ? promptList(gateTab) : promptList(gateTab).slice(0, 1);
 			const emptyAt = firstEmptyPrompt(sentPrompts);
 			hasPrompt = promptOptionalActive || emptyAt < 0;
 			if (!hasPrompt && sentPrompts.length > 1) noPromptReason = `Prompt ${emptyAt + 1} is empty`;
@@ -1797,8 +1817,8 @@
 
 		let resourceIssue: string | undefined;
 		if (!promptlessActive && !videoDirectorActive && !musicDirectorActive && !promptRelayActive) {
-			const formValues = currentTab.formData || {};
-			const sentPrompts = canBatch ? promptList(currentTab) : promptList(currentTab).slice(0, 1);
+			const formValues = gateTab.formData || {};
+			const sentPrompts = canBatch ? promptList(gateTab) : promptList(gateTab).slice(0, 1);
 			resourceIssue = firstResourceIssue(
 				sentPrompts.flatMap((entry) => [entry.promptSegments, entry.negativePromptSegments]),
 				currentTabPromptResources,
@@ -1807,21 +1827,21 @@
 		}
 
 		const limitGate = $submitGate;
-		const missingModelField = currentTab.selectedPreset && !videoDirectorActive && !musicDirectorActive && !promptRelayActive
+		const missingModelField = gateTab.selectedPreset && !videoDirectorActive && !musicDirectorActive && !promptRelayActive
 			? missingModelFor(
 					$missingModelByTab,
-					currentTab.id,
-					`${currentTab.selectedPreset}-${currentTab.selectedMode ?? 'txt2img'}-${currentTab.selectedVariant ?? ''}`
+					gateTab.id,
+					`${gateTab.selectedPreset}-${gateTab.selectedMode ?? 'txt2img'}-${gateTab.selectedVariant ?? ''}`
 				)
 			: null;
 		const batchBlocked = standardPromptActive && batch.overCap;
 		const unavailable =
-			presetUnavailableReason(presets.find((preset: any) => preset.id === currentTab.selectedPreset)) ||
-			modeUnavailableReason(modesPerTab[currentTab.id], currentTab.selectedMode);
-		canGenerate = !!currentTab.selectedPreset && !unavailable && hasPrompt && !resourceIssue && !limitGate && !missingModelField && !batchBlocked;
+			presetUnavailableReason(presets.find((preset: any) => preset.id === gateTab.selectedPreset)) ||
+			modeUnavailableReason(modesPerTab[gateTab.id], gateTab.selectedMode);
+		canGenerate = !!gateTab.selectedPreset && !unavailable && hasPrompt && !resourceIssue && !limitGate && !missingModelField && !batchBlocked;
 		generateDisabledReason = canGenerate
 			? undefined
-			: !currentTab.selectedPreset
+			: !gateTab.selectedPreset
 				? 'Select a preset to generate'
 				: unavailable ||
 					resourceIssue ||
@@ -1921,7 +1941,7 @@
 
 	<!-- Keep lightweight tab wrappers, but mount the expensive editor only for the active tab. -->
 	{#each tabs as tab (tab.id)}
-		{@const tabHandlers = createTabHandlers(tab.id)}
+		{@const tabHandlers = tabHandlersFor(tab.id)}
 		{@const tabModes = modesPerTab[tab.id] || []}
 		{@const isActive = tab.id === activeTabId && !toolTabActive}
 		<div class="flex-1 flex flex-col min-h-0 pb-[var(--deck-height)] md:pb-0" style="display: {isActive ? 'flex' : 'none'}">

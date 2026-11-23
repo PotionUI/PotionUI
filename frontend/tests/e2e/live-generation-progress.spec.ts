@@ -94,7 +94,7 @@ test('live generation progress — bar advances, preview refines, gallery strip 
 	await expect(progressBar).toHaveAttribute('aria-valuenow', '10', { timeout: 10000 });
 
 	send(ws, workbenchMsg(3));
-	const preview = page.locator('img[src^="data:image/png;base64"]').first();
+	const preview = page.locator('img[alt="Current generation"][src^="blob:"]').first();
 	await expect(preview).toBeVisible({ timeout: 10000 });
 
 	send(ws, statusMsg(1, 'generator', 'Sampling <<PROGRESS:21/30>>', 21 / TOTAL_STEPS, 21));

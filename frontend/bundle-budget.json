@@ -1,10 +1,10 @@
 {
-	"js_raw": 595968,
+	"js_raw": 598016,
 	"css_raw": 212992,
 	"routes": {
 		"/generate": {
-			"js_raw": 2679808,
-			"css_raw": 79872
+			"js_raw": 2314240,
+			"css_raw": 47104
 		}
 	},
 	"target": {

@@ -1362,7 +1362,11 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 			pendingWrite = payload;
 			currentPayload = payload;
 			if (writeTimer) clearTimeout(writeTimer);
-			writeTimer = setTimeout(flushWrite, 150);
+			writeTimer = setTimeout(() => {
+				const latest = currentPayload;
+				flushWrite();
+				autosave.observe(latest);
+			}, 150);
 		});
 	});
 

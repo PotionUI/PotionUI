@@ -103,7 +103,23 @@ def tube_detailer_configuration() -> List[PipeConfigSpec]:
                        "MediaPipe face landmarker model path", required=False),
         PipeConfigSpec("hand_model", str, "models/mediapipe/hand_landmarker.task",
                        "MediaPipe hand landmarker model path", required=False),
+        PipeConfigSpec("require_detectors", bool, False,
+                       "Fail instead of returning the video unchanged when no detection model is available",
+                       required=False),
     ]
+
+
+def _missing_detectors_message(missing: List[str], backend: str, model_paths: dict) -> str:
+    kinds = " and ".join(missing)
+    if backend != "mediapipe":
+        return (f"No {kinds} detection model is installed for the {backend} detector backend, "
+                "so there is nothing to refine.")
+    paths = ", ".join(model_paths[kind] for kind in missing)
+    if len(missing) == 1:
+        return (f"The MediaPipe {kinds} detection model is not installed ({paths}). "
+                "Download it from its detection model field in the Refine faces form, then run it again.")
+    return (f"The MediaPipe {kinds} detection models are not installed ({paths}). "
+            "Download them from their detection model fields in the Refine faces form, then run it again.")
 
 
 class VideoTubeDetailerPipe(BasePipe):
@@ -175,6 +191,8 @@ class VideoTubeDetailerPipe(BasePipe):
             raise ValueError(f"{self.pipe_label} requires 'conditioning' (the generation's positive prompt)")
         seeds = pipe_input.input.get("seed") or []
         device = self.config.get("device", "cuda")
+        if bool(self.config.get("require_detectors", False)):
+            self._fail_without_detectors()
 
         self.free_room(bundle, device)
 
@@ -194,6 +212,29 @@ class VideoTubeDetailerPipe(BasePipe):
 
         return PipeOutput(output={"video": outputs})
 
+    def _model_paths(self) -> dict:
+        return {
+            "face": self.config.get("face_model", "models/mediapipe/face_landmarker.task"),
+            "hand": self.config.get("hand_model", "models/mediapipe/hand_landmarker.task"),
+        }
+
+    def _build_detectors(self):
+        model_paths = self._model_paths()
+        return build_frame_detectors(
+            detect_faces=bool(self.config.get("detect_faces", True)),
+            detect_hands=bool(self.config.get("detect_hands", True)),
+            backend=self.config.get("detection_backend", "mediapipe"),
+            face_model=model_paths["face"],
+            hand_model=model_paths["hand"],
+            confidence=float(self.config.get("detection_confidence", 0.5)),
+        )
+
+    def _fail_without_detectors(self) -> None:
+        build_result = self._build_detectors()
+        if not build_result.detectors and build_result.missing:
+            raise FileNotFoundError(_missing_detectors_message(
+                build_result.missing, self.config.get("detection_backend", "mediapipe"), self._model_paths()))
+
     def _process_one(
         self, bundle: Any, cond_model: Any, video_path: str, seed: int, device: str,
         generation_outputs: callable, is_cancelled: Optional[callable] = None,
@@ -205,14 +246,7 @@ class VideoTubeDetailerPipe(BasePipe):
         del frames_pil
         height, width = int(frames.shape[1]), int(frames.shape[2])
 
-        build_result = build_frame_detectors(
-            detect_faces=bool(self.config.get("detect_faces", True)),
-            detect_hands=bool(self.config.get("detect_hands", True)),
-            backend=self.config.get("detection_backend", "mediapipe"),
-            face_model=self.config.get("face_model", "models/mediapipe/face_landmarker.task"),
-            hand_model=self.config.get("hand_model", "models/mediapipe/hand_landmarker.task"),
-            confidence=float(self.config.get("detection_confidence", 0.5)),
-        )
+        build_result = self._build_detectors()
         detectors = build_result.detectors
         for kind in build_result.missing:
             generation_outputs(ProgressGenerationOutput(

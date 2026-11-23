@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from src.features.generation.error_classification import classify_generation_error
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import CompareImagesGenerationOutput
 from src.pipelines.pipes._shared.video.tubes.detection import DetectorBuildResult
@@ -309,6 +310,82 @@ def test_both_models_missing_skips_enhancement_without_crashing(monkeypatch):
     assert any("Face detection model isn't downloaded yet" in s for s in states)
     assert any("Hand detection model isn't downloaded yet" in s for s in states)
     assert any("Face and hand enhancement was skipped" in s for s in states)
+
+
+def _never(what):
+    def fail(*a, **k):
+        raise AssertionError(f"{what} must not run when the required detectors are missing")
+    return fail
+
+
+def test_required_detectors_with_both_models_missing_fail_before_freeing_room_or_decoding(monkeypatch, tmp_path):
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", _never("read_video_frames"))
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", _never("detect_tracks"))
+    monkeypatch.setattr(DetailerVideoLtxPipe, "free_room", _never("free_room"))
+    face, hand = tmp_path / "face_landmarker.task", tmp_path / "hand_landmarker.task"
+
+    with pytest.raises(FileNotFoundError) as raised:
+        _pipe(require_detectors=True, face_model=str(face), hand_model=str(hand)).process(
+            PipeInput(input={"model": _bundle(), "video": ["/src/clip.mp4"], "conditioning": [object()]}),
+            lambda o: None)
+
+    message = str(raised.value)
+    assert "The MediaPipe face and hand detection models are not installed" in message
+    assert str(face) in message and str(hand) in message
+    assert classify_generation_error(raised.value).category == "missing_model_file"
+
+
+def test_required_detectors_with_the_only_requested_model_missing_name_it_alone(monkeypatch, tmp_path):
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", _never("read_video_frames"))
+    hand = tmp_path / "hand_landmarker.task"
+
+    with pytest.raises(FileNotFoundError) as raised:
+        _pipe(require_detectors=True, detect_faces=False, hand_model=str(hand)).process(
+            PipeInput(input={"model": _bundle(), "video": ["/src/clip.mp4"], "conditioning": [object()]}),
+            lambda o: None)
+
+    message = str(raised.value)
+    assert message.startswith(f"The MediaPipe hand detection model is not installed ({hand})")
+    assert "face_landmarker" not in message and "face detection" not in message
+
+
+def test_required_detectors_on_the_yolo_backend_fail_naming_the_backend(monkeypatch):
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", _never("read_video_frames"))
+    monkeypatch.setattr(
+        f"{_SHARED}.build_frame_detectors",
+        lambda *a, **k: DetectorBuildResult(detectors=[], missing=["face"]))
+
+    with pytest.raises(FileNotFoundError, match="No face detection model is installed for the yolo detector backend"):
+        _pipe(require_detectors=True, detection_backend="yolo").process(
+            PipeInput(input={"model": _bundle(), "video": ["/src/clip.mp4"], "conditioning": [object()]}),
+            lambda o: None)
+
+
+def test_required_detectors_with_one_model_present_still_refine(monkeypatch):
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
+    monkeypatch.setattr(
+        f"{_SHARED}.build_frame_detectors",
+        lambda *a, **k: DetectorBuildResult(detectors=[object()], missing=["hand"]))
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", lambda *a, **k: _one_face_track())
+
+    def fake_refine(bundle, cond_model, pixels, **kw):
+        n, th, tw = pixels.shape[2], pixels.shape[3], pixels.shape[4]
+        return np.full((n, th, tw, 3), 200, np.uint8)
+
+    monkeypatch.setattr(f"{_MOD}.refine_tube_pixels", fake_refine)
+    monkeypatch.setattr(f"{_SHARED}.encode_frames_to_mp4",
+                        lambda frames, out_path, fps, audio=None: Path(out_path).write_bytes(b"mp4"))
+
+    out = _pipe(require_detectors=True, color_correction="none").process(
+        PipeInput(input={"model": _bundle(), "video": ["/src/clip.mp4"],
+                         "conditioning": [object()], "seed": [42]}),
+        lambda o: None)
+
+    assert out.output["video"][0] != "/src/clip.mp4"
+
+
+def test_detectors_are_optional_by_default():
+    assert DetailerVideoLtxPipe.get_default_config()["require_detectors"] is False
 
 
 def test_hand_model_missing_still_refines_faces(monkeypatch):

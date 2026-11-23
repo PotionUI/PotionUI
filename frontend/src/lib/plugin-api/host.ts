@@ -27,7 +27,7 @@ import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContex
 import overlayLayer from '$lib/actions/overlayLayer';
 import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
 import { isEditableTarget, isTypingInField } from '$lib/utils/editableTarget';
-import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
+import type { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 import { createHostFetchApi, type PluginHostFetchApi } from './hostApi';
 import type { PluginImageEditorApi } from '$lib/paint/registries';
 import { createHostEditorsApi, type PluginEditorsApi } from '$lib/editors/pluginEntries';
@@ -258,7 +258,30 @@ const generationEvents = createGenerationEvents();
  * (each call just re-derives the same bindings), matching the other
  * `+layout.svelte` init calls (`refreshPluginExtensions`, etc).
  */
+let prepareRequestImpl: typeof prepareRequestFromSession | null = null;
+let prepareRequestLoading: Promise<void> | null = null;
+
+function loadPrepareRequest(): Promise<void> {
+	prepareRequestLoading ??= import('$lib/generation/prepareRequest').then((module) => {
+		prepareRequestImpl = module.prepareRequestFromSession;
+	}).catch((error) => {
+		prepareRequestLoading = null;
+		throw error;
+	});
+	return prepareRequestLoading;
+}
+
+export function whenHostReady(): Promise<void> {
+	return loadPrepareRequest();
+}
+
+const prepareRequest: typeof prepareRequestFromSession = (input) => {
+	if (!prepareRequestImpl) throw new Error('generation.prepareRequest is not loaded yet');
+	return prepareRequestImpl(input);
+};
+
 export function initHostApi(): void {
+	void loadPrepareRequest();
 	const w = window as unknown as { __potionui?: Partial<PotionUIHostApi> };
 	registerHostUiComponents();
 	const host: PotionUIHostApi = {
@@ -333,7 +356,7 @@ export function initHostApi(): void {
 			isEditableTarget
 		},
 		generation: {
-			prepareRequest: prepareRequestFromSession,
+			prepareRequest,
 			subscribe: generationEvents.subscribe
 		},
 		imageEditor: createHostImageEditorApi(),

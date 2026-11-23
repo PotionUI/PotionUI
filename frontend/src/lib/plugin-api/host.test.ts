@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { get } from 'svelte/store';
-import { initHostApi, createGenerationEvents, type PotionUIHostApi, type GenerationEvent } from './host';
+import { initHostApi, whenHostReady, createGenerationEvents, type PotionUIHostApi, type GenerationEvent } from './host';
 import {
 	isKeyboardSuppressed,
 	suppressKeyboard,
@@ -397,6 +397,13 @@ describe('window.__potionui.generation.subscribe', () => {
 
 	it('keeps prepareRequest', () => {
 		expect(typeof host().generation.prepareRequest).toBe('function');
+	});
+
+	it('runs prepareRequest synchronously once the host is ready', async () => {
+		await whenHostReady();
+		const prepared = host().generation.prepareRequest({ session: { formData: { prompt: 'a cat' } } } as never);
+		expect(prepared).toBeTypeOf('object');
+		expect(typeof (prepared as unknown as { then?: unknown }).then).toBe('undefined');
 	});
 
 	it('opens one generation socket for every subscription and subscribes each id', async () => {

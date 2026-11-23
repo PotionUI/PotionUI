@@ -215,4 +215,50 @@ describe('refreshPluginExtensions', { timeout: 30_000 }, () => {
 		expect(mockGet.mock.calls).toHaveLength(12);
 		expect(m.artifactRendererRegistry.has('fake_artifact')).toBe(true);
 	});
+	it('uses a prefetched snapshot instead of fetching again', async () => {
+		const m = await loadModules();
+		respondWith({ renderers: [ARTIFACT_RENDERER] });
+
+		m.prefetchExtensionSnapshot();
+		m.prefetchExtensionSnapshot();
+		expect(mockGet.mock.calls).toHaveLength(6);
+
+		await m.refreshPluginExtensions();
+
+		expect(mockGet.mock.calls).toHaveLength(6);
+		expect(m.artifactRendererRegistry.has('fake_artifact')).toBe(true);
+
+		await m.refreshPluginExtensions();
+		expect(mockGet.mock.calls).toHaveLength(12);
+	});
+
+	it('ignores a prefetched snapshot that has gone stale', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		try {
+			const m = await loadModules();
+			respondWith({ renderers: [ARTIFACT_RENDERER] });
+			m.prefetchExtensionSnapshot();
+			vi.setSystemTime(Date.now() + 16_000);
+
+			await m.refreshPluginExtensions();
+
+			expect(mockGet.mock.calls).toHaveLength(12);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('keeps the applied snapshot when the prefetch failed', async () => {
+		const m = await loadModules();
+		respondWith({ renderers: [ARTIFACT_RENDERER] });
+		await m.refreshPluginExtensions();
+
+		mockGet.mockImplementation(async () => {
+			throw new Error('offline');
+		});
+		m.prefetchExtensionSnapshot();
+		await m.refreshPluginExtensions();
+
+		expect(m.artifactRendererRegistry.has('fake_artifact')).toBe(true);
+	});
 });

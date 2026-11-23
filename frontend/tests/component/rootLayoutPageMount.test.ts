@@ -14,18 +14,23 @@ vi.mock('$lib/plans/store', () => ({
 	refreshLimits: vi.fn(),
 	resetLimitsState: vi.fn()
 }));
-vi.mock('$lib/stores/keybindings', () => ({
-	keybindingsStore: {
-		loadBindings: vi.fn().mockResolvedValue(undefined),
-		reset: vi.fn(),
-		registerHandler: vi.fn(),
-		toggleHelp: vi.fn()
-	}
-}));
+vi.mock('$lib/stores/keybindings', async () => {
+	const { writable: store } = await import('svelte/store');
+	return {
+		isHelpOpen: store(false),
+		keybindingsStore: {
+			loadBindings: vi.fn().mockResolvedValue(undefined),
+			reset: vi.fn(),
+			registerHandler: vi.fn(),
+			toggleHelp: vi.fn()
+		}
+	};
+});
 vi.mock('$lib/services/keyboard', () => ({ init: vi.fn(), destroy: vi.fn() }));
-vi.mock('$lib/plugin-api/host', () => ({ initHostApi: vi.fn() }));
+vi.mock('$lib/plugin-api/host', () => ({ initHostApi: vi.fn(), whenHostReady: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('$lib/plugin-api/extensionRefresh', () => ({
-	refreshPluginExtensions: vi.fn().mockResolvedValue(undefined)
+	refreshPluginExtensions: vi.fn().mockResolvedValue(undefined),
+	prefetchExtensionSnapshot: vi.fn()
 }));
 vi.mock('$lib/stores/presetsCatalog', () => ({ loadPresets: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('$lib/utils/modeLabel.svelte', () => ({ loadModeLabels: vi.fn().mockResolvedValue(undefined) }));
@@ -46,6 +51,12 @@ vi.mock('$lib/services/notificationsWebsocket', () => ({
 vi.mock('$lib/stores/theme', () => ({ themeStore: { init: vi.fn(), destroy: vi.fn() } }));
 vi.mock('$lib/utils/startupBanner', () => ({ printStartupBanner: vi.fn() }));
 vi.mock('$lib/utils/inputModality', () => ({ installInputModality: () => () => {} }));
+
+const hostLoads = vi.hoisted(() => ({ modeInstall: 0 }));
+vi.mock('$lib/components/recipes/modeInstall/ModeInstallHost.svelte', async () => {
+	hostLoads.modeInstall += 1;
+	return { default: (await import('./stubs/BlankStub.svelte')).default };
+});
 
 const stubComponent = vi.hoisted(() => async () => ({ default: (await import('./stubs/BlankStub.svelte')).default }));
 vi.mock('$lib/components/library/LibraryModalHost.svelte', stubComponent);
@@ -72,6 +83,7 @@ vi.mock('$lib/fields/builtin', () => ({ registerBuiltinFieldComponents: vi.fn() 
 
 const { default: LayoutWithProbe } = await import('./stubs/LayoutWithProbe.svelte');
 const { page } = await import('./stubs/appStores');
+const { openModeInstall, closeModeInstall } = await import('$lib/stores/modeInstall');
 
 let target: HTMLElement | undefined;
 let instance: ReturnType<typeof mount> | undefined;
@@ -97,5 +109,19 @@ describe('root layout page mount', () => {
 
 		expect(target.querySelector('[data-mount-probe]')).not.toBeNull();
 		expect(onProbeMount).toHaveBeenCalledTimes(1);
+	});
+	it('loads the mode install host only once an install is requested', async () => {
+		page.update((current) => ({ ...current, url: new URL('http://localhost/library') }));
+		target = document.createElement('div');
+		document.body.appendChild(target);
+
+		instance = mount(LayoutWithProbe, { target, props: { onProbeMount: vi.fn() } });
+		flushSync();
+		await settle(6);
+		expect(hostLoads.modeInstall).toBe(0);
+
+		openModeInstall('recipe', ['m']);
+		await vi.waitFor(() => expect(hostLoads.modeInstall).toBe(1));
+		closeModeInstall();
 	});
 });

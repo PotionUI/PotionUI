@@ -127,6 +127,23 @@ interface RegistrationDescriptor {
 let applied: RegistrationDescriptor[] = [];
 let inFlight: Promise<void> | null = null;
 let queued: Promise<void> | null = null;
+let prefetched: { at: number; snapshot: Promise<ExtensionSnapshot> } | null = null;
+
+const PREFETCH_MAX_AGE_MS = 15_000;
+
+export function prefetchExtensionSnapshot(): void {
+	if (prefetched) return;
+	const snapshot = fetchSnapshot();
+	snapshot.catch(() => {});
+	prefetched = { at: Date.now(), snapshot };
+}
+
+function takePrefetched(): Promise<ExtensionSnapshot> | null {
+	const entry = prefetched;
+	prefetched = null;
+	if (!entry || Date.now() - entry.at > PREFETCH_MAX_AGE_MS) return null;
+	return entry.snapshot;
+}
 
 async function fetchCatalog<T>(path: string, pick: (data: any) => T): Promise<T> {
 	const response = await api.getClient().get(path);
@@ -307,7 +324,7 @@ function applySnapshot(snapshot: ExtensionSnapshot): void {
 async function runRefresh(): Promise<void> {
 	const typesRefreshed = refreshModelTypes();
 	try {
-		applySnapshot(await fetchSnapshot());
+		applySnapshot(await (takePrefetched() ?? fetchSnapshot()));
 	} catch (err) {
 		// Non-fatal: core renderers, fields and slots work without plugin
 		// extensions, and the previously applied snapshot stays live.

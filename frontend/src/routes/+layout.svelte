@@ -10,9 +10,10 @@
 	import { chatPanelStore, isChatPanelOpen } from '$lib/stores/chatPanel';
 	import { isMobile } from '$lib/stores/viewport';
 	import { init as initKeyboard, destroy as destroyKeyboard } from '$lib/services/keyboard';
-	import { registerComponent } from '$lib/plugin-api/componentRegistry';
-	import { initHostApi } from '$lib/plugin-api/host';
-	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
+	import { registerLazyComponent } from '$lib/plugin-api/componentRegistry';
+	import { whenIdle } from '$lib/utils/idle';
+	import { modeInstallRequest } from '$lib/stores/modeInstall';
+	import { isHelpOpen } from '$lib/stores/keybindings';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import { loadModeLabels } from '$lib/utils/modeLabel.svelte';
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
@@ -21,8 +22,6 @@
 	import LibraryModalHost from '$lib/components/library/LibraryModalHost.svelte';
 	import ToolRunChip from '$lib/components/tools/ToolRunChip.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
-	import ModeInstallHost from '$lib/components/recipes/modeInstall/ModeInstallHost.svelte';
-	import IndexingChoiceModal from '$lib/models-location/IndexingChoiceModal.svelte';
 	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
 	import { initCrossTab } from '$lib/stores/accounts';
 	import { notifications } from '$lib/stores/notifications';
@@ -49,6 +48,22 @@
 	let ChatSheetComponent: any = null;
 	let KeyboardShortcutsModalComponent: any = null;
 	let NotificationPanelComponent: any = null;
+	let ModeInstallHostComponent: any = null;
+	let IndexingChoiceModalComponent: any = null;
+
+	const loadSidebar = () => import('$lib/components/Sidebar.svelte');
+	const loadMobileTabBar = () => import('$lib/components/MobileTabBar.svelte');
+	const loadHostApi = () => import('$lib/plugin-api/host');
+	const loadExtensionRefresh = () => import('$lib/plugin-api/extensionRefresh');
+	const loadBuiltinFields = () => import('$lib/fields/builtin');
+
+	if (browser && storage.get('auth_token')) {
+		void loadSidebar();
+		void loadMobileTabBar();
+		void loadHostApi();
+		void loadBuiltinFields();
+		void loadExtensionRefresh().then((module) => module.prefetchExtensionSnapshot());
+	}
 
 	onMount(() => {
 		mounted = true;
@@ -79,65 +94,69 @@
 		// each caller handles its own.
 		loadPresets().catch(() => {});
 
-		const [
-			sidebar,
-			mobileTabBar,
-			globalChatPanel,
-			chatSheet,
-			keyboardModal,
-			notificationPanel,
-			historyModal,
-			builtinFields,
-			textInput,
-			selectField,
-			checkboxField,
-			numberInput,
-			mediaLoaderField,
-			modelField,
-			promptModelField,
-			userPicker,
-			pluginModal
-		] = await Promise.all([
-			import('$lib/components/Sidebar.svelte'),
-			import('$lib/components/MobileTabBar.svelte'),
-			import('$lib/components/GlobalChatPanel.svelte'),
-			import('$lib/components/ChatSheet.svelte'),
-			import('$lib/components/KeyboardShortcutsModal.svelte'),
-			import('$lib/components/notifications/NotificationPanel.svelte'),
-			import('$lib/components/modals/GenerationHistoryModal.svelte'),
-			import('$lib/fields/builtin'),
-			import('$lib/components/form-fields/TextInput.svelte'),
-			import('$lib/components/form-fields/SelectField.svelte'),
-			import('$lib/components/form-fields/CheckboxField.svelte'),
-			import('$lib/components/form-fields/NumberInput.svelte'),
-			import('$lib/components/form-fields/MediaLoaderField.svelte'),
-			import('$lib/components/form-fields/ModelField.svelte'),
-			import('./prompts/components/PromptModelField.svelte'),
-			import('$lib/components/ui/UserPicker.svelte'),
-			import('$lib/components/modals/PluginModal.svelte')
+		void loadSidebar().then((module) => (SidebarComponent = module.default));
+		void loadMobileTabBar().then((module) => (MobileTabBarComponent = module.default));
+		whenIdle(() => {
+			ensureKeyboardModal();
+			ensureNotificationPanel();
+			ensureChatPanel();
+		});
+
+		registerLazyComponent('GenerationHistoryModal', () => import('$lib/components/modals/GenerationHistoryModal.svelte'));
+		registerLazyComponent('TextInput', () => import('$lib/components/form-fields/TextInput.svelte'));
+		registerLazyComponent('SelectField', () => import('$lib/components/form-fields/SelectField.svelte'));
+		registerLazyComponent('CheckboxField', () => import('$lib/components/form-fields/CheckboxField.svelte'));
+		registerLazyComponent('NumberInput', () => import('$lib/components/form-fields/NumberInput.svelte'));
+		registerLazyComponent('MediaLoaderField', () => import('$lib/components/form-fields/MediaLoaderField.svelte'));
+		registerLazyComponent('ModelField', () => import('$lib/components/form-fields/ModelField.svelte'));
+		registerLazyComponent('PromptModelField', () => import('./prompts/components/PromptModelField.svelte'));
+		registerLazyComponent('UserPicker', () => import('$lib/components/ui/UserPicker.svelte'));
+		registerLazyComponent('PluginModal', () => import('$lib/components/modals/PluginModal.svelte'));
+
+		const [hostApi, builtinFields, extensionRefresh] = await Promise.all([
+			loadHostApi(),
+			loadBuiltinFields(),
+			loadExtensionRefresh()
 		]);
-
-		SidebarComponent = sidebar.default;
-		MobileTabBarComponent = mobileTabBar.default;
-		GlobalChatPanelComponent = globalChatPanel.default;
-		ChatSheetComponent = chatSheet.default;
-		KeyboardShortcutsModalComponent = keyboardModal.default;
-		NotificationPanelComponent = notificationPanel.default;
-
-		registerComponent('GenerationHistoryModal', historyModal.default);
-		registerComponent('TextInput', textInput.default);
-		registerComponent('SelectField', selectField.default);
-		registerComponent('CheckboxField', checkboxField.default);
-		registerComponent('NumberInput', numberInput.default);
-		registerComponent('MediaLoaderField', mediaLoaderField.default);
-		registerComponent('ModelField', modelField.default);
-		registerComponent('PromptModelField', promptModelField.default);
-		registerComponent('UserPicker', userPicker.default);
-		registerComponent('PluginModal', pluginModal.default);
-		initHostApi();
+		hostApi.initHostApi();
 		builtinFields.registerBuiltinFieldComponents();
-		await refreshPluginExtensions();
+		await hostApi.whenHostReady();
+		await extensionRefresh.refreshPluginExtensions();
 		authenticatedRuntimeReady = true;
+	}
+
+	function ensureKeyboardModal() {
+		if (!KeyboardShortcutsModalComponent) {
+			void import('$lib/components/KeyboardShortcutsModal.svelte').then((module) => (KeyboardShortcutsModalComponent = module.default));
+		}
+	}
+
+	function ensureNotificationPanel() {
+		if (!NotificationPanelComponent) {
+			void import('$lib/components/notifications/NotificationPanel.svelte').then((module) => (NotificationPanelComponent = module.default));
+		}
+	}
+
+	function ensureChatPanel() {
+		if ($isMobile) {
+			if (!ChatSheetComponent) void import('$lib/components/ChatSheet.svelte').then((module) => (ChatSheetComponent = module.default));
+		} else if (!GlobalChatPanelComponent) {
+			void import('$lib/components/GlobalChatPanel.svelte').then((module) => (GlobalChatPanelComponent = module.default));
+		}
+	}
+
+	$: if ($isHelpOpen) ensureKeyboardModal();
+	$: if ($notifications.panelOpen) ensureNotificationPanel();
+	$: if ($isChatPanelOpen && $isMobile !== undefined) ensureChatPanel();
+	$: if ($modeInstallRequest && !ModeInstallHostComponent) {
+		void import('$lib/components/recipes/modeInstall/ModeInstallHost.svelte').then((module) => (ModeInstallHostComponent = module.default));
+	}
+	let indexingModalRequested = false;
+	$: if ($authStore.user?.account_type === 'ADMIN' && !indexingModalRequested) {
+		indexingModalRequested = true;
+		whenIdle(() => {
+			void import('$lib/models-location/IndexingChoiceModal.svelte').then((module) => (IndexingChoiceModalComponent = module.default));
+		});
 	}
 
 	$: if (mounted && $authStore.isAuthenticated) {
@@ -151,10 +170,13 @@
 	// instead of keeping the previous user's custom overrides.
 	$: if (mounted && $authStore.isAuthenticated && !keyboardInitialized) {
 		keyboardInitialized = true;
-		keybindingsStore.loadBindings().then(() => {
-			initKeyboard();
-			registerCoreHandlers();
-		});
+		whenIdle(() => {
+			if (!keyboardInitialized) return;
+			keybindingsStore.loadBindings().then(() => {
+				initKeyboard();
+				registerCoreHandlers();
+			});
+		}, 1000);
 	}
 	$: if (mounted && !$authStore.isAuthenticated && keyboardInitialized) {
 		keyboardInitialized = false;
@@ -165,10 +187,13 @@
 	// and tear it back down on logout (mirrors the keyboard init gating above).
 	$: if (mounted && $authStore.isAuthenticated && !notificationsInitialized) {
 		notificationsInitialized = true;
-		notifications.load();
-		notificationsWebSocket.connect();
 		installLimitsWatcher();
-		refreshLimits();
+		whenIdle(() => {
+			if (!notificationsInitialized) return;
+			notifications.load();
+			notificationsWebSocket.connect();
+			refreshLimits();
+		}, 1000);
 	}
 	$: if (mounted && !$authStore.isAuthenticated && notificationsInitialized) {
 		notificationsInitialized = false;
@@ -335,9 +360,9 @@
 		<AddToKitHost />
 		<ToolRunChip />
 		<ToastContainer />
-		<ModeInstallHost />
+		{#if ModeInstallHostComponent}<svelte:component this={ModeInstallHostComponent} />{/if}
 		<ConfirmHost />
-		<IndexingChoiceModal />
+		{#if IndexingChoiceModalComponent}<svelte:component this={IndexingChoiceModalComponent} />{/if}
 		<AccountSwitchOverlay />
 	</div>
 {:else}

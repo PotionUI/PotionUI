@@ -70,7 +70,7 @@ describe('content policy generation messages', () => {
 		});
 		expect(current().preview_suppressed).toBe(false);
 		expect(current().content_flagged).toBe(true);
-		expect(current().current_image).toBe('data:image/png;base64,AAAA');
+		expect(current().current_image).toMatch(/^blob:/);
 	});
 
 	it('gallery_update keeps per-image content_flagged', () => {

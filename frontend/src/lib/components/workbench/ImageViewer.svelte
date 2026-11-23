@@ -306,17 +306,16 @@
 	</div>
 {:else}
 	<!-- Normal image display -->
-	{#key imageUrl}
-		<img
-			src={imageUrl}
-			alt="Current generation"
-			class="w-full h-full object-contain cursor-pointer"
-			on:click={(e) => dispatch('imageClick', e)}
-			on:dblclick={(e) => dispatch('imageDoubleClick', e)}
-			role="button"
-			tabindex="0"
-			on:keydown={(e) => e.key === 'Enter' && dispatch('imageClick', new MouseEvent('click'))}
-			loading="lazy"
-		/>
-	{/key}
+	<img
+		src={imageUrl}
+		alt="Current generation"
+		class="w-full h-full object-contain cursor-pointer"
+		on:click={(e) => dispatch('imageClick', e)}
+		on:dblclick={(e) => dispatch('imageDoubleClick', e)}
+		role="button"
+		tabindex="0"
+		on:keydown={(e) => e.key === 'Enter' && dispatch('imageClick', new MouseEvent('click'))}
+		loading="lazy"
+		decoding="async"
+	/>
 {/if}

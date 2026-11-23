@@ -8,6 +8,7 @@ import {
 } from './cancelRetirement';
 import { tabClaimedGenerationIds } from './messages/ownership';
 import { retireGeneration } from './messages/generationOutputs';
+import { releasePreviewFrame } from './messages/previewFrameUrl';
 
 const LIVE_STATUSES = new Set(['pending', 'queued', 'running']);
 
@@ -60,6 +61,7 @@ export function clearDeletedGeneration(
 		tabsStore.updateTab(tabId, { generation: { ...tab.generation, queue } });
 		return;
 	}
+	releasePreviewFrame(tabId);
 	tabsStore.updateTab(tabId, {
 		...(tab.activeGenerationId === generationId ? { activeGenerationId: null } : {}),
 		generation: {

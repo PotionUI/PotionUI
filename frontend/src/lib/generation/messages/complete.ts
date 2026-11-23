@@ -4,6 +4,7 @@ import { directorShotIdsFor, withDirectorRunTerminal, withoutDirectorRunLink } f
 import { isTabsCurrentGeneration, withoutQueueEntry, nextQueueCandidate, beginGenerationOwnership } from './ownership';
 import { refreshLimitsSoon } from '$lib/plans/store';
 import { peekGenerationOutputs, retireGeneration, leadOutputPatch } from './generationOutputs';
+import { releasePreviewFrame, withoutPreviewBlob } from './previewFrameUrl';
 
 generationMessageRegistry.register('generation_complete', {
 	type: 'generation_complete',
@@ -52,6 +53,7 @@ generationMessageRegistry.register('generation_complete', {
 			: targetTab.generation.totalTime;
 
 		if (isOwner) {
+			releasePreviewFrame(targetTabId);
 			Object.assign(generationPatch, {
 				isGenerating: false,
 				currentGeneration: output.file_type
@@ -67,7 +69,7 @@ generationMessageRegistry.register('generation_complete', {
 							preview_clip: null
 						}
 					: {
-							...targetTab.generation.currentGeneration,
+							...withoutPreviewBlob(targetTab.generation.currentGeneration),
 							status: 'completed',
 							preview_suppressed: false,
 							preview_clip: null

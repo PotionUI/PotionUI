@@ -219,6 +219,8 @@
 	// the raw file object rather than a resolved URL.
 	$: displayMesh = isGalleryMode && isMeshFileType(displayFileType) ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_mesh;
 	$: previewClip = isGenerating ? (currentGeneration?.preview_clip ?? null) : null;
+	$: liveFrame = isGenerating && !isGalleryMode && !previewClip && !!currentGeneration?.current_image;
+	$: mediaKey = liveFrame ? 'live-frame' : displayImage || displayVideo || displayAudio || displayMesh;
 	let clipFadeFor: string | null = null;
 	$: if (previewClip) clipFadeFor = currentGeneration?.id ?? null;
 	$: mediaFadeMs = clipFadeFor && clipFadeFor === currentGeneration?.id ? 150 : 200;
@@ -251,6 +253,7 @@
 		(!!displayImage || !!displayVideo) &&
 		!isComparing &&
 		!isZoomMode &&
+		!liveFrame &&
 		!ambientBlocked;
 
 	// Responsive overlay chrome. The workbench panel is resizable independently of the
@@ -508,7 +511,7 @@
 	$: if (hasDisplayMedia && generationFiles && actions.hasPixelMetadata) {
 		if (displayFileType === 'video' && displayVideo) {
 			loadVideoMetadata(!awaitingFiles);
-		} else if (displayImage) {
+		} else if (displayImage && !liveFrame) {
 			loadImageMetadata(!awaitingFiles);
 		}
 	} else if (hasDisplayMedia && !actions.hasPixelMetadata) {
@@ -797,7 +800,7 @@
 			{/if}
 
 			<!-- Media Display -->
-			{#key displayImage || displayVideo || displayAudio || displayMesh}
+			{#key mediaKey}
 				<div in:fade={{ duration: mediaFadeMs }} class="contents">
 					{#if previewClip}
 						<PreviewClipPlayer

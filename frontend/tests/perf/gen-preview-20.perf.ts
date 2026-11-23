@@ -24,18 +24,30 @@ function installPreviewObserver() {
 	const w = window as any;
 	const seen = new WeakMap<object, string>();
 	w.__previews = [] as Observed[];
+	const asDataUrl = async (src: string): Promise<string> => {
+		if (src.startsWith('data:image/')) return src;
+		const blob = await (await fetch(src)).blob();
+		return new Promise<string>((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(String(reader.result));
+			reader.onerror = () => reject(reader.error);
+			reader.readAsDataURL(blob);
+		});
+	};
 	const handle = (node: Element) => {
 		if (!(node instanceof HTMLImageElement) || node.getAttribute('alt') !== 'Current generation') return;
 		const src = node.getAttribute('src') ?? '';
-		if (!src.startsWith('data:image/') || seen.get(node) === src) return;
+		if (!(src.startsWith('data:image/') || src.startsWith('blob:')) || seen.get(node) === src) return;
 		seen.set(node, src);
 		const start = performance.timeOrigin + performance.now();
-		const length = src.length;
-		const middle = src.slice(300, 360);
-		node
+		const identity = asDataUrl(src).then((url) => ({ length: url.length, middle: url.slice(300, 360) }));
+		const painted = node
 			.decode()
 			.catch(() => undefined)
-			.then(() => requestAnimationFrame(() => w.__previews.push({ length, middle, start, done: performance.timeOrigin + performance.now() })));
+			.then(() => new Promise<number>((resolve) => requestAnimationFrame(() => resolve(performance.timeOrigin + performance.now()))));
+		Promise.all([identity, painted])
+			.then(([{ length, middle }, done]) => w.__previews.push({ length, middle, start, done }))
+			.catch(() => undefined);
 	};
 	new MutationObserver((records) => {
 		for (const record of records) {

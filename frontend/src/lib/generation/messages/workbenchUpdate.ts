@@ -1,6 +1,7 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { resolveOwnership } from './ownership';
 import { shouldApplyPreview } from './replayGuard';
+import { previewFrameUrl } from './previewFrameUrl';
 
 // Moved verbatim from generate/+page.svelte handleGenerationMessage's
 // 'workbench_update' case (image/video/audio branching).
@@ -169,12 +170,8 @@ generationMessageRegistry.register('workbench_update', {
 				} else if (imageData.startsWith('http')) {
 					// Absolute URL - convert to relative to avoid CORS
 					imageUrl = imageData.replace(/^https?:\/\/[^\/]+/, '');
-				} else if (imageData.startsWith('data:')) {
-					// Data URL (base64)
-					imageUrl = imageData;
 				} else {
-					// Raw base64 - add data: prefix
-					imageUrl = `data:image/png;base64,${imageData}`;
+					imageUrl = previewFrameUrl(targetTabId, imageData);
 				}
 			} else {
 				// Legacy format - convert to base64

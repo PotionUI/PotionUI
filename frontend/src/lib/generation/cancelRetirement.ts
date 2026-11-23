@@ -49,6 +49,7 @@ import {
 } from './messages/directorRuns';
 import { tabClaimedGenerationIds } from './messages/ownership';
 import { retireGeneration } from './messages/generationOutputs';
+import { releasePreviewFrame } from './messages/previewFrameUrl';
 
 /** Minimal surface `retireConfirmedCancellations` needs from `tabsStore` --
  *  the real store (`$lib/stores/tabs`) satisfies this as-is. */
@@ -102,6 +103,7 @@ export function applyConfirmedCancellations(
 	if (!tab) return;
 
 	const activeCancelled = tab.activeGenerationId !== null && ids.has(tab.activeGenerationId);
+	if (activeCancelled) releasePreviewFrame(targetTabId);
 	tabsStore.updateTab(targetTabId, {
 		...(activeCancelled ? { activeGenerationId: null } : {}),
 		generation: {

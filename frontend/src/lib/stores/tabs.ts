@@ -6,6 +6,7 @@ import { toolLabel } from '$lib/tool-tabs/registry';
 import { registerBuiltinToolKinds } from '$lib/tool-tabs/builtin';
 
 registerBuiltinToolKinds();
+import { releasePreviewFrame } from '$lib/generation/messages/previewFrameUrl';
 import { saveTabsToLocalStorage, loadTabsFromLocalStorage, tabPersistenceFieldsChanged } from './tabPersistence';
 import { debounce } from '$lib/utils/time';
 import { DEFAULT_PROMPT_PANEL_WIDTH } from './generationLayout';
@@ -212,6 +213,7 @@ function seedTabPrompts(tab: GenerationTab): GenerationTab {
 }
 
 function retireClosedTabs(closed: readonly Tab[], remaining: readonly Tab[]): void {
+	for (const tab of closed) releasePreviewFrame(tab.id);
 	for (const tab of closed.filter(isGenerationTab)) {
 		const claimed = tabClaimedGenerationIds(tab);
 		if (claimed.size === 0) continue;

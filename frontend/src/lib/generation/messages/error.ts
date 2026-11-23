@@ -4,6 +4,7 @@ import { CANCELLED_TEXT, directorShotIdsFor, withDirectorRunTerminal, withoutDir
 import { isTabsCurrentGeneration, withoutQueueEntry, nextQueueCandidate, beginGenerationOwnership } from './ownership';
 import { refreshLimitsSoon } from '$lib/plans/store';
 import { peekGenerationOutputs, retireGeneration } from './generationOutputs';
+import { releasePreviewFrame, withoutPreviewBlob } from './previewFrameUrl';
 
 // Handles both 'generation_error' and 'generation_cancelled' - moved verbatim
 // from the shared switch-case in generate/+page.svelte.
@@ -42,6 +43,7 @@ const handler: GenerationMessageHandler = {
 		// display -- see ownership.ts. A queued/backgrounded generation
 		// terminating must not disturb whatever the tab is actually showing.
 		if (isOwner) {
+			releasePreviewFrame(targetTabId);
 			// For errors, preserve any partial results (images/videos/audios)
 			// this generation produced before it failed/was cancelled.
 			const totalItems = images.length + videos.length + audios.length;
@@ -54,7 +56,7 @@ const handler: GenerationMessageHandler = {
 				currentGeneration:
 					message.type === 'generation_error'
 						? {
-								...targetTab.generation.currentGeneration,
+								...withoutPreviewBlob(targetTab.generation.currentGeneration),
 								status: 'failed',
 								message: error,
 								hint,

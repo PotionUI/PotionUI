@@ -151,6 +151,20 @@ describe('the mask tool with the lasso', () => {
 		expect(layer().redo()).toBe(false);
 	});
 
+	it('keeps redo when a stroke changes nothing', async () => {
+		const { canvas, layer } = await mountTool();
+		await choose('Lasso');
+		await lasso(canvas, box(10, 10, 50, 40));
+		await lasso(canvas, box(60, 50, 90, 70));
+		expect(layer().undo()).toBe(true);
+		await settle();
+		expect(alpha(canvas, 70, 60)).toBe(0);
+		await lasso(canvas, box(10, 10, 50, 40));
+		expect(layer().redo()).toBe(true);
+		await settle();
+		expect(alpha(canvas, 70, 60)).toBe(255);
+	});
+
 	it('does nothing for a click without a drag', async () => {
 		const { canvas, strokes, layer } = await mountTool();
 		await choose('Lasso');

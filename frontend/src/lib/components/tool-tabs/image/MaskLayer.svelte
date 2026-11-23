@@ -138,9 +138,11 @@
 		const next = alphaOf(pixels);
 		if (baseline && next && canvas) {
 			const patch = alphaPatch(baseline, next, canvas.width, canvas.height);
-			if (patch) past = trimPatches([...past, patch]);
-		}
-		future = [];
+			if (patch) {
+				past = trimPatches([...past, patch]);
+				future = [];
+			}
+		} else future = [];
 		baseline = next;
 		announce();
 	}

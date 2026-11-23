@@ -48,7 +48,7 @@ def test_run_build_hands_the_harness_folder_to_npm(monkeypatch, tmp_path):
 
 def test_skip_build_checks_the_harness_folder_never_the_live_build(monkeypatch, tmp_path):
     monkeypatch.setattr(run, "ARTIFACTS_DIR", tmp_path / "artifacts")
-    args = argparse.Namespace(skip_build=True, build_only=False, build_dir=tmp_path / "empty")
+    args = argparse.Namespace(skip_build=True, build_only=False, build_dir=tmp_path / "empty", perf=False)
     with pytest.raises(run.StageError):
         run._run_locked(args, [], [], [], 1, 1, 1)
 

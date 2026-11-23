@@ -388,6 +388,69 @@ immediately before an attached resource chip (forward-delete gap, unhandled)"
 documents a known gap and fails by design until forward-delete is handled.
 
 
+### Perf harness (`run.py --perf`) and the bundle budget
+
+`frontend/tests/perf/*.perf.ts` are timing scenarios, not journeys: they are matched only by
+`frontend/playwright.perf.config.ts`, never by the normal run, and are driven by the same runner
+(`python tests/e2e/ui/run.py --perf [scenario ...] [--perf-runs N] [--perf-throttle X]`). Reports go to
+the gitignored `tests/e2e/ui/artifacts/perf/<timestamp>.json`; `--perf-compare A B` (paths,
+`latest`, `prev`) prints before/after with a better/worse/noise flag. Scenario list, metrics and the
+rules for trustworthy numbers are in `tests/e2e/ui/README.md` ("Perf harness").
+
+- Record a card's numbers from an idle machine, one run at a time, without `nice`; `taskset -c 0-3`
+  is fine. Compare only reports with the same throttle and viewport. `--perf-throttle 4` amplifies
+  main-thread cost and lowers relative noise when confirming a small win.
+- Comparisons need a quiet box. Each report stores the 1-minute load average at the start and end of every
+  scenario plus the logical CPU count; the summary prints the worst load per CPU, and `--perf-compare` prints a
+  WARNING line and marks changes `unreliable (load)` instead of better/worse when either report exceeded 0.25
+  per CPU (a run itself uses one to two cores, so anything above a quarter of the machine is other work).
+  Check that line before believing a diff; re-run when the host is idle.
+- A metric changed by less than max(5% of the before median, half the before range, a per-unit floor)
+  is `noise`. Some metrics are inherently noisier than others (long-task totals and dropped frames
+  are counts of rare events; medians of 5 runs still move a few percent). Judge a card on its
+  primary metrics, not on every row.
+- A scenario with a missing precondition is `skipped` with a reason in the JSON: no native image
+  preset on the throwaway instance, or no ffmpeg for the `video-scrub` clip (resolved from
+  `imageio_ffmpeg` in the venv, then `PATH`). A `skipped` scenario compares as nothing, never as zero.
+- Fixtures (previews, 4K image, thumbnail, clip) are generated into `os.tmpdir()/potionui-perf/`
+  and can be deleted at any time. Nothing perf-related is committed and no request leaves loopback.
+- `vite preview` gzips, so byte metrics are transfer sizes.
+- A scenario never reports a fast number for an interaction that did not land: each one asserts its
+  effect (slider value changed, text in the editor and a persist write, seeks happened, previews
+  rendered within the app's coalescing tolerance, document zoomed and panned, canvas pixels changed,
+  all 96 cards selected) and otherwise fails with `status: "failed"` and the reason in the JSON.
+  Input latency (`event_*`) is measured on every keydown/input as event to next frame, with
+  `event_count` alongside; Event Timing's 16 ms floor is kept only as `event_slow_count`.
+- Not covered (needs app changes, out of scope here): exact `FormField` updates per frame (proxied by
+  `mutations_per_frame`) and exact image decode and paint time (proxied by `preview_ms_*` and
+  `frame_p95_ms`; use `--perf-trace` for the real thing). `t_interactive_ms` is the first moment the
+  Generate form is attached with no "Loading Form..." text; a `potionui:runtime-ready` performance
+  mark in the root layout would be preferred automatically if one is ever added.
+
+**Bundle budget (`npm run check:bundle`, CI step in `onboarding-smoke.yml`).** The script reads
+`.svelte-kit/output/client/.vite/manifest.json`, walks only static `imports` (never
+`dynamicImports`) and budgets two closures against `frontend/bundle-budget.json`, each as raw JS
+bytes plus the CSS those chunks carry (limit = measured + 3%):
+
+- `js_raw` / `css_raw` is the **app shell**: everything reachable by static imports from the three
+  roots every page starts from (`start`, `app`, the root layout node). Every route pays for it.
+- `routes["/generate"]` is the **route-only weight**: the static closure of the `/generate` leaf
+  node (found through the route table in the built `app` entry) minus every chunk and CSS file
+  already in the shell. A page-weight regression in the generate page fails here even when the
+  shell is untouched.
+
+Dynamic imports (lazy components, other routes) are deliberately not budgeted. `target` holds the
+long-term goals and is printed, never enforced. The script prints the ten largest chunks of each
+closure so a failure names the one that grew, says so when a number is more than 10% under its
+limit so the budget is tightened in the same PR, and exits 1 over budget or 2 when the manifest, the
+budget file or a budget key is missing. `node scripts/check-bundle-budget.mjs --write` rewrites the
+budget to current + 3% for a deliberate raise. Against the harness build:
+`E2E_BUILD_DIR=$PWD/.e2e-build npm run check:bundle`.
+
+Cross-check with the cold-generate scenario: at the first usable `/generate` it loads every shell
+chunk, the route's static chunks, and further dynamic imports, so its network JS total is larger than
+the sum of the two budgeted closures by design.
+
 ## Chat and tool evaluation pack
 
 `tests/evaluation/chat/` + `tests/e2e/harness/chat_eval.py` — reproducible scenario

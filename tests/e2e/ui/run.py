@@ -46,6 +46,13 @@ Usage:
     python tests/e2e/ui/run.py --headed --keep
     python tests/e2e/ui/run.py --skip-build          # reuse last build
     python tests/e2e/ui/run.py --chunk-size 5        # override the default
+
+Perf mode (frontend/tests/perf/*.perf.ts, see README "Perf harness"):
+
+    python tests/e2e/ui/run.py --perf
+    python tests/e2e/ui/run.py --perf cold-generate slider-drag --perf-runs 3
+    python tests/e2e/ui/run.py --perf --perf-throttle 4
+    python tests/e2e/ui/run.py --perf-compare prev latest
 """
 
 from __future__ import annotations
@@ -54,6 +61,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -69,11 +77,15 @@ import psutil
 REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+UI_DIR = Path(__file__).resolve().parent
+if str(UI_DIR) not in sys.path:
+    sys.path.insert(0, str(UI_DIR))
 HARNESS_DIR = REPO_ROOT / "tests" / "e2e" / "harness"
 if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
 import cloud_fake
+import perf_report
 import effect_plugin_fixture
 import model_types_fixture
 import fresh_install
@@ -95,10 +107,17 @@ except ImportError:  # pragma: no cover - requests ships in requirements.txt
 
 FRONTEND_DIR = REPO_ROOT / "frontend"
 SPECS_DIR = FRONTEND_DIR / "tests" / "e2e"
+PERF_SPECS_DIR = FRONTEND_DIR / "tests" / "perf"
+PERF_CONFIG = "playwright.perf.config.ts"
+PERF_SUFFIX = ".perf.ts"
+SPEC_SUFFIX = ".spec.ts"
+DEFAULT_PERF_RUNS = 5
+DEFAULT_PERF_CHUNK_SIZE = 1
 NPX = shutil.which("npx") or "npx"
 NPM = shutil.which("npm") or "npm"
 PLAYWRIGHT_OUTPUT_DIR = SPECS_DIR / ".playwright-artifacts"
 ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
+PERF_DIR_NAME = "perf"
 HARNESS_BUILD_DIR = FRONTEND_DIR / ".e2e-build"
 
 # A fixed owner password so the browser can log in as the instance owner that
@@ -144,14 +163,49 @@ def ignored_paths(paths: List[Path], cwd: Path) -> set:
     return {Path(item) for item in proc.stdout.split("\0") if item}
 
 
-def spec_filters(names: List[str]) -> List[str]:
-    return [f"{name}\\.spec\\.ts" for name in names]
+def spec_filters(names: List[str], suffix: str = SPEC_SUFFIX) -> List[str]:
+    return [f"{name}{re.escape(suffix)}" for name in names]
 
 
-def discover_specs() -> List[str]:
-    specs = list(SPECS_DIR.glob("*.spec.ts"))
+def discover_specs(specs_dir: Optional[Path] = None, suffix: str = SPEC_SUFFIX) -> List[str]:
+    specs_dir = SPECS_DIR if specs_dir is None else specs_dir
+    specs = list(specs_dir.glob(f"*{suffix}"))
     skipped = ignored_paths(specs, REPO_ROOT)
-    return sorted(p.name[: -len(".spec.ts")] for p in specs if p not in skipped)
+    return sorted(p.name[: -len(suffix)] for p in specs if p not in skipped)
+
+
+def resolve_ffmpeg() -> str:
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return shutil.which("ffmpeg") or ""
+
+
+def perf_dir() -> Path:
+    return ARTIFACTS_DIR / PERF_DIR_NAME
+
+
+def perf_parts_dir() -> Path:
+    return perf_dir() / ".parts"
+
+
+def perf_playwright_cmd(chunk_names: List[str]) -> List[str]:
+    return [NPX, "playwright", "test", "--config", PERF_CONFIG, *spec_filters(chunk_names, PERF_SUFFIX)]
+
+
+def perf_env(args: argparse.Namespace) -> dict:
+    env = {
+        "PERF_OUT_DIR": str(perf_parts_dir()),
+        "PERF_RUNS": str(args.perf_runs),
+        "PERF_CPU_THROTTLE": str(args.perf_throttle),
+        "PERF_FFMPEG": resolve_ffmpeg(),
+        "PERF_RUN_ID": args.perf_run_id,
+    }
+    if args.perf_trace:
+        env["PERF_TRACE"] = "1"
+    return env
 
 
 FRESH_INSTANCE_SPECS = {"empty-group-tabs", *fresh_install.SPEC_NAMES}
@@ -678,15 +732,20 @@ def _run_chunk_on_app(app_ctx, fresh, needs_cloud_fake, needs_model_types, *, ch
                 env["E2E_UNCLAIMED"] = "1"
                 env.update(fresh.spec_env())
 
-            cmd = [NPX, "playwright", "test", *spec_filters(chunk_names)]
+            if args.perf:
+                env.update(perf_env(args))
+                cmd = perf_playwright_cmd(chunk_names)
+            else:
+                cmd = [NPX, "playwright", "test", *spec_filters(chunk_names)]
             if args.headed:
                 cmd.append("--headed")
             log(f"Running: {' '.join(cmd)}")
             returncode = run_playwright_watched(cmd, str(FRONTEND_DIR), env, monitor)
 
             monitor.stop()
-            collect_videos(chunk_names)
-            collect_failure_artifacts(chunk_names)
+            if not args.perf:
+                collect_videos(chunk_names)
+                collect_failure_artifacts(chunk_names)
 
             if monitor.died_unexpectedly:
                 exit_code = preview_proc.poll()
@@ -724,7 +783,7 @@ class _PreviewDied(Exception):
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Run browser-UI journeys against a throwaway PotionUI instance.")
-    parser.add_argument("journeys", nargs="*", help="Spec basenames to run, e.g. empty-group-tabs (default: all).")
+    parser.add_argument("journeys", nargs="*", help="Spec basenames to run, e.g. empty-group-tabs (default: all). With --perf: scenario names, e.g. cold-generate.")
     parser.add_argument("--models-dir", default=None, help="Depot to mirror read-only (default: models/tests).")
     parser.add_argument("--port", type=int, default=None, help="Throwaway backend port (default: auto from 8055).")
     parser.add_argument("--preview-port", type=int, default=None, help="Preview port (default: auto from 4173).")
@@ -736,10 +795,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=DEFAULT_CHUNK_SIZE,
+        default=None,
         help=(
             f"Max specs per fresh backend+preview+Playwright invocation "
-            f"(default {DEFAULT_CHUNK_SIZE} - empirically safe; passing ~10+ specs to one "
+            f"(default {DEFAULT_CHUNK_SIZE}, or {DEFAULT_PERF_CHUNK_SIZE} with --perf - empirically safe; passing ~10+ specs to one "
             f"invocation has killed the preview server). Use a single chunk "
             f"(--chunk-size 0) only to deliberately reproduce that failure."
         ),
@@ -759,6 +818,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Minutes of other work already assigned to shard 1 (e.g. the HTTP journeys); balances the split.",
     )
     parser.add_argument("--list", action="store_true", help="Print the chunks this invocation would run and exit.")
+    parser.add_argument("--perf", action="store_true", help="Run the perf scenarios (frontend/tests/perf/*.perf.ts) instead of the journeys and write artifacts/perf/<timestamp>.json.")
+    parser.add_argument("--perf-runs", type=int, default=int(os.environ.get("PERF_RUNS", DEFAULT_PERF_RUNS)), metavar="N", help=f"Measured runs per scenario, after one discarded warmup (default {DEFAULT_PERF_RUNS}, env PERF_RUNS).")
+    parser.add_argument("--perf-throttle", type=float, default=float(os.environ.get("PERF_CPU_THROTTLE", 1)), metavar="X", help="CPU throttling rate for the measured page (default 1 = none, env PERF_CPU_THROTTLE).")
+    parser.add_argument("--perf-trace", action="store_true", default=os.environ.get("PERF_TRACE") == "1", help="Save a Chromium trace per measured run next to the JSON (never parsed, never in the numbers).")
+    parser.add_argument("--perf-compare", nargs=2, metavar=("BEFORE", "AFTER"), help="Print the before/after table for two perf reports (paths, 'latest' or 'prev') and exit; needs no backend or build.")
     parser.add_argument(
         "--lock-timeout",
         type=float,
@@ -770,22 +834,33 @@ def main(argv: Optional[List[str]] = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    if args.perf_compare:
+        try:
+            print(perf_report.compare_files(args.perf_compare[0], args.perf_compare[1], perf_dir()))
+        except FileNotFoundError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_ARGS_ERROR
+        return EXIT_OK
+    args.perf_run_id = perf_report.new_run_id()
     args.build_dir = args.build_dir.resolve()
     if not build_dir_inside_frontend(args.build_dir):
         print(f"--build-dir must be a folder inside {FRONTEND_DIR} (got {args.build_dir}); the server bundle resolves node_modules from there.", file=sys.stderr)
         return EXIT_ARGS_ERROR
 
-    names = args.journeys or discover_specs()
+    specs_dir, suffix = (PERF_SPECS_DIR, PERF_SUFFIX) if args.perf else (SPECS_DIR, SPEC_SUFFIX)
+    names = args.journeys or discover_specs(specs_dir, suffix)
     if not names:
-        print("No specs found under frontend/tests/e2e/", file=sys.stderr)
+        print(f"No specs found under {specs_dir.relative_to(REPO_ROOT)}/", file=sys.stderr)
         return EXIT_ARGS_ERROR
-    unknown = [n for n in names if not (SPECS_DIR / f"{n}.spec.ts").is_file()]
+    unknown = [n for n in names if not (specs_dir / f"{n}{suffix}").is_file()]
     if unknown:
-        print(f"Unknown spec(s): {unknown}. Available: {discover_specs()}", file=sys.stderr)
+        print(f"Unknown spec(s): {unknown}. Available: {discover_specs(specs_dir, suffix)}", file=sys.stderr)
         return EXIT_ARGS_ERROR
 
     shard_index, shard_total = args.shard
-    chunk_size = args.chunk_size if args.chunk_size and args.chunk_size > 0 else len(names)
+    default_chunk_size = DEFAULT_PERF_CHUNK_SIZE if args.perf else DEFAULT_CHUNK_SIZE
+    requested_chunk_size = default_chunk_size if args.chunk_size is None else args.chunk_size
+    chunk_size = requested_chunk_size if requested_chunk_size > 0 else len(names)
     all_chunks = chunked(names, chunk_size)
     head_start = {1: args.shard_head_start} if args.shard_head_start else None
     numbered = select_shard(all_chunks, shard_index, shard_total, head_start)
@@ -814,6 +889,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         release_run_lock(lock, RUN_LOCK_PATH)
 
 
+def sample_load() -> float:
+    try:
+        return round(psutil.getloadavg()[0], 2)
+    except (AttributeError, OSError):
+        return 0.0
+
+
+def write_perf_report(args: argparse.Namespace, names: List[str]) -> Path:
+    scenarios = perf_report.read_parts(perf_parts_dir(), names)
+    meta = perf_report.build_meta(
+        repo_root=REPO_ROOT, frontend_dir=FRONTEND_DIR, build_dir=args.build_dir,
+        runs=args.perf_runs, throttle=args.perf_throttle, run_id=args.perf_run_id, scenarios=scenarios,
+    )
+    out = perf_report.merge_report(
+        parts_dir=perf_parts_dir(), perf_dir=perf_dir(), expected=names, meta=meta, loads=getattr(args, "perf_load", {})
+    )
+    print()
+    print(perf_report.summarize(perf_report.load_report(out)))
+    log(f"Perf report: {out}")
+    return out
+
+
 def _run_locked(
     args: argparse.Namespace,
     names: List[str],
@@ -823,8 +920,12 @@ def _run_locked(
     shard_total: int,
     chunk_size: int,
 ) -> int:
-    for name in names:
-        shutil.rmtree(ARTIFACTS_DIR / name, ignore_errors=True)
+    if args.perf:
+        shutil.rmtree(perf_parts_dir(), ignore_errors=True)
+        perf_parts_dir().mkdir(parents=True, exist_ok=True)
+    else:
+        for name in names:
+            shutil.rmtree(ARTIFACTS_DIR / name, ignore_errors=True)
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if not args.skip_build:
@@ -841,18 +942,28 @@ def _run_locked(
     )
 
     overall_returncode = EXIT_OK
+    args.perf_load = {}
     try:
         for idx, chunk_names in numbered:
+            load_start = sample_load()
             returncode = run_chunk(
                 chunk_names=chunk_names, chunk_index=idx, total_chunks=len(all_chunks), args=args,
             )
+            load = {"start": load_start, "end": sample_load()}
+            for name in chunk_names:
+                args.perf_load[name] = load
             if returncode != 0:
                 overall_returncode = EXIT_TEST_FAILURE
 
-        log(f"Artifacts (screenshots + video) under: {ARTIFACTS_DIR}")
+        if args.perf:
+            write_perf_report(args, names)
+        else:
+            log(f"Artifacts (screenshots + video) under: {ARTIFACTS_DIR}")
         return overall_returncode
 
     except _PreviewDied as died:
+        if args.perf:
+            write_perf_report(args, names)
         remaining_chunks = [c for i, c in numbered if i > died.chunk_index]
         remaining_specs = [n for c in remaining_chunks for n in c]
         border = "=" * 78

@@ -172,6 +172,80 @@ PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py --ke
 PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py --chunk-size 5
 ```
 
+## Perf harness (`--perf`)
+
+`run.py --perf` runs the scenarios in `frontend/tests/perf/*.perf.ts` through the same
+lock, build, throwaway backend and `vite preview` as the journeys. The scenarios are
+invisible to the normal run: the journeys config only matches `*.spec.ts` under
+`tests/e2e`, and `playwright.perf.config.ts` only matches `*.perf.ts` under
+`tests/perf` (1440x900, device scale factor 1, no video, no trace, no screenshots,
+one worker, no retries).
+
+```bash
+# all 8 scenarios, 5 measured runs each after one discarded warmup
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py --perf --skip-build
+
+# a subset, fewer runs, amplified main-thread cost
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py --perf cold-generate slider-drag --perf-runs 3 --perf-throttle 4
+
+# before/after table for two reports (paths, `latest`, or `prev`); no backend, no build
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py --perf-compare prev latest
+```
+
+| Scenario | What it measures |
+| --- | --- |
+| `cold-generate` | Fresh context to first usable Generate form: FCP, LCP, time to interactive, requests and JS/CSS/font bytes by resource type, the list of loaded JS files |
+| `slider-drag` | 240 mouse moves dragging a slider in a 60-field form (cloned from the real form so field types stay valid) |
+| `gen-preview-20` | 20 mocked 1024x1024 `workbench_update` previews at 10 Hz: WS send to decoded and painted |
+| `tab-switch` | 3 rounds over 8 tabs, each with the 60-field form: click to the target tab's prompt painted |
+| `long-prompt-typing` | 800 characters typed into the prompt editor with 8 tabs open: Event Timing and the tabs localStorage write cost |
+| `video-scrub` | 2 passes of 120 moves across the video editor timeline with a 10-step edit stack over a runtime-encoded 1080p clip |
+| `image-pan-zoom-brush` | 3840x2160 image in Paint: 60 wheel zooms and 40 pans, 100 brush strokes, JS heap after GC, then an Adjust slider drag |
+| `history-marquee` | 96 mocked history records, one marquee drag over the whole grid (asserts all 96 are selected) |
+
+Every run uses a fresh browser context (empty HTTP cache and storage, the owner
+`storageState` re-applied), so runs never accumulate state. Metrics come from in-page
+observers (long tasks, Event Timing, a `requestAnimationFrame` frame probe, a
+`MutationObserver`, a `Storage.setItem` wrapper, capture-phase `seeking`/`seeked`
+listeners) and CDP `Performance.getMetrics` deltas; there is no trace parsing.
+`--perf-trace` saves a Chromium trace per measured run next to the JSON for manual
+inspection and never feeds the numbers. Each metric is stored as `{median, min, max,
+runs}`; reports land in `tests/e2e/ui/artifacts/perf/<UTC timestamp>.json` (gitignored)
+with `meta` (throttle, viewport, Chromium, CPU, git sha and dirty flag, build mtime).
+
+Rules for numbers you can trust:
+
+- Run on an idle machine, one run at a time (the run lock enforces this). Do not `nice` the
+  run when you are recording numbers for a card; `taskset -c 0-3` is fine, note it.
+- Compare reports taken with the same `--perf-throttle` and the same viewport; `--perf-compare`
+  prints a warning when they differ.
+- The compare flag is `noise` unless the change exceeds the larger of 5% of the before median,
+  half the before range, and a per-unit floor. `better`/`worse` always means lower/higher.
+- Comparisons need a quiet box. Reports record host load per scenario (1-min load average at start and end,
+  logical CPU count). `--perf-compare` warns on top and labels changes `unreliable (load)` when either report
+  is above 0.25 load per CPU; check the `host load` line of a summary before trusting numbers.
+- Each scenario gets a fresh backend (`--chunk-size` defaults to 1 in perf mode).
+- Preview images, the 4K image, the thumbnail and the video clip are generated at run time into
+  `os.tmpdir()/potionui-perf/<hash>/` (never committed, safe to delete). The clip needs ffmpeg:
+  `run.py` resolves it from `imageio_ffmpeg` in the venv, then `PATH`, and exports `PERF_FFMPEG`.
+  Without it `video-scrub` reports `status: "skipped"` with the reason.
+- A scenario whose precondition is missing (no native image preset, no ffmpeg) is `skipped`
+  with a reason, never a silent empty comparison.
+- Network is never touched: every non-loopback request is aborted, every API response the
+  scenario depends on is mocked or served by the throwaway backend.
+- `vite preview` serves gzip, so `js_kb` and `total_kb` are transfer bytes; `extra.compression`
+  in the JSON records the encoding.
+
+## Bundle budget
+
+`npm run check:bundle` (in `frontend/`) budgets two static-import closures from
+`.svelte-kit/output/client/.vite/manifest.json` against `frontend/bundle-budget.json`: the app shell
+(`js_raw`/`css_raw`: start, app and the root layout node, paid by every route) and the `/generate`
+route only (`routes["/generate"]`: the leaf node's closure minus what the shell already has).
+Dynamic imports are not budgeted. Set `E2E_BUILD_DIR` (or `--dir`) to point it at the harness build
+(`frontend/.e2e-build`). The onboarding-smoke workflow runs it after `npm run build`. See
+`docs/testing-notes.md`.
+
 ## Exit codes
 
 | Code | Meaning |

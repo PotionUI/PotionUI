@@ -141,6 +141,7 @@ storage/model_hash_cache.json
 /tests/e2e/ui/.run.lock
 # Playwright browser-E2E run output
 frontend/tests/e2e/.playwright-artifacts/
+frontend/tests/perf/.playwright-artifacts/
 frontend/test-results/
 frontend/playwright-report/
 

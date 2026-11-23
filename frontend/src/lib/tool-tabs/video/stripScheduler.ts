@@ -72,8 +72,22 @@ function browserDeps(): PeakDeps {
 	};
 }
 
+const PEAKS_CACHE_LIMIT = 8;
+const peaksCache = new Map<string, Peaks>();
+
+export function clearPeaksCache() {
+	peaksCache.clear();
+}
+
 export async function loadPeaks(url: string, bars: number, signal: AbortSignal, deps: PeakDeps = browserDeps()): Promise<Peaks | null> {
 	if (!url || bars <= 0 || signal.aborted) return null;
+	const key = `${url}|${bars}`;
+	const cached = peaksCache.get(key);
+	if (cached) {
+		peaksCache.delete(key);
+		peaksCache.set(key, cached);
+		return cached;
+	}
 	try {
 		const response = await deps.fetch(url, { signal });
 		if (!response.ok || signal.aborted) return null;
@@ -84,7 +98,10 @@ export async function loadPeaks(url: string, bars: number, signal: AbortSignal, 
 		const buffer = await deps.decode(data);
 		if (signal.aborted) return null;
 		const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
-		return computePeaks(channels, bars);
+		const peaks = computePeaks(channels, bars);
+		peaksCache.set(key, peaks);
+		if (peaksCache.size > PEAKS_CACHE_LIMIT) peaksCache.delete(peaksCache.keys().next().value as string);
+		return peaks;
 	} catch {
 		return null;
 	}

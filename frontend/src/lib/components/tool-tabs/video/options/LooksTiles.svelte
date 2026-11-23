@@ -5,7 +5,7 @@
 	import { StillShader } from '$lib/tool-tabs/image/shaderEffect';
 	import { EffectThumbPainter, frameSource } from '$lib/tool-tabs/video/effectThumbs';
 	import { tileById } from '$lib/tool-tabs/video/effectTiles';
-	import { createFrameGrabber, type FrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
+	import { acquireFrameGrabber, type FrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
 	import type { VideoToolHost } from '$lib/tool-tabs/video/toolHost';
 
 	let { host, phone = false }: { host: VideoToolHost; phone?: boolean } = $props();
@@ -25,7 +25,7 @@
 		const timer = setTimeout(() => {
 			if (!grabber || grabber.href !== href) {
 				grabber?.grabber.dispose();
-				grabber = { href, grabber: createFrameGrabber(href, 160) };
+				grabber = { href, grabber: acquireFrameGrabber(href) };
 			}
 			grabber.grabber
 				.grab(Math.max(0, at), controller.signal)

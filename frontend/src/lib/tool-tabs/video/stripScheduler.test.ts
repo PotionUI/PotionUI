@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fillOrder, loadPeaks, runStrip, stripTimes, type PeakDeps } from './stripScheduler';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearPeaksCache, fillOrder, loadPeaks, runStrip, stripTimes, type PeakDeps } from './stripScheduler';
 
 describe('strip planning', () => {
 	it('samples the middle of each cell and stays inside the clip', () => {
@@ -67,6 +67,27 @@ describe('runStrip', () => {
 });
 
 describe('loadPeaks', () => {
+	beforeEach(clearPeaksCache);
+
+	it('serves a repeat request for the same clip and bar count from memory', async () => {
+		const fetch = vi.fn(async () => ({ ok: true, headers: { get: () => '100' }, arrayBuffer: async () => new ArrayBuffer(100) }));
+		const decode = async () => ({ numberOfChannels: 1, getChannelData: () => Float32Array.from([0, 0.5, -1, 0.25]) });
+		const first = await loadPeaks('/same.mp4', 2, new AbortController().signal, { fetch, decode });
+		const second = await loadPeaks('/same.mp4', 2, new AbortController().signal, { fetch, decode });
+		expect(second).toEqual(first);
+		expect(fetch).toHaveBeenCalledTimes(1);
+		await loadPeaks('/other.mp4', 2, new AbortController().signal, { fetch, decode });
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+
+	it('does not remember a failed decode', async () => {
+		const fetch = vi.fn(async () => ({ ok: true, headers: { get: () => '100' }, arrayBuffer: async () => new ArrayBuffer(100) }));
+		const bad = { fetch, decode: async () => Promise.reject(new Error('no audio')) };
+		expect(await loadPeaks('/mute.mp4', 2, new AbortController().signal, bad)).toBeNull();
+		expect(await loadPeaks('/mute.mp4', 2, new AbortController().signal, bad)).toBeNull();
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+
 	function deps(overrides: Partial<PeakDeps> = {}): PeakDeps {
 		return {
 			fetch: async () => ({ ok: true, headers: { get: () => '100' }, arrayBuffer: async () => new ArrayBuffer(100) }),

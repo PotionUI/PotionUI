@@ -145,7 +145,7 @@
 		type SavedCopy
 	} from '$lib/tool-tabs/video/videoState';
 	import { loadPeaks, runStrip } from '$lib/tool-tabs/video/stripScheduler';
-	import { createFrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
+	import { acquireFrameGrabber } from '$lib/tool-tabs/video/frameGrabber';
 	import { frameCache, settleWidth, tileLayout, tileTimes } from '$lib/tool-tabs/video/stripTiles';
 	import { effectTiles, tileById, tileMatches, type EffectTile } from '$lib/tool-tabs/video/effectTiles';
 	import { abortableWait, findRun, percentOf, secondsLeft, trackRun, type RenderRunApi } from '$lib/tool-tabs/video/renderRun';
@@ -1484,6 +1484,7 @@
 	});
 
 	const STRIP_HEIGHT = 48;
+	let hasDuration = $derived(duration > 0);
 	let stripWidthRaw = $state(0);
 	let stripWidth = $state(0);
 	let stripLayout = $derived(tileLayout(stripWidth, STRIP_HEIGHT, clip.width > 0 && clip.height > 0 ? clip.width / clip.height : 16 / 9, typeof window === 'undefined' ? 1 : window.devicePixelRatio));
@@ -1509,27 +1510,30 @@
 		if (initial[0]) hostApi.setThumbnail(initial[0]);
 		if (missing.size === 0) return;
 		const controller = new AbortController();
-		const grabber = createFrameGrabber(href, STRIP_HEIGHT, { width: layout.pixelWidth, height: layout.pixelHeight, quality: 0.85 });
+		const grabber = acquireFrameGrabber(href);
+		const grabSize = { width: layout.pixelWidth, height: layout.pixelHeight, quality: 0.85 };
 		const times = tileTimes(length, width, layout);
 		void runStrip({
 			count: layout.count,
 			signal: controller.signal,
-			work: (index, signal) => (missing.has(index) ? grabber.grab(times[index], signal) : Promise.resolve(initial[index] as string)),
+			work: (index, signal) => (missing.has(index) ? grabber.grab(times[index], signal, grabSize) : Promise.resolve(initial[index] as string)),
 			onResult: (index, value) => {
 				frameCache.set(cacheKey, index, value);
 				frames = frames.map((frame, i) => (i === index ? value : frame));
 				if (index === 0) hostApi.setThumbnail(value);
 			},
-			pause: () => abortableWait(0, controller.signal)
+			pause: async () => {
+				await abortableWait(0, controller.signal);
+				while ((playing || seekTarget !== null) && !controller.signal.aborted) await abortableWait(200, controller.signal);
+			}
 		}).finally(() => grabber.dispose());
 		return () => controller.abort();
 	});
 
 	$effect(() => {
 		const href = url;
-		const length = duration;
 		peaks = null;
-		if (!href || !(length > 0) || phone) return;
+		if (!href || !hasDuration || phone) return;
 		const controller = new AbortController();
 		void loadPeaks(href, 160, controller.signal).then((result) => {
 			if (!controller.signal.aborted) peaks = result;

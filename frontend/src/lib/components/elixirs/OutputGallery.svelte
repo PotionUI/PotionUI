@@ -3,7 +3,9 @@
 	import OutputTile from './OutputTile.svelte';
 	import { tileChoice, type Choice } from '$lib/elixirs/choice';
 	import type { OutputEntry } from '$lib/elixirs/types';
-	import { tileKey } from '$lib/elixirs/tiles';
+	import { Button } from '$lib/components/ui';
+	import { showAllLabel } from '$lib/elixirs/mosaic';
+	import { tileKey, visibleTiles } from '$lib/elixirs/tiles';
 
 	interface Props {
 		entries?: OutputEntry[];
@@ -22,6 +24,8 @@
 
 	let { entries = [], pending = 0, pendingKind = 'image', label, emptyText = '', dim = false, failed = 0, choice = null, ontick, onopen, openerScope = '', drawn = null }: Props = $props();
 
+	let showAll = $state(false);
+	let shown = $derived(visibleTiles(entries, showAll));
 	let broken = $derived(Array.from({ length: Math.max(0, failed) }, (_, index) => index));
 
 	let skeletons = $derived(Array.from({ length: Math.max(0, pending) }, (_, index) => index));
@@ -29,7 +33,7 @@
 
 {#if entries.length > 0 || skeletons.length > 0 || broken.length > 0 || emptyText}
 	<div class="gallery" class:dim role="list" aria-label={label}>
-		{#each entries as entry, index (`${tileKey(entry)}:${index}`)}
+		{#each shown as entry, index (`${tileKey(entry)}:${index}`)}
 			{@const decor = tileChoice(choice, tileKey(entry))}
 			{@const undrawn = !!drawn && !drawn.has(tileKey(entry))}
 			<div role="listitem" class:undrawn data-drawn={drawn ? String(!undrawn) : undefined}>
@@ -49,6 +53,11 @@
 				<Icon name="warning" className="h-5 w-5" />
 			</div>
 		{/each}
+		{#if shown.length < entries.length}
+			<div class="col-span-full flex justify-center">
+				<Button variant="secondary" size="sm" onclick={() => (showAll = true)}>{showAllLabel(entries.length)}</Button>
+			</div>
+		{/if}
 		{#if entries.length === 0 && skeletons.length === 0 && broken.length === 0}
 			<p class="col-span-full rounded border border-dashed border-line-strong px-3 py-4 text-center text-sm text-fg-subtle">{emptyText}</p>
 		{/if}

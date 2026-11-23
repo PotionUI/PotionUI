@@ -37,9 +37,23 @@ export function stillSource(entry: Entry): string | null {
 	return tileKind(entry) === 'video' ? null : entry?.preview_url || fullSource(entry);
 }
 
+export function posterSource(entry: Entry): string | null {
+	return tileKind(entry) === 'video' ? entry?.preview_url || null : null;
+}
+
+export const GALLERY_CAP = 60;
+
+export function visibleTiles<T>(entries: T[], showAll: boolean, cap: number = GALLERY_CAP): T[] {
+	return showAll || entries.length <= cap ? entries : entries.slice(0, cap);
+}
+
 export function videoSource(entry: Entry): string | null {
 	const source = fullSource(entry);
 	return source ? `${source}#t=0.1` : null;
+}
+
+export function durationLabel(entry: Entry, measured: number | null): string {
+	return formatDuration(typeof entry?.duration_seconds === 'number' ? entry.duration_seconds : measured);
 }
 
 export function formatDuration(seconds: unknown): string {

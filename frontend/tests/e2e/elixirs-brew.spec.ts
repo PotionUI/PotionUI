@@ -3,6 +3,7 @@ import { screenshot } from './helpers';
 import {
 	api,
 	brewStatus,
+	editorOf,
 	headers,
 	noHorizontalScroll,
 	openElixir,
@@ -301,23 +302,57 @@ test('video files show their first frame and play while hovered', async ({ page 
 		}
 	});
 
+	const poster = await makeStill(page);
+	await page.route(/\/api\/media\/uploads\/[^?]+\?size=medium/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: poster }));
+
 	const editor = await openElixir(page, created.id);
 	const clips = editor.getByRole('list', { name: 'Orbit clips files' });
 	const video = clips.locator('video');
-	await expect(video).toHaveCount(1, { timeout: 30000 });
+	await expect(clips.getByRole('listitem')).toHaveCount(1, { timeout: 30000 });
+	await expect(clips.locator('img')).toHaveCount(1);
+	await expect(video).toHaveCount(0);
+	await clips.getByRole('listitem').first().hover();
+	await expect(video).toHaveCount(1, { timeout: 15000 });
 	await expect(video).toHaveAttribute('preload', 'metadata');
 	await expect(video).toHaveAttribute('src', /\/api\/media\/uploads\/[^?]+#t=0\.1$/);
-	await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.readyState), { timeout: 15000 }).toBeGreaterThan(0);
-	expect(await video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(true);
-	await clips.getByRole('listitem').first().hover();
 	await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.paused), { timeout: 10000 }).toBe(false);
+	await expect(clips.locator('img')).toHaveCount(0);
 	await screenshot(page, JOURNEY, 'media-tiles-1440');
 	await page.mouse.move(5, 5);
-	await expect.poll(() => video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(true);
+	await expect(video).toHaveCount(0);
+	await expect(clips.locator('img')).toHaveCount(1);
 	await expect(editor.getByRole('list', { name: 'Label stills files' }).locator('img')).toHaveCount(1);
 
 	await page.setViewportSize({ width: 390, height: 844 });
-	await expect(editor.locator('.lane-wrap').locator('video')).toHaveCount(1);
+	await expect(editor.locator('.lane-wrap').locator('img')).toHaveCount(2);
+	await expect(editor.locator('.lane-wrap').locator('video')).toHaveCount(0);
 	await noHorizontalScroll(page);
 	await screenshot(page, JOURNEY, 'media-tiles-390');
+});
+
+test('a step with many outputs shows 60 tiles until Show all reveals the rest', async ({ page }) => {
+	test.setTimeout(180000);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	const { token, modelRef } = await prepare(page);
+	const elixirId = await seedElixir(page, token, modelRef, 'automatic', 'Many outputs');
+	const editor = await openElixir(page, elixirId);
+	await editor.locator('.elixir-header').getByRole('button', { name: 'Brew', exact: true }).click();
+	await expect(brewStatus(editor)).toHaveText('Done', { timeout: 120000 });
+
+	await page.route(/\/api\/elixirs\/runs\/[^/?]+(\?.*)?$/, async (route) => {
+		if (route.request().method() !== 'GET') return route.fallback();
+		const response = await route.fetch();
+		const body = await response.json();
+		const state = body.node_states.photo;
+		const template = Object.values(state.manifest || {}).flat()[0] as Record<string, unknown>;
+		state.manifest = { many: Array.from({ length: 75 }, (_, index) => ({ ...template, file_id: `many-${index}`, preview_url: null })) };
+		return route.fulfill({ response, json: body });
+	});
+	await page.reload();
+	await page.waitForURL('**/generate');
+	const outputs = editorOf(page, elixirId).getByRole('list', { name: 'Potion photo outputs' });
+	await expect(outputs.getByRole('listitem')).toHaveCount(60, { timeout: 30000 });
+	await outputs.getByRole('button', { name: 'Show all 75 files' }).click();
+	await expect(outputs.getByRole('listitem')).toHaveCount(75);
+	await expect(outputs.getByRole('button', { name: /Show all/ })).toHaveCount(0);
 });

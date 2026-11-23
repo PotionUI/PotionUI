@@ -139,6 +139,7 @@ export interface OutputEntry {
 	preview_url?: string | null;
 	width?: number | null;
 	height?: number | null;
+	duration_seconds?: number | null;
 	media_url?: string | null;
 	for_key?: string;
 	slot_key?: string;

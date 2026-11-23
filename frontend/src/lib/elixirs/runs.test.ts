@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { brewName, brewNumber, canonical, elapsedOf, formatElapsed, isActive, isCurrentRun, laneStatus, runElapsed, stepState, isPolling, nodeRunView, nodeStatusLabel, outgoingCheckpoints, runLabel, runTone, toggleKey } from './runs';
+import { brewName, brewNumber, indexInvocations, canonical, elapsedOf, formatElapsed, isActive, isCurrentRun, laneStatus, runElapsed, stepState, isPolling, nodeRunView, nodeStatusLabel, outgoingCheckpoints, runLabel, runTone, toggleKey } from './runs';
 import type { NodeLike, OutputEntry, Run } from './types';
 
 function run(overrides: Partial<Run> = {}): Run {
@@ -210,4 +210,23 @@ test('a finished step names what it made when all outputs are one kind', () => {
 	expect(done([entry('a', 'image'), entry('b', 'image')])).toBe('Done · 2 images');
 	expect(done([entry('a', 'video')])).toBe('Done · 1 video');
 	expect(done([entry('a', 'image'), entry('b', 'video')])).toBe('Done · 2 files');
+});
+
+test('invocations are indexed once per node and stay in run order', () => {
+	const make = (id: string, node_id: string) => ({ id, node_id }) as any;
+	const index = indexInvocations({ invocations: [make('a', 'n1'), make('b', 'n2'), make('c', 'n1')] } as any);
+	expect(index.get('n1')?.map((item) => item.id)).toEqual(['a', 'c']);
+	expect(index.get('n2')?.map((item) => item.id)).toEqual(['b']);
+	expect(index.get('n3')).toBeUndefined();
+	expect(indexInvocations(null).size).toBe(0);
+});
+
+test('a view built from the indexed invocations matches one built from the whole run', () => {
+	const invocations = [
+		{ id: 'a', node_id: 'n1', input_key: 'k1', attempt: 1, ordinal: 0, status: 'completed', outputs: [] },
+		{ id: 'b', node_id: 'n2', input_key: 'k1', attempt: 1, ordinal: 1, status: 'failed', outputs: [] }
+	] as any;
+	const runValue = { id: 'r', status: 'running', node_states: { n1: { status: 'running' }, n2: { status: 'running' } }, invocations } as any;
+	const node = { id: 'n1', kind: 'preset' } as any;
+	expect(nodeRunView(runValue, node, { invocations: indexInvocations(runValue).get('n1') ?? [] })).toEqual(nodeRunView(runValue, node));
 });

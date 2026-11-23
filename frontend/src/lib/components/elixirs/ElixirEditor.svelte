@@ -50,7 +50,8 @@
 	import { findInstalledModel, loadPresetFormSchema, searchAutopickSlot } from '$lib/form/formSources';
 	import { directorIssues } from '$lib/elixirs/director';
 	import { FOLLOW_ISSUE_CODES, cardMarker, effectiveSettings, sessionHashes, sessionMode, staleReasonText, uniqueSessionName } from '$lib/elixirs/follow';
-	import { brewName, isActive, isCurrentRun, isPolling, newIdempotencyKey, nodeRunView, runLabel } from '$lib/elixirs/runs';
+	import { brewName, indexInvocations, isActive, isCurrentRun, isPolling, newIdempotencyKey, nodeRunView, runLabel } from '$lib/elixirs/runs';
+	import { createDataSharer } from '$lib/elixirs/shareData';
 	import { drawnKeys, pickLine } from '$lib/elixirs/files';
 	import { laneTakes, nodeChoice, toggled, viewerSendTo, type Lane } from '$lib/elixirs/choice';
 	import { readWidths, viewerStorage, withWidth, writeWidths } from '$lib/elixirs/columns';
@@ -283,6 +284,7 @@
 	let errorCount = $derived(allIssues.filter((issue) => issue.severity === 'error' && !SETUP_CODES.has(issue.code)).length);
 	let settingsTab = $state('quick');
 	let settingsNode = $derived(definition && settingsFor ? definition.nodes.find((node) => node.id === settingsFor) ?? null : null);
+	let invocationsByNode = $derived(indexInvocations(run));
 	let latestId = $derived(runs[0]?.id ?? null);
 	let readOnly = $derived(!!run && !!latestId && run.id !== latestId);
 	let latestActive = $derived(isActive(runs[0]) || (!!run && run.id === latestId && isActive(run)));
@@ -667,10 +669,16 @@
 		return lane?.open ? { lane, parentId } : null;
 	}
 
+	const nodeDataSharer = createDataSharer<any>();
+
 	function nodeData(node: ElixirNode): any {
+		return nodeDataSharer.share(node.id, buildNodeData(node));
+	}
+
+	function buildNodeData(node: ElixirNode): any {
 		const issues = grouped.nodes.get(node.id) ?? [];
 		const parentId = tree?.parent.get(node.id) ?? null;
-		const view = nodeRunView(run, node, { source: parentId ? labelOf(parentId) : null });
+		const view = nodeRunView(run, node, { source: parentId ? labelOf(parentId) : null, invocations: invocationsByNode.get(node.id as string) ?? [] });
 		const waiting = waitingOf(node);
 		const base = {
 			node,

@@ -101,6 +101,16 @@ function groupErrors(failed: Invocation[]): ErrorGroup[] {
 	return [...counts].map(([message, count]) => ({ message, count }));
 }
 
+export function indexInvocations(run: MaybeRun): Map<string, Invocation[]> {
+	const byNode = new Map<string, Invocation[]>();
+	for (const item of run?.invocations ?? []) {
+		const list = byNode.get(item.node_id);
+		if (list) list.push(item);
+		else byNode.set(item.node_id, [item]);
+	}
+	return byNode;
+}
+
 export function nodeRunView(run: MaybeRun, node: NodeLike, { invocations = run?.invocations ?? [], source = null }: NodeRunViewOptions = {}): NodeRunView | null {
 	const writer = node.kind === 'llm';
 	if (!run) return null;

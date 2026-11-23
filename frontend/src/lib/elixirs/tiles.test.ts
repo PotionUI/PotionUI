@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { formatDuration, fullSource, stillSource, tileKey, tileKind, tileName, videoSource } from './tiles';
+import { GALLERY_CAP, formatDuration, fullSource, posterSource, stillSource, tileKey, tileKind, tileName, videoSource, visibleTiles, durationLabel } from './tiles';
 
 const image = { kind: 'history', generation_id: 'g1', file_id: 'f1', media_type: 'IMAGE', original_filename: '0.png', preview_url: '/api/media/files/f1?size=medium' };
 const video = { kind: 'history', generation_id: 'g2', file_id: 'f2', media_type: 'video', original_filename: '0.mp4', preview_url: '/api/media/files/f2?size=medium' };
@@ -24,6 +24,28 @@ test('a video tile plays the real file, never the still thumbnail', () => {
 	expect(fullSource({ preview_url: '/x?size=small&v=2' })).toBe('/x?v=2');
 	expect(fullSource({ media_url: '/direct', preview_url: '/x?size=small' })).toBe('/direct');
 	expect(videoSource({ media_type: 'video' })).toBe(null);
+});
+
+test('a video tile has a poster only when the server made a preview for it', () => {
+	expect(posterSource(video)).toBe('/api/media/files/f2?size=medium');
+	expect(posterSource({ media_type: 'video' })).toBe(null);
+	expect(posterSource(image)).toBe(null);
+});
+
+test('a long gallery is capped until the user asks for all of it', () => {
+	const entries = Array.from({ length: GALLERY_CAP + 25 }, (_, index) => index);
+	expect(visibleTiles(entries, false)).toHaveLength(GALLERY_CAP);
+	expect(visibleTiles(entries, false)[0]).toBe(0);
+	expect(visibleTiles(entries, true)).toBe(entries);
+	const short = [1, 2, 3];
+	expect(visibleTiles(short, false)).toBe(short);
+});
+
+test('the duration label prefers what the server reported over what the player measured', () => {
+	expect(durationLabel({ duration_seconds: 65 }, 5)).toBe('1:05');
+	expect(durationLabel({}, 5.2)).toBe('0:05');
+	expect(durationLabel({}, null)).toBe('');
+	expect(durationLabel(null, null)).toBe('');
 });
 
 test('tiles are named and keyed by what they point at', () => {

@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { TileLetter, TileTick } from '$lib/elixirs/choice';
 	import type { OutputEntry } from '$lib/elixirs/types';
-	import { formatDuration, stillSource, tileKind, tileName, videoSource } from '$lib/elixirs/tiles';
+	import { durationLabel, posterSource, stillSource, tileKind, tileName, videoSource } from '$lib/elixirs/tiles';
 
 	interface Props {
 		entry: OutputEntry;
@@ -22,7 +22,11 @@
 	let playing = $state(false);
 	let duration = $state<number | null>(null);
 	let failed = $state(false);
+	let posterFailed = $state(false);
+	let engaged = $state(false);
 	let ratio = $state<string | null>(null);
+	let root = $state<HTMLDivElement>();
+	let inView = $state(false);
 
 	function measure(width: number, height: number) {
 		if (width > 0 && height > 0) {
@@ -34,10 +38,11 @@
 
 	let kind = $derived(tileKind(entry));
 	let name = $derived(tileName(entry));
-	let still = $derived(stillSource(entry));
+	let still = $derived(kind === 'video' ? (posterFailed ? null : posterSource(entry)) : stillSource(entry));
 	let clip = $derived(kind === 'video' ? videoSource(entry) : null);
+	let showVideo = $derived(kind === 'video' && !!clip && !failed && (engaged || !still));
 
-	function play() {
+	function startVideo() {
 		if (!video) return;
 		video.muted = true;
 		video.play().then(
@@ -46,12 +51,33 @@
 		);
 	}
 
+	function play() {
+		engaged = true;
+		startVideo();
+	}
+
 	function stop() {
+		engaged = false;
+		playing = false;
 		if (!video) return;
 		video.pause();
 		video.currentTime = 0.1;
-		playing = false;
 	}
+
+	$effect(() => {
+		if (video && engaged) startVideo();
+	});
+
+	$effect(() => {
+		if (!root || kind !== 'video') return;
+		const observer = new IntersectionObserver((records) => {
+			inView = records.some((record) => record.isIntersecting);
+		});
+		observer.observe(root);
+		return () => observer.disconnect();
+	});
+
+	let probeDuration = $derived(showVideo === false && kind === 'video' && !!clip && !!still && inView && duration === null && entry?.duration_seconds == null);
 
 	function activate() {
 		if (kind === 'video' && lastPointer === 'touch') {
@@ -64,6 +90,7 @@
 </script>
 
 <div
+	bind:this={root}
 	class="tile group relative w-full overflow-hidden rounded border border-line-strong bg-canvas hover:border-line-hover"
 	class:chosen={tick?.checked}
 	style:height={fill ? '100%' : null}
@@ -83,7 +110,7 @@
 		onblur={() => kind === 'video' && stop()}
 		onclick={activate}
 	>
-		{#if kind === 'video' && clip && !failed}
+		{#if showVideo}
 			<video
 				bind:this={video}
 				src={clip}
@@ -105,11 +132,12 @@
 				alt=""
 				class="h-full w-full object-cover"
 				loading="lazy"
+				decoding="async"
 				onload={(event) => {
 					const img = event.currentTarget as HTMLImageElement;
 					measure(img.naturalWidth, img.naturalHeight);
 				}}
-				onerror={() => (failed = true)}
+				onerror={() => (kind === 'video' ? (posterFailed = true) : (failed = true))}
 			/>
 		{:else}
 			<span class="flex h-full w-full items-center justify-center text-fg-subtle">
@@ -117,6 +145,17 @@
 			</span>
 		{/if}
 	</button>
+
+	{#if probeDuration}
+		<video
+			src={clip}
+			class="hidden"
+			muted
+			preload="metadata"
+			aria-hidden="true"
+			onloadedmetadata={(event) => (duration = event.currentTarget.duration)}
+		></video>
+	{/if}
 
 	{#if tick}
 		<span class="absolute left-1 top-1 z-10">
@@ -158,8 +197,8 @@
 	{#if kind === 'video'}
 		<span class="tile-badge pointer-events-none absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded bg-black/60 px-1.5 text-sm text-white backdrop-blur-sm">
 			<Icon name={playing ? 'pause' : 'play'} className="h-3 w-3" />
-			{#if duration !== null}
-				<span class="font-mono tabular-nums">{formatDuration(duration)}</span>
+			{#if durationLabel(entry, duration)}
+				<span class="font-mono tabular-nums">{durationLabel(entry, duration)}</span>
 			{/if}
 		</span>
 	{/if}

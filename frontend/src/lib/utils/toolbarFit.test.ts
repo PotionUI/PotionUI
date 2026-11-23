@@ -223,6 +223,19 @@ describe('headerFit', () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 	});
 
+	it('does not re-measure when update brings an equivalent ladder, and does when it changes', async () => {
+		const { node, fittingWhileMeasuring } = header();
+		const action = headerFit(node, { stages, onChange: () => {} });
+		await settle();
+		const measured = fittingWhileMeasuring.length;
+		action.update({ stages: headerStages({ actions: ['styles', 'variables'], tabs: true }), onChange: () => {} });
+		await settle();
+		expect(fittingWhileMeasuring.length).toBe(measured);
+		action.update({ stages: headerStages({ actions: ['styles'], tabs: true }), onChange: () => {} });
+		await settle();
+		expect(fittingWhileMeasuring.length).toBeGreaterThan(measured);
+	});
+
 	it('measures with transitions switched off and switches them back on afterwards', async () => {
 		const { node, resize, fittingWhileMeasuring } = header();
 		headerFit(node, { stages, onChange: () => {} });

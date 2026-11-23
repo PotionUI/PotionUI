@@ -106,21 +106,54 @@ export function toPersistedTab(t: Tab): PersistedTab {
 	};
 }
 
+export function tabPersistenceFieldsChanged(a: Tab, b: Tab): boolean {
+	if (a.kind !== b.kind) return true;
+	const left = a as unknown as Record<string, unknown>;
+	const right = b as unknown as Record<string, unknown>;
+	for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+		if (key === 'generation') continue;
+		if (left[key] !== right[key]) return true;
+	}
+	if (a.kind === 'generation' && b.kind === 'generation') return a.generation.queue !== b.generation.queue;
+	return false;
+}
+
+interface SerializedTab {
+	snapshot: Tab;
+	retainsVariables: boolean;
+	json: string;
+}
+
+const serializedTabs = new Map<string, SerializedTab>();
+
+function compareSnapshot(tab: Tab): Tab {
+	if (tab.kind !== 'generation') return { ...tab };
+	const { generation, ...fields } = tab;
+	return { ...fields, generation: { queue: generation.queue } } as unknown as Tab;
+}
+
+function serializeTab(tab: Tab, retained: ReadonlySet<string>): string {
+	const retainsVariables = !isToolTab(tab) && retained.has(tab.id);
+	const cached = serializedTabs.get(tab.id);
+	if (cached && cached.retainsVariables === retainsVariables && !tabPersistenceFieldsChanged(cached.snapshot, tab)) {
+		return cached.json;
+	}
+	const persistedTab = toPersistedTab(tab);
+	const json = JSON.stringify(retainsVariables ? { ...persistedTab, variables: (tab as GenerationTab).variables } : persistedTab);
+	serializedTabs.set(tab.id, { snapshot: compareSnapshot(tab), retainsVariables, json });
+	return json;
+}
+
 export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string, lastGenerationTabId?: string): void {
 	if (!browser) return;
 	try {
-		const persisted: PersistedTabsState = {
-			tabs: tabs.filter((tab) => !isEmbeddedTab(tab)).map((tab) => {
-				if (isToolTab(tab)) return toPersistedTab(tab);
-				const persistedTab = toPersistedTab(tab);
-				return tabDraftOutbox.retainedLegacyIds().has(tab.id)
-					? { ...persistedTab, variables: tab.variables }
-					: persistedTab;
-			}),
-			activeTabId,
-			...(lastGenerationTabId && tabs.some((tab) => tab.id === lastGenerationTabId && !isEmbeddedTab(tab)) ? { lastGenerationTabId } : {})
-		};
-		scopedStorage.set(TABS_STORAGE_KEY, JSON.stringify(persisted));
+		const retained = tabDraftOutbox.retainedLegacyIds();
+		const stored = tabs.filter((tab) => !isEmbeddedTab(tab));
+		const live = new Set(stored.map((tab) => tab.id));
+		for (const id of serializedTabs.keys()) if (!live.has(id)) serializedTabs.delete(id);
+		const parts = [`"tabs":[${stored.map((tab) => serializeTab(tab, retained)).join(',')}]`, `"activeTabId":${JSON.stringify(activeTabId)}`];
+		if (lastGenerationTabId && live.has(lastGenerationTabId)) parts.push(`"lastGenerationTabId":${JSON.stringify(lastGenerationTabId)}`);
+		scopedStorage.set(TABS_STORAGE_KEY, `{${parts.join(',')}}`);
 	} catch {
 		// localStorage may be full or unavailable
 	}

@@ -6,7 +6,7 @@ import { toolLabel } from '$lib/tool-tabs/registry';
 import { registerBuiltinToolKinds } from '$lib/tool-tabs/builtin';
 
 registerBuiltinToolKinds();
-import { saveTabsToLocalStorage, loadTabsFromLocalStorage } from './tabPersistence';
+import { saveTabsToLocalStorage, loadTabsFromLocalStorage, tabPersistenceFieldsChanged } from './tabPersistence';
 import { debounce } from '$lib/utils/time';
 import { DEFAULT_PROMPT_PANEL_WIDTH } from './generationLayout';
 import { randomUUID } from '$lib/utils/uuid';
@@ -187,18 +187,6 @@ function createEqualityAwareStore(initialValue: TabsState) {
 	}
 
 	return { set, update, subscribe: base.subscribe };
-}
-
-function tabPersistenceFieldsChanged(a: Tab, b: Tab): boolean {
-	if (a.kind !== b.kind) return true;
-	const left = a as unknown as Record<string, unknown>;
-	const right = b as unknown as Record<string, unknown>;
-	for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-		if (key === 'generation') continue;
-		if (left[key] !== right[key]) return true;
-	}
-	if (isGenerationTab(a) && isGenerationTab(b)) return a.generation.queue !== b.generation.queue;
-	return false;
 }
 
 function tabsRelevantToPersistenceChanged(prev: TabsState, next: TabsState): boolean {

@@ -250,4 +250,47 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 			url: 'https://example.com/a.png'
 		});
 	});
+
+	it('writes exactly the JSON a whole-state stringify would, and reserializes only changed tabs', async () => {
+		const { saveTabsToLocalStorage, toPersistedTab } = await import('./tabPersistence');
+		const a = fakeTab({ id: 'a', formData: { steps: 1, mask: 'data:image/png;base64,AAA' } });
+		const b = fakeTab({ id: 'b', prompt: 'dog' });
+		const { scopedStorage } = await import('$lib/stores/identityScopedStorage');
+		const read = () => scopedStorage.get('potionui_tabs_state') as string;
+
+		saveTabsToLocalStorage([a, b], 'a', 'b');
+		expect(read()).toBe(JSON.stringify({ tabs: [toPersistedTab(a), toPersistedTab(b)], activeTabId: 'a', lastGenerationTabId: 'b' }));
+
+		const b2 = { ...b, prompt: 'dog on a hill' } as GenerationTab;
+		saveTabsToLocalStorage([a, b2], 'a');
+		expect(read()).toBe(JSON.stringify({ tabs: [toPersistedTab(a), toPersistedTab(b2)], activeTabId: 'a' }));
+
+		const a2 = { ...a, seed: 7 } as GenerationTab;
+		saveTabsToLocalStorage([a2], 'a');
+		expect(JSON.parse(read()).tabs).toHaveLength(1);
+		expect(JSON.parse(read()).tabs[0].seed).toBe(7);
+	});
+
+	it('picks up a field replaced in place on the same tab object and ignores generation progress', async () => {
+		const { saveTabsToLocalStorage } = await import('./tabPersistence');
+		const { scopedStorage } = await import('$lib/stores/identityScopedStorage');
+		const read = () => JSON.parse(scopedStorage.get('potionui_tabs_state') as string).tabs[0];
+		const tab = fakeTab({ id: 'inplace', autoTagIds: ['a'] });
+		saveTabsToLocalStorage([tab], 'inplace');
+		expect(read().autoTagIds).toEqual(['a']);
+
+		tab.autoTagIds = ['a', 'b'];
+		saveTabsToLocalStorage([tab], 'inplace');
+		expect(read().autoTagIds).toEqual(['a', 'b']);
+
+		tab.formData = { steps: 99 };
+		tab.promptTabs = [{ name: 'x' } as any, { name: 'y' } as any];
+		saveTabsToLocalStorage([tab], 'inplace');
+		expect(read().formData).toEqual({ steps: 99 });
+		expect(read().promptTabs).toHaveLength(2);
+
+		tab.generation = { queue: tab.generation.queue, progress: 0.5 } as any;
+		saveTabsToLocalStorage([tab], 'inplace');
+		expect(read().formData).toEqual({ steps: 99 });
+	});
 });

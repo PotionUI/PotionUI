@@ -55,6 +55,7 @@
 	const addDisabled = $derived(add.disabled);
 	const addTip = $derived(add.explanation ?? 'Add prompt');
 	const labels = $derived(prompts.map((entry, index) => labelFor(entry, index)));
+	const labelKey = $derived(labels.join('\u0001'));
 
 	function labelFor(entry: PromptTabData, index: number): string {
 		const name = entry.name?.trim();
@@ -90,7 +91,7 @@
 
 	$effect(() => {
 		void active;
-		void labels.join('\u0001');
+		void labelKey;
 		void renaming;
 		if (strip) centerActive();
 	});

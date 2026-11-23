@@ -60,6 +60,10 @@ export function stageSignature(stage: HeaderStage): string {
 	return `${stage.wrap ? 'wrap' : 'row'}|${stage.icons.join(' ')}|${stage.folded.join(' ')}`;
 }
 
+export function stagesKey(stages: HeaderStage[]): string {
+	return stages.map(stageSignature).join('/');
+}
+
 export interface HeaderFitParams {
 	stages: HeaderStage[];
 	onChange?: (stage: HeaderStage) => void;
@@ -87,6 +91,7 @@ function measureHeader(node: HTMLElement): HeaderMeasure {
 
 export function headerFit(node: HTMLElement, initial: HeaderFitParams) {
 	let params = initial;
+	let paramsKey = stagesKey(initial.stages);
 	let signature = '';
 	let width = -1;
 	let destroyed = false;
@@ -127,6 +132,9 @@ export function headerFit(node: HTMLElement, initial: HeaderFitParams) {
 	return {
 		update(next: HeaderFitParams) {
 			params = next;
+			const nextKey = stagesKey(next.stages);
+			if (nextKey === paramsKey) return;
+			paramsKey = nextKey;
 			queueMicrotask(compute);
 		},
 		destroy() {

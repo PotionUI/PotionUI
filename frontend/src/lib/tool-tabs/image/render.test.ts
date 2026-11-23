@@ -180,10 +180,14 @@ describe('ImageRenderer client prefixes', () => {
 
 	const cropped = () => push(createStack(), cropDraft({ plan: { ...EMPTY_IMAGE_PLAN, rect: { x: 0, y: 0, width: 0.5, height: 1 } }, aspect: 'free' }, 'Free', { width: 4, height: 6 }));
 
-	it('redoes only the last step when it changes', async () => {
-		const fresh = counting();
+	it('redoes exactly the last step when only it changes', async () => {
+		const bare = counting();
+		await new ImageRenderer(SOURCE).render(appliedSteps(cropped()));
+		const cropCost = bare.made;
+		const both = counting();
 		await new ImageRenderer(SOURCE).render(appliedSteps(push(cropped(), resizeDraft({ width: 3, height: 4, lock: false }))));
-		const full = fresh.made;
+		const resizeCost = both.made - cropCost;
+		expect(resizeCost).toBeGreaterThan(0);
 
 		const state = counting();
 		const renderer = new ImageRenderer(SOURCE);
@@ -191,7 +195,7 @@ describe('ImageRenderer client prefixes', () => {
 		const before = state.made;
 		const next = await renderer.render(appliedSteps(push(cropped(), resizeDraft({ width: 3, height: 4, lock: false }))));
 		expect(next.size).toEqual({ width: 3, height: 4 });
-		expect(state.made - before).toBeLessThan(full);
+		expect(state.made - before).toBe(resizeCost);
 	});
 
 	it('forgets the prefixes when the renderer is reset', async () => {

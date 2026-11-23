@@ -340,6 +340,7 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.frame = 0;
 		if (this.overlayFrame) cancelAnimationFrame(this.overlayFrame);
 		this.overlayFrame = 0;
+		this.cancelAdjustFrame();
 		this.stopAnts();
 		this.stage = null;
 		this.context = null;
@@ -1641,7 +1642,15 @@ export class PaintSession implements ToolHost, EditorApi {
 		}
 	}
 
+	private cancelAdjustFrame(): void {
+		if (!this.adjustFrame) return;
+		if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.adjustFrame);
+		clearTimeout(this.adjustFrame);
+		this.adjustFrame = 0;
+	}
+
 	private discardAdjust(): void {
+		this.cancelAdjustFrame();
 		this.adjustPreview = null;
 		this.adjustToken++;
 		this.resetAdjust(false);

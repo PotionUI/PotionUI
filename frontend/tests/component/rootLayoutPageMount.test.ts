@@ -30,7 +30,8 @@ vi.mock('$lib/services/keyboard', () => ({ init: vi.fn(), destroy: vi.fn() }));
 vi.mock('$lib/plugin-api/host', () => ({ initHostApi: vi.fn(), whenHostReady: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('$lib/plugin-api/extensionRefresh', () => ({
 	refreshPluginExtensions: vi.fn().mockResolvedValue(undefined),
-	prefetchExtensionSnapshot: vi.fn()
+	prefetchExtensionSnapshot: vi.fn(),
+	clearPrefetchedSnapshot: vi.fn()
 }));
 vi.mock('$lib/stores/presetsCatalog', () => ({ loadPresets: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('$lib/utils/modeLabel.svelte', () => ({ loadModeLabels: vi.fn().mockResolvedValue(undefined) }));
@@ -52,7 +53,21 @@ vi.mock('$lib/stores/theme', () => ({ themeStore: { init: vi.fn(), destroy: vi.f
 vi.mock('$lib/utils/startupBanner', () => ({ printStartupBanner: vi.fn() }));
 vi.mock('$lib/utils/inputModality', () => ({ installInputModality: () => () => {} }));
 
-const hostLoads = vi.hoisted(() => ({ modeInstall: 0 }));
+const hostLoads = vi.hoisted(() => ({ modeInstall: 0, failKeyboard: false }));
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock('$lib/stores/toast', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/stores/toast')>();
+	return { ...actual, toasts: { ...actual.toasts, error: toastError } };
+});
+vi.mock('$lib/components/KeyboardShortcutsModal.svelte', async () => {
+	const Blank = (await import('./stubs/BlankStub.svelte')).default;
+	return {
+		get default() {
+			if (hostLoads.failKeyboard) throw new Error('chunk failed to load');
+			return Blank;
+		}
+	};
+});
 vi.mock('$lib/components/recipes/modeInstall/ModeInstallHost.svelte', async () => {
 	hostLoads.modeInstall += 1;
 	return { default: (await import('./stubs/BlankStub.svelte')).default };
@@ -67,7 +82,6 @@ vi.mock('$lib/components/Sidebar.svelte', stubComponent);
 vi.mock('$lib/components/MobileTabBar.svelte', stubComponent);
 vi.mock('$lib/components/GlobalChatPanel.svelte', stubComponent);
 vi.mock('$lib/components/ChatSheet.svelte', stubComponent);
-vi.mock('$lib/components/KeyboardShortcutsModal.svelte', stubComponent);
 vi.mock('$lib/components/notifications/NotificationPanel.svelte', stubComponent);
 vi.mock('$lib/components/modals/GenerationHistoryModal.svelte', stubComponent);
 vi.mock('$lib/components/form-fields/TextInput.svelte', stubComponent);
@@ -84,12 +98,18 @@ vi.mock('$lib/fields/builtin', () => ({ registerBuiltinFieldComponents: vi.fn() 
 const { default: LayoutWithProbe } = await import('./stubs/LayoutWithProbe.svelte');
 const { page } = await import('./stubs/appStores');
 const { openModeInstall, closeModeInstall } = await import('$lib/stores/modeInstall');
+const { authStore } = await import('$lib/stores/auth');
+const { keybindingsStore, isHelpOpen } = await import('$lib/stores/keybindings');
+const { notifications } = await import('$lib/stores/notifications');
 
 let target: HTMLElement | undefined;
 let instance: ReturnType<typeof mount> | undefined;
 
 afterEach(() => {
 	if (instance) unmount(instance);
+	vi.unstubAllGlobals();
+	toastError.mockClear();
+	(authStore as any).update((state: object) => ({ ...state, isAuthenticated: true }));
 	target?.remove();
 	instance = undefined;
 	target = undefined;
@@ -123,5 +143,62 @@ describe('root layout page mount', () => {
 		openModeInstall('recipe', ['m']);
 		await vi.waitFor(() => expect(hostLoads.modeInstall).toBe(1));
 		closeModeInstall();
+	});
+	function mountLayout() {
+		page.update((current) => ({ ...current, url: new URL('http://localhost/library') }));
+		target = document.createElement('div');
+		document.body.appendChild(target);
+		instance = mount(LayoutWithProbe, { target, props: { onProbeMount: vi.fn() } });
+		flushSync();
+	}
+
+	it('loads keyboard bindings straight away instead of waiting for idle', async () => {
+		vi.mocked(keybindingsStore.loadBindings).mockClear();
+		const request = vi.fn(() => 1);
+		vi.stubGlobal('requestIdleCallback', request);
+		vi.stubGlobal('cancelIdleCallback', vi.fn());
+
+		mountLayout();
+		await settle(3);
+
+		expect(keybindingsStore.loadBindings).toHaveBeenCalled();
+	});
+
+	it('cancels the pending idle notification start when the user logs out', async () => {
+		vi.mocked(notifications.load).mockClear();
+		let next = 0;
+		const request = vi.fn((_task: unknown, _options?: { timeout?: number }) => ++next);
+		const cancel = vi.fn();
+		vi.stubGlobal('requestIdleCallback', request);
+		vi.stubGlobal('cancelIdleCallback', cancel);
+
+		mountLayout();
+		await settle(3);
+		const notificationsHandle = request.mock.results.find((_, index) => request.mock.calls[index]?.[1]?.timeout === 1000)?.value;
+		expect(notificationsHandle).toBeDefined();
+
+		(authStore as any).update((state: object) => ({ ...state, isAuthenticated: false }));
+		flushSync();
+		await settle(2);
+
+		expect(cancel).toHaveBeenCalledWith(notificationsHandle);
+		expect(notifications.load).not.toHaveBeenCalled();
+	});
+
+	it('toasts and retries on the next open when an optional chunk fails to load', async () => {
+		hostLoads.failKeyboard = true;
+		mountLayout();
+		await settle(3);
+
+		(isHelpOpen as any).set(true);
+		await vi.waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+
+		hostLoads.failKeyboard = false;
+		(isHelpOpen as any).set(false);
+		await settle(2);
+		(isHelpOpen as any).set(true);
+		await settle(4);
+		expect(toastError).toHaveBeenCalledTimes(1);
+		(isHelpOpen as any).set(false);
 	});
 });

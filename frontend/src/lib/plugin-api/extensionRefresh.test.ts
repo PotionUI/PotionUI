@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 
 const mockGet = vi.fn();
+const session = vi.hoisted(() => ({ token: null as string | null }));
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		getClient: () => ({ get: mockGet }),
 		getBaseURL: () => '',
-		getToken: () => null,
+		getToken: () => session.token,
 		setOnAuthExpired: vi.fn(),
 		setOnTokenRefreshed: vi.fn()
 	}
@@ -70,6 +71,7 @@ const ARTIFACT_RENDERER = {
 describe('refreshPluginExtensions', { timeout: 30_000 }, () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		session.token = null;
 	});
 
 	it('makes a newly enabled plugin visible across every catalogue', async () => {
@@ -260,5 +262,45 @@ describe('refreshPluginExtensions', { timeout: 30_000 }, () => {
 		await m.refreshPluginExtensions();
 
 		expect(m.artifactRendererRegistry.has('fake_artifact')).toBe(true);
+	});
+	it('falls back to a fresh fetch when the prefetch was rejected', async () => {
+		const m = await loadModules();
+		session.token = 'stale';
+		mockGet.mockImplementation(async () => {
+			throw Object.assign(new Error('401'), { response: { status: 401 } });
+		});
+		m.prefetchExtensionSnapshot();
+
+		respondWith({ renderers: [ARTIFACT_RENDERER] });
+		await m.refreshPluginExtensions();
+
+		expect(m.artifactRendererRegistry.has('fake_artifact')).toBe(true);
+	});
+
+	it('never applies a snapshot prefetched for another token', async () => {
+		const m = await loadModules();
+		session.token = 'user-a';
+		respondWith({ renderers: [ARTIFACT_RENDERER] });
+		m.prefetchExtensionSnapshot();
+
+		session.token = 'user-b';
+		respondWith({});
+		await m.refreshPluginExtensions();
+
+		expect(m.artifactRendererRegistry.has('fake_artifact')).toBe(false);
+		expect(mockGet.mock.calls).toHaveLength(12);
+	});
+
+	it('drops the prefetch when it is cleared before the first refresh', async () => {
+		const m = await loadModules();
+		respondWith({ renderers: [ARTIFACT_RENDERER] });
+		m.prefetchExtensionSnapshot();
+		m.clearPrefetchedSnapshot();
+		respondWith({});
+
+		await m.refreshPluginExtensions();
+
+		expect(m.artifactRendererRegistry.has('fake_artifact')).toBe(false);
+		expect(mockGet.mock.calls).toHaveLength(12);
 	});
 });

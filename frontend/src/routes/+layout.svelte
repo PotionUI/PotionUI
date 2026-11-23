@@ -12,6 +12,8 @@
 	import { init as initKeyboard, destroy as destroyKeyboard } from '$lib/services/keyboard';
 	import { registerLazyComponent } from '$lib/plugin-api/componentRegistry';
 	import { whenIdle } from '$lib/utils/idle';
+	import { toasts } from '$lib/stores/toast';
+	import { logger } from '$lib/utils/logger';
 	import { modeInstallRequest } from '$lib/stores/modeInstall';
 	import { isHelpOpen } from '$lib/stores/keybindings';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
@@ -39,6 +41,7 @@
 	let mounted = false;
 	let keyboardInitialized = false;
 	let notificationsInitialized = false;
+	let cancelNotificationsIdle: (() => void) | null = null;
 	let authenticatedRuntimeInitialized = false;
 	let authenticatedRuntimeReady = false;
 	let installDismissed = false;
@@ -62,7 +65,23 @@
 		void loadMobileTabBar();
 		void loadHostApi();
 		void loadBuiltinFields();
+		void import('$lib/generation/prepareRequest');
 		void loadExtensionRefresh().then((module) => module.prefetchExtensionSnapshot());
+	}
+
+	const pendingLoads = new Set<string>();
+
+	function loadLazy(key: string, label: string, load: () => Promise<{ default: any }>, assign: (component: any) => void, onFail?: () => void, notify = true) {
+		if (pendingLoads.has(key)) return;
+		pendingLoads.add(key);
+		load()
+			.then((module) => assign(module.default))
+			.catch((error) => {
+				logger.error(`Failed to load ${label}:`, error);
+				if (notify) toasts.error(`Could not load ${label}. Try again.`);
+				onFail?.();
+			})
+			.finally(() => pendingLoads.delete(key));
 	}
 
 	onMount(() => {
@@ -97,9 +116,9 @@
 		void loadSidebar().then((module) => (SidebarComponent = module.default));
 		void loadMobileTabBar().then((module) => (MobileTabBarComponent = module.default));
 		whenIdle(() => {
-			ensureKeyboardModal();
-			ensureNotificationPanel();
-			ensureChatPanel();
+			ensureKeyboardModal(false);
+			ensureNotificationPanel(false);
+			ensureChatPanel(false);
 		});
 
 		registerLazyComponent('GenerationHistoryModal', () => import('$lib/components/modals/GenerationHistoryModal.svelte'));
@@ -118,46 +137,64 @@
 			loadBuiltinFields(),
 			loadExtensionRefresh()
 		]);
+		await hostApi.whenHostReady();
 		hostApi.initHostApi();
 		builtinFields.registerBuiltinFieldComponents();
-		await hostApi.whenHostReady();
 		await extensionRefresh.refreshPluginExtensions();
 		authenticatedRuntimeReady = true;
 	}
 
-	function ensureKeyboardModal() {
+	function ensureKeyboardModal(notify = true) {
 		if (!KeyboardShortcutsModalComponent) {
-			void import('$lib/components/KeyboardShortcutsModal.svelte').then((module) => (KeyboardShortcutsModalComponent = module.default));
+			loadLazy('keyboard-modal', 'the shortcuts', () => import('$lib/components/KeyboardShortcutsModal.svelte'), (component) => (KeyboardShortcutsModalComponent = component), undefined, notify);
 		}
 	}
 
-	function ensureNotificationPanel() {
+	function ensureNotificationPanel(notify = true) {
 		if (!NotificationPanelComponent) {
-			void import('$lib/components/notifications/NotificationPanel.svelte').then((module) => (NotificationPanelComponent = module.default));
+			loadLazy('notification-panel', 'notifications', () => import('$lib/components/notifications/NotificationPanel.svelte'), (component) => (NotificationPanelComponent = component), undefined, notify);
 		}
 	}
 
-	function ensureChatPanel() {
+	function ensureChatPanel(notify = true) {
 		if ($isMobile) {
-			if (!ChatSheetComponent) void import('$lib/components/ChatSheet.svelte').then((module) => (ChatSheetComponent = module.default));
+			if (!ChatSheetComponent) {
+				loadLazy('chat-sheet', 'the chat', () => import('$lib/components/ChatSheet.svelte'), (component) => (ChatSheetComponent = component), undefined, notify);
+			}
 		} else if (!GlobalChatPanelComponent) {
-			void import('$lib/components/GlobalChatPanel.svelte').then((module) => (GlobalChatPanelComponent = module.default));
+			loadLazy('chat-panel', 'the chat', () => import('$lib/components/GlobalChatPanel.svelte'), (component) => (GlobalChatPanelComponent = component), undefined, notify);
 		}
 	}
 
+	function ensureModeInstallHost(notify = true) {
+		if (!ModeInstallHostComponent) {
+			loadLazy('mode-install', 'the install dialog', () => import('$lib/components/recipes/modeInstall/ModeInstallHost.svelte'), (component) => (ModeInstallHostComponent = component), undefined, notify);
+		}
+	}
+
+	let indexingModalRequested = false;
+	let cancelIndexingIdle: (() => void) | null = null;
+	function requestIndexingModal() {
+		if (indexingModalRequested) return;
+		indexingModalRequested = true;
+		cancelIndexingIdle = whenIdle(() => {
+			loadLazy(
+				'indexing-modal',
+				'the indexing dialog',
+				() => import('$lib/models-location/IndexingChoiceModal.svelte'),
+				(component) => (IndexingChoiceModalComponent = component),
+				() => (indexingModalRequested = false),
+				false
+			);
+		});
+	}
+
+	$: isAdminAccount = $authStore.user?.account_type === 'ADMIN';
 	$: if ($isHelpOpen) ensureKeyboardModal();
 	$: if ($notifications.panelOpen) ensureNotificationPanel();
 	$: if ($isChatPanelOpen && $isMobile !== undefined) ensureChatPanel();
-	$: if ($modeInstallRequest && !ModeInstallHostComponent) {
-		void import('$lib/components/recipes/modeInstall/ModeInstallHost.svelte').then((module) => (ModeInstallHostComponent = module.default));
-	}
-	let indexingModalRequested = false;
-	$: if ($authStore.user?.account_type === 'ADMIN' && !indexingModalRequested) {
-		indexingModalRequested = true;
-		whenIdle(() => {
-			void import('$lib/models-location/IndexingChoiceModal.svelte').then((module) => (IndexingChoiceModalComponent = module.default));
-		});
-	}
+	$: if ($modeInstallRequest) ensureModeInstallHost();
+	$: if (isAdminAccount) requestIndexingModal();
 
 	$: if (mounted && $authStore.isAuthenticated) {
 		initializeAuthenticatedRuntime();
@@ -170,13 +207,10 @@
 	// instead of keeping the previous user's custom overrides.
 	$: if (mounted && $authStore.isAuthenticated && !keyboardInitialized) {
 		keyboardInitialized = true;
-		whenIdle(() => {
-			if (!keyboardInitialized) return;
-			keybindingsStore.loadBindings().then(() => {
-				initKeyboard();
-				registerCoreHandlers();
-			});
-		}, 1000);
+		keybindingsStore.loadBindings().then(() => {
+			initKeyboard();
+			registerCoreHandlers();
+		});
 	}
 	$: if (mounted && !$authStore.isAuthenticated && keyboardInitialized) {
 		keyboardInitialized = false;
@@ -188,8 +222,9 @@
 	$: if (mounted && $authStore.isAuthenticated && !notificationsInitialized) {
 		notificationsInitialized = true;
 		installLimitsWatcher();
-		whenIdle(() => {
-			if (!notificationsInitialized) return;
+		cancelNotificationsIdle?.();
+		cancelNotificationsIdle = whenIdle(() => {
+			cancelNotificationsIdle = null;
 			notifications.load();
 			notificationsWebSocket.connect();
 			refreshLimits();
@@ -197,12 +232,21 @@
 	}
 	$: if (mounted && !$authStore.isAuthenticated && notificationsInitialized) {
 		notificationsInitialized = false;
+		cancelNotificationsIdle?.();
+		cancelNotificationsIdle = null;
 		notificationsWebSocket.disconnect();
 		notifications.reset();
 		resetLimitsState();
 	}
 
 	let tabDraftSyncStarted = false;
+	let prefetchSettled = false;
+	$: if (mounted && !$authStore.loading && !$authStore.isAuthenticated && !prefetchSettled) {
+		prefetchSettled = true;
+		void loadExtensionRefresh().then((module) => module.clearPrefetchedSnapshot());
+	}
+	$: if ($authStore.isAuthenticated) prefetchSettled = false;
+
 	$: if (mounted && $authStore.isAuthenticated && !tabDraftSyncStarted) {
 		tabDraftSyncStarted = true;
 		tabDraftSync.start();
@@ -246,6 +290,8 @@
 
 	onDestroy(() => {
 		destroyKeyboard();
+		cancelNotificationsIdle?.();
+		cancelIndexingIdle?.();
 		notificationsWebSocket.disconnect();
 		themeStore.destroy();
 	});

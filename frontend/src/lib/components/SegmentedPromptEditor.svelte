@@ -1,5 +1,4 @@
 <script lang="ts">
-	import '$lib/styles/segment-composer.css';
 	import { logger } from '$lib/utils/logger';
 	import { copyText } from '$lib/utils/clipboard';
 	import { onMount, createEventDispatcher, getContext } from 'svelte';

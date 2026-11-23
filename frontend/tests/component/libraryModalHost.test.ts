@@ -42,7 +42,6 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-await import('../../src/lib/components/library/LibraryItemModal.svelte');
 const { default: LibraryModalHost } = await import('../../src/lib/components/library/LibraryModalHost.svelte');
 const { openLibraryResultModal, closeLibraryResultModal, libraryModalRequest } = await import('$lib/library/landing');
 const { registerDetailsReturn } = await import('$lib/tools/detailsReturn');
@@ -118,7 +117,7 @@ describe('the Library modal over History', () => {
 		flushSync();
 
 		openLibraryResultModal(item, source);
-		await settle(4);
+		await vi.waitFor(() => expect(modal()).not.toBeNull(), { timeout: 20000 });
 
 		expect(modal()).not.toBeNull();
 		expect(returned).not.toHaveBeenCalled();
@@ -127,7 +126,7 @@ describe('the Library modal over History', () => {
 	it('opens for a landing request and pushes a shallow history entry, without leaving the page', async () => {
 		mountHost();
 		openLibraryResultModal(item, source);
-		await settle(4);
+		await vi.waitFor(() => expect(modal()).not.toBeNull(), { timeout: 20000 });
 
 		expect(modal()).not.toBeNull();
 		expect(document.body.textContent).toContain('a.png');
@@ -137,7 +136,7 @@ describe('the Library modal over History', () => {
 	it('shows Back to the generation for the source generation', async () => {
 		mountHost();
 		openLibraryResultModal(item, source);
-		await settle(4);
+		await vi.waitFor(() => expect(modal()).not.toBeNull(), { timeout: 20000 });
 
 		expect(document.body.querySelector('[data-back-to-generation] button')?.textContent).toContain('Back to the generation');
 	});
@@ -145,7 +144,7 @@ describe('the Library modal over History', () => {
 	it('closes and reopens the History details on the same generation and file when browser Back pops the entry', async () => {
 		mountHost();
 		openLibraryResultModal(item, source);
-		await settle(4);
+		await vi.waitFor(() => expect(modal()).not.toBeNull(), { timeout: 20000 });
 
 		setPage('/history', {});
 		await settle(4);
@@ -158,7 +157,7 @@ describe('the Library modal over History', () => {
 	it('goes back in the browser history on close, so Escape and the close button behave like Back', async () => {
 		mountHost();
 		openLibraryResultModal(item, source);
-		await settle(4);
+		await vi.waitFor(() => expect(modal()).not.toBeNull(), { timeout: 20000 });
 		setPage('/history', { libraryModal: 'lib-1' });
 		await settle(2);
 

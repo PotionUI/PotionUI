@@ -1,4 +1,6 @@
 @import './lib/styles/tokens.css';
+@import './lib/styles/segment-composer.css';
+@import './lib/styles/generation-panel.css';
 @import './lib/styles/context-select.css';
 @import './lib/styles/ai-ring.css';
 

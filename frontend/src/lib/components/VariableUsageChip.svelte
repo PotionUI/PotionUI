@@ -1,5 +1,4 @@
 <script lang="ts">
-	import '$lib/styles/segment-composer.css';
 	import tooltip from '$lib/actions/tooltip';
 	import {
 		normalizeVariableDef,

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import '$lib/styles/segment-composer.css';
 	import { Alert, Button, Pagination, SegmentedControl } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';

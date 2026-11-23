@@ -1,5 +1,4 @@
 <script context="module" lang="ts">
-	import '$lib/styles/segment-composer.css';
 	import { IconButton } from '$lib/components/ui';
 	// Types
 	export interface AutocompleteCategory {

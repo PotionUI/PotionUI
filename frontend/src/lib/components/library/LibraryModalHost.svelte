@@ -7,6 +7,7 @@
 	import type { LibraryItem } from '$lib/services/api/library';
 	import { libraryStore } from '$lib/stores/library';
 	import { toasts } from '$lib/stores/toast';
+	import { logger } from '$lib/utils/logger';
 	import { returnToDetails } from '$lib/tools/detailsReturn';
 
 	let request = $derived($libraryModalRequest);
@@ -19,7 +20,13 @@
 
 	$effect(() => {
 		if (request && !ItemModal) {
-			void import('$lib/components/library/LibraryItemModal.svelte').then((module) => (ItemModal = module.default));
+			import('$lib/components/library/LibraryItemModal.svelte')
+				.then((module) => (ItemModal = module.default))
+				.catch((error) => {
+					logger.error('Failed to load the library item:', error);
+					toasts.error('Could not open that item. Try again.');
+					dismiss();
+				});
 		}
 	});
 

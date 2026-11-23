@@ -1,7 +1,6 @@
 <svelte:options immutable />
 
 <script lang="ts">
-	import '$lib/styles/segment-composer.css';
 	import tooltip from '$lib/actions/tooltip';
 	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import type { Segment, ChipData } from '$lib/types/segments';

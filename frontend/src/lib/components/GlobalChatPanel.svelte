@@ -3,13 +3,21 @@
 	import { hasOpenDismissLayer } from '$lib/actions/layerStack';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
 	import '$lib/styles/chat-concept.css';
+	import { toasts } from '$lib/stores/toast';
+	import { logger } from '$lib/utils/logger';
 	import { loadHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
 
 	$: isOpen = $chatPanelStore.isOpen;
 
 	let ChatComponent: any = null;
 	$: if (isOpen && !ChatComponent) {
-		void import('$lib/components/UnifiedAIChat.svelte').then((module) => (ChatComponent = module.default));
+		import('$lib/components/UnifiedAIChat.svelte')
+			.then((module) => (ChatComponent = module.default))
+			.catch((error) => {
+				logger.error('Failed to load the chat:', error);
+				toasts.error('Could not load the chat. Try again.');
+				chatPanelStore.close();
+			});
 	}
 
 	function handleClose() {

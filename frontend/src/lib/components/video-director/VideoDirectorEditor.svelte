@@ -1,5 +1,4 @@
 <script lang="ts">
-	import '$lib/styles/segment-composer.css';
 	// Top-level Video Director editor: modeless -- there is no mode switch.
 	// The Shot Console (W1's rework of the old Stage+Rail composition) is the
 	// body; this file owns the section wrapper, the container query the

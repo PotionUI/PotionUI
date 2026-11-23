@@ -1,5 +1,4 @@
 <script lang="ts">
-	import '$lib/styles/segment-composer.css';
 	import { createEventDispatcher } from 'svelte';
 	import type { Segment } from '$lib/types/segments';
 	import { segmentMenuActions, SEGMENT_ACTION_GROUPS, type SegmentAction } from '$lib/utils/segmentActions';

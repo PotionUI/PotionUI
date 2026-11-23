@@ -1,5 +1,4 @@
 <script lang="ts">
-	import '$lib/styles/segment-composer.css';
 	import { untrack } from 'svelte';
 	import type { Readable } from 'svelte/store';
 	import Icon from './Icon.svelte';

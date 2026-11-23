@@ -1,7 +1,12 @@
 <script lang="ts">
 	import GenerationCard from '$lib/components/GenerationCard.svelte';
 	import type { GenerationHistoryItem } from '$lib/types/history';
-	import { layoutJustifiedRows, clampAspect, type JustifiedRow } from '$lib/utils/justifiedLayout';
+	import {
+		layoutJustifiedRows,
+		flattenJustifiedRows,
+		clampAspect,
+		type FlatJustifiedBox
+	} from '$lib/utils/justifiedLayout';
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { createHistoryEntryMenu } from '$lib/tools/entryMenu';
 	import { registerEntryTools } from '$lib/tools/entryTools';
@@ -33,12 +38,16 @@
 		return 1;
 	}
 
-	$: rows = layoutJustifiedRows(
-		generations.map((item) => ({ item, aspect: aspectOf(item) })),
-		width,
-		targetRowHeight,
-		GAP
-	) as JustifiedRow<GenerationHistoryItem>[];
+	$: boxes = (
+		flattenJustifiedRows(
+			layoutJustifiedRows(
+				generations.map((item) => ({ item, aspect: aspectOf(item) })),
+				width,
+				targetRowHeight,
+				GAP
+			)
+		) as FlatJustifiedBox<GenerationHistoryItem>[]
+	).map((box) => ({ ...box, tile: { width: box.width, height: box.height } }));
 
 	function handleImageClick(event: CustomEvent) {
 		const generation = generations.find((g) => g.id === event.detail.generationId);
@@ -63,21 +72,19 @@
 
 <div bind:clientWidth={width}>
 	{#if width > 0}
-		<div class="space-y-3">
-			{#each rows as row}
-				<div class="flex" style="gap: {GAP}px">
-					{#each row as box (itemKey(box.item))}
-						<slot name="card" generation={box.item} tile={{ width: box.width, height: box.height }}>
-							<GenerationCard
-								generation={box.item}
-								tile={{ width: box.width, height: box.height }}
-								{showActions}
-								{entryMenu}
-								on:imageClick={handleImageClick}
-								on:viewClick={handleViewClick}
-							/>
-						</slot>
-					{/each}
+		<div class="flex flex-wrap" style="gap: {GAP}px">
+			{#each boxes as box (itemKey(box.item))}
+				<div style="flex: {box.rowEnd ? '1 1' : '0 0'} {box.width}px">
+					<slot name="card" generation={box.item} tile={box.tile}>
+						<GenerationCard
+							generation={box.item}
+							tile={box.tile}
+							{showActions}
+							{entryMenu}
+							on:imageClick={handleImageClick}
+							on:viewClick={handleViewClick}
+						/>
+					</slot>
 				</div>
 			{/each}
 		</div>

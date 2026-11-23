@@ -52,6 +52,42 @@ export function marqueeSelection(node: HTMLElement, options: MarqueeSelectionOpt
 	let cardRects = new Map<string, SelectionRect>();
 	let pointerDownAt: { x: number; y: number; pointerId: number; additive: boolean } | null = null;
 	let pointerOverGrid = false;
+	let lastApplied: string[] = [];
+	let pendingPoint: { x: number; y: number } | null = null;
+	let frame = 0;
+
+	function sameIds(a: string[], b: string[]): boolean {
+		if (a.length !== b.length) return false;
+		for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+		return true;
+	}
+
+	function applyPoint(x: number, y: number) {
+		if (!pointerDownAt) return;
+		rect = rectFromPoints(pointerDownAt.x, pointerDownAt.y, x, y);
+		const next = applyMarquee(preDragSelection, idsInMarquee(opts.orderedIds, cardRects, rect), mode);
+		if (!sameIds(next, lastApplied)) {
+			lastApplied = next;
+			opts.setSelection(next);
+		}
+		notify();
+	}
+
+	function flushPending() {
+		if (frame) {
+			cancelAnimationFrame(frame);
+			frame = 0;
+		}
+		const point = pendingPoint;
+		pendingPoint = null;
+		if (point && active) applyPoint(point.x, point.y);
+	}
+
+	function dropPending() {
+		if (frame) cancelAnimationFrame(frame);
+		frame = 0;
+		pendingPoint = null;
+	}
 
 	function notify() {
 		opts.onChange({ active, rect });
@@ -69,6 +105,7 @@ export function marqueeSelection(node: HTMLElement, options: MarqueeSelectionOpt
 	}
 
 	function cancelDrag() {
+		dropPending();
 		active = false;
 		rect = null;
 		pointerDownAt = null;
@@ -99,24 +136,32 @@ export function marqueeSelection(node: HTMLElement, options: MarqueeSelectionOpt
 			active = true;
 			mode = pointerDownAt.additive ? 'add' : 'replace';
 			preDragSelection = opts.selectedIds;
+			lastApplied = preDragSelection;
 			cardRects = measureCardRects();
 			if (!node.hasPointerCapture(pointerDownAt.pointerId)) {
 				node.setPointerCapture(pointerDownAt.pointerId);
 			}
 			opts.onDragStart?.();
 		}
-		rect = rectFromPoints(pointerDownAt.x, pointerDownAt.y, event.clientX, event.clientY);
-		const intersecting = idsInMarquee(opts.orderedIds, cardRects, rect);
-		opts.setSelection(applyMarquee(preDragSelection, intersecting, mode));
-		notify();
+		pendingPoint = { x: event.clientX, y: event.clientY };
+		if (!frame) {
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+				const point = pendingPoint;
+				pendingPoint = null;
+				if (point && active) applyPoint(point.x, point.y);
+			});
+		}
 	}
 
 	function handlePointerUp() {
+		flushPending();
 		cancelDrag();
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && active) {
+			dropPending();
 			opts.setSelection(preDragSelection);
 			cancelDrag();
 			return;
@@ -158,6 +203,7 @@ export function marqueeSelection(node: HTMLElement, options: MarqueeSelectionOpt
 			opts = next;
 		},
 		destroy() {
+			dropPending();
 			node.removeEventListener('pointerdown', handlePointerDown);
 			node.removeEventListener('pointermove', handlePointerMove);
 			node.removeEventListener('pointerup', handlePointerUp);

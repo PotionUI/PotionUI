@@ -3,7 +3,6 @@
 	import {
 		historyStore,
 		totalPages,
-		filteredGenerations,
 		HISTORY_ITEMS_PER_PAGE_OPTIONS
 	} from '$lib/stores/history';
 	import GenerationCard from '$lib/components/GenerationCard.svelte';
@@ -25,6 +24,7 @@
 		clampAspect,
 		type FlatJustifiedBox
 	} from '$lib/utils/justifiedLayout';
+	import { distinctPick } from '$lib/selection/distinctStore';
 	import { dayKey, dayLabel } from '$lib/utils/relativeTime';
 	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
 	import { nsfwFilterStore, selectableMediaFiles, isGenerationHiddenByNsfw } from '$lib/stores/nsfwFilter';
@@ -47,9 +47,12 @@
 
 	nsfwFilterStore.init();
 
+	const pageGenerations = distinctPick(historyStore, (state) => state.generations);
+
 	$: currentState = $historyStore;
+	$: selectedSet = new Set(currentState.selectedGenerationIds);
 	$: nsfwMode = $nsfwFilterStore.mode;
-	$: generations = $filteredGenerations.filter(
+	$: generations = $pageGenerations.filter(
 		(generation) => !isGenerationHiddenByNsfw(selectableMediaFiles(generation.files ?? []), nsfwMode)
 	);
 	$: pages = $totalPages;
@@ -65,7 +68,18 @@
 				TILE_SIZE_MULTIPLIER[$historyTileSize]
 		);
 
+	const aspects = new WeakMap<GenerationHistoryItem, number>();
+
 	function aspectOf(generation: GenerationHistoryItem): number {
+		let aspect = aspects.get(generation);
+		if (aspect === undefined) {
+			aspect = computeAspect(generation);
+			aspects.set(generation, aspect);
+		}
+		return aspect;
+	}
+
+	function computeAspect(generation: GenerationHistoryItem): number {
 		// Same lead-file rule as GenerationCard, so the tile's aspect matches the
 		// preview it actually shows (a derived enhance pass may differ in size).
 		const media = generation.files.filter(
@@ -113,14 +127,16 @@
 	// reflow moves it across a row boundary (see flattenJustifiedRows).
 	$: groupLayouts = groups.map((group) => ({
 		...group,
-		boxes: flattenJustifiedRows(
-			layoutJustifiedRows(
-				group.items.map((item) => ({ item, aspect: aspectOf(item) })),
-				gridWidth,
-				targetRowHeight,
-				GAP
-			)
-		) as FlatJustifiedBox<GenerationHistoryItem>[]
+		boxes: (
+			flattenJustifiedRows(
+				layoutJustifiedRows(
+					group.items.map((item) => ({ item, aspect: aspectOf(item) })),
+					gridWidth,
+					targetRowHeight,
+					GAP
+				)
+			) as FlatJustifiedBox<GenerationHistoryItem>[]
+		).map((box) => ({ ...box, tile: { width: box.width, height: box.height } }))
 	}));
 
 	// Row-major id order across every group, for shift-click range selection.
@@ -257,10 +273,13 @@
 		addToKit: (ctx) => requestAddToKit(ctx.files.map((entry) => entry.file))
 	};
 
+	const currentSelectedIds = () => currentState.selectedGenerationIds;
+	const currentCollectionId = () => currentState.filters.collectionId ?? null;
+
 	$: entryMenu = createHistoryEntryMenu({
 		generations: () => generations,
-		selectedIds: () => currentState.selectedGenerationIds,
-		collectionId: () => currentState.filters.collectionId ?? null,
+		selectedIds: currentSelectedIds,
+		collectionId: currentCollectionId,
 		collections: () => $collectionsStore.collections,
 		host: onReuseRequest ? host : { ...host, reuse: undefined },
 		onTool: onToolSelect
@@ -362,11 +381,11 @@
 							data-row-end={box.rowEnd}
 							style="flex: {box.rowEnd ? '1 1' : '0 0'} {box.width}px"
 							role="option"
-							aria-selected={currentState.selectedGenerationIds.includes(box.item.id)}
+							aria-selected={selectedSet.has(box.item.id)}
 						>
 							<GenerationCard
 								generation={box.item}
-								tile={{ width: box.width, height: box.height }}
+								tile={box.tile}
 								live
 								on:imageClick={handleImageClick}
 								on:viewClick={handleViewGeneration}
@@ -376,7 +395,7 @@
 								showActions={!currentState.selectionMode}
 								selectable={currentState.selectionMode}
 								showCheckbox={true}
-								selected={currentState.selectedGenerationIds.includes(box.item.id)}
+								selected={selectedSet.has(box.item.id)}
 								onSelect={handleCardSelect}
 							/>
 						</div>

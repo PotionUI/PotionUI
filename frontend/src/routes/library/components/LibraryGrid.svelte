@@ -7,6 +7,7 @@
 		flattenJustifiedRows,
 		type FlatJustifiedBox
 	} from '$lib/utils/justifiedLayout';
+	import { distinctPick } from '$lib/selection/distinctStore';
 	import { groupByDay } from '$lib/library/dayGroups';
 	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
 	import { hasActiveLibraryFilters } from '$lib/library/libraryQuery';
@@ -33,8 +34,13 @@
 	export let onBulkDeleteRequest: () => void = () => {};
 	export let onToolSelect: (tool: MediaTool, context: MediaToolContext) => void = () => {};
 
+	const libraryItems = distinctPick(libraryStore, (value) => value.items);
+	const placedIdsStore = distinctPick(libraryStore, (value) => value.placedIds);
+
 	$: state = $libraryStore;
-	$: items = state.items;
+	$: items = $libraryItems;
+	$: selectedSet = new Set(state.selectedIds);
+	$: freshSet = new Set(state.freshIds);
 	$: pages = $libraryTotalPages;
 	$: filtered = hasActiveLibraryFilters(state.filters);
 
@@ -51,20 +57,22 @@
 	// the boxes' own widths, so a card keeps its DOM identity when a gridWidth
 	// reflow moves it across a row boundary (see flattenJustifiedRows).
 	$: dayGroups = $mediaGroupByDay
-		? groupByDay(items, state.placedIds)
+		? groupByDay(items, $placedIdsStore)
 		: items.length > 0
 			? [{ key: '__flat__', label: '', items }]
 			: [];
 	$: groupLayouts = dayGroups.map((group) => ({
 		...group,
-		boxes: flattenJustifiedRows(
-			layoutJustifiedRows(
-				group.items.map((item) => ({ item, aspect: libraryItemAspect(item) })),
-				gridWidth,
-				targetRowHeight,
-				GAP
-			)
-		) as FlatJustifiedBox<LibraryItem>[]
+		boxes: (
+			flattenJustifiedRows(
+				layoutJustifiedRows(
+					group.items.map((item) => ({ item, aspect: libraryItemAspect(item) })),
+					gridWidth,
+					targetRowHeight,
+					GAP
+				)
+			) as FlatJustifiedBox<LibraryItem>[]
+		).map((box) => ({ ...box, tile: { width: box.width, height: box.height } }))
 	}));
 
 	// Row-major id order across every group, for shift-click range selection.
@@ -139,10 +147,13 @@
 		addToCollection
 	};
 
+	const currentSelectedIds = () => state.selectedIds;
+	const currentCollectionId = () => state.filters.collectionId ?? null;
+
 	$: entryMenu = createLibraryEntryMenu({
 		items: () => items,
-		selectedIds: () => state.selectedIds,
-		collectionId: () => state.filters.collectionId ?? null,
+		selectedIds: currentSelectedIds,
+		collectionId: currentCollectionId,
 		collections: () => $collectionsStore.collections,
 		host,
 		onTool: onToolSelect
@@ -239,16 +250,16 @@
 							data-row-end={box.rowEnd}
 							style="flex: {box.rowEnd ? '1 1' : '0 0'} {box.width}px"
 							role="option"
-							aria-selected={state.selectedIds.includes(box.item.id)}
+							aria-selected={selectedSet.has(box.item.id)}
 						>
 							<LibraryCard
 								item={box.item}
-								tile={{ width: box.width, height: box.height }}
+								tile={box.tile}
 								{entryMenu}
 								showActions={!state.selectionMode}
 								selectable={state.selectionMode}
-								selected={state.selectedIds.includes(box.item.id)}
-								isNew={state.freshIds.includes(box.item.id)}
+								selected={selectedSet.has(box.item.id)}
+								isNew={freshSet.has(box.item.id)}
 								onSelect={handleCardSelect}
 								on:open={(e) => libraryStore.setSelectedItem(e.detail)}
 								on:delete={(e) => onDeleteRequest(e.detail)}

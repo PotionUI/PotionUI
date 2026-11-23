@@ -136,4 +136,66 @@ describe('marqueeSelection', () => {
 
 		action.destroy();
 	});
+
+	describe('frame-throttled selection', () => {
+		function setupDrag(orderedIds: string[], cardRects: Record<string, DOMRect>) {
+			const frames: FrameRequestCallback[] = [];
+			vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+			vi.stubGlobal('cancelAnimationFrame', () => {});
+			const node = setupNode();
+			for (const id of orderedIds) {
+				const card = document.createElement('div');
+				card.dataset.card = id;
+				card.getBoundingClientRect = () => cardRects[id];
+				node.appendChild(card);
+			}
+			const opts = baseOptions({ orderedIds });
+			const action = marqueeSelection(node, opts);
+			return { frames, node, opts, action };
+		}
+
+		const rect = (left: number, top: number, right: number, bottom: number) =>
+			({ left, top, right, bottom, width: right - left, height: bottom - top }) as DOMRect;
+
+		it('coalesces many pointermoves into one selection write per frame', () => {
+			const { frames, node, opts, action } = setupDrag(['a', 'b'], {
+				a: rect(0, 0, 10, 10),
+				b: rect(20, 0, 30, 10)
+			});
+			node.dispatchEvent(pointerEvent('pointerdown', { clientX: 200, clientY: 200, pointerId: 1 }));
+			for (let i = 0; i < 30; i++) {
+				node.dispatchEvent(pointerEvent('pointermove', { clientX: 190 - i * 7, clientY: 190 - i * 7, pointerId: 1 }));
+			}
+			expect(frames).toHaveLength(1);
+			expect(opts.setSelection).not.toHaveBeenCalled();
+			frames[0](0);
+			expect(opts.setSelection).toHaveBeenCalledTimes(1);
+			expect(opts.setSelection).toHaveBeenCalledWith(['a', 'b']);
+			action.destroy();
+			vi.unstubAllGlobals();
+		});
+
+		it('does not rewrite the selection while the covered cards stay the same', () => {
+			const { frames, node, opts, action } = setupDrag(['a'], { a: rect(0, 0, 10, 10) });
+			node.dispatchEvent(pointerEvent('pointerdown', { clientX: 100, clientY: 100, pointerId: 1 }));
+			node.dispatchEvent(pointerEvent('pointermove', { clientX: 5, clientY: 5, pointerId: 1 }));
+			frames.shift()!(0);
+			node.dispatchEvent(pointerEvent('pointermove', { clientX: 4, clientY: 4, pointerId: 1 }));
+			frames.shift()!(0);
+			expect(opts.setSelection).toHaveBeenCalledTimes(1);
+			action.destroy();
+			vi.unstubAllGlobals();
+		});
+
+		it('applies the last pointer position on pointerup without waiting for a frame', () => {
+			const { frames, node, opts, action } = setupDrag(['a'], { a: rect(0, 0, 10, 10) });
+			node.dispatchEvent(pointerEvent('pointerdown', { clientX: 100, clientY: 100, pointerId: 1 }));
+			node.dispatchEvent(pointerEvent('pointermove', { clientX: 5, clientY: 5, pointerId: 1 }));
+			node.dispatchEvent(pointerEvent('pointerup', { clientX: 5, clientY: 5, pointerId: 1 }));
+			expect(frames).toHaveLength(1);
+			expect(opts.setSelection).toHaveBeenCalledWith(['a']);
+			action.destroy();
+			vi.unstubAllGlobals();
+		});
+	});
 });

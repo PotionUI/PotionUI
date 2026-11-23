@@ -4,7 +4,12 @@
 	import { Button, EmptyState, Pagination } from '$lib/components/ui';
 	import type { InspirationDto } from '$lib/services/api/inspirations';
 	import InspirationCard from './InspirationCard.svelte';
-	import { layoutJustifiedRows, type JustifiedRow } from '$lib/utils/justifiedLayout';
+	import {
+		layoutJustifiedRows,
+		flattenJustifiedRows,
+		type FlatJustifiedBox
+	} from '$lib/utils/justifiedLayout';
+	import { distinctPick } from '$lib/selection/distinctStore';
 	import { mediaGroupByDay } from '$lib/stores/mediaGroupByDay';
 	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
 	import { groupByDay } from '$lib/library/dayGroups';
@@ -12,8 +17,10 @@
 
 	export let onOpen: (item: InspirationDto) => void;
 
+	const inspirationItems = distinctPick(inspirationsStore, (value) => value.items);
+
 	$: state = $inspirationsStore;
-	$: items = state.items;
+	$: items = $inspirationItems;
 	$: pages = $inspirationsTotalPages;
 	$: filtered = hasActiveInspirationsFilters(state.filters);
 
@@ -36,12 +43,16 @@
 		key: group.key,
 		label: group.label,
 		count: group.items.length,
-		rows: layoutJustifiedRows(
-			group.items.map((item) => ({ item, aspect: inspirationAspect(inspirationPrimaryMedia(item)) })),
-			gridWidth,
-			targetRowHeight,
-			GAP
-		) as JustifiedRow<InspirationDto>[]
+		boxes: (
+			flattenJustifiedRows(
+				layoutJustifiedRows(
+					group.items.map((item) => ({ item, aspect: inspirationAspect(inspirationPrimaryMedia(item)) })),
+					gridWidth,
+					targetRowHeight,
+					GAP
+				)
+			) as FlatJustifiedBox<InspirationDto>[]
+		).map((box) => ({ ...box, tile: { width: box.width, height: box.height } }))
 	}));
 
 	// Skeleton layout reuses the real packer with a fixed aspect pattern so the
@@ -98,16 +109,10 @@
 						<div class="flex-1 h-px bg-line self-center"></div>
 					</div>
 				{/if}
-				<div class="space-y-3">
-					{#each group.rows as row}
-						<div class="flex" style="gap: {GAP}px">
-							{#each row as box (box.item.id)}
-								<InspirationCard
-									item={box.item}
-									tile={{ width: box.width, height: box.height }}
-									{onOpen}
-								/>
-							{/each}
+				<div class="flex flex-wrap" style="gap: {GAP}px">
+					{#each group.boxes as box (box.item.id)}
+						<div style="flex: {box.rowEnd ? '1 1' : '0 0'} {box.width}px">
+							<InspirationCard item={box.item} tile={box.tile} {onOpen} />
 						</div>
 					{/each}
 				</div>

@@ -96,21 +96,6 @@ describe('scrub seeking', () => {
 		expect(video.currentTime).toBe(1);
 		expect(played[played.length - 1]).toBe(6);
 	});
-
-	it('follows the element on seeked only when nothing newer is queued or in flight', () => {
-		const { seek, played, video, runFrame } = setup();
-		seek.scrub(1);
-		seek.scrub(6);
-		seek.onSeeked();
-		expect(played[played.length - 1]).toBe(6);
-		runFrame();
-		video.seeking = true;
-		seek.onSeeked();
-		expect(played[played.length - 1]).toBe(6);
-		video.seeking = false;
-		seek.onSeeked();
-		expect(played[played.length - 1]).toBe(6);
-	});
 });
 
 describe('playhead store', () => {

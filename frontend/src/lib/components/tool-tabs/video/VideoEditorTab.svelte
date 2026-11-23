@@ -1882,7 +1882,6 @@
 									onloadedmetadata={onMetadata}
 									onplay={onPlay}
 									onpause={onPause}
-									onseeked={() => scrub.onSeeked()}
 									onended={onEnded}
 									onerror={() => (videoError = true)}
 									data-video-element

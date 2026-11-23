@@ -21,7 +21,6 @@ export interface ScrubSeek {
 	commit(seconds: number): void;
 	schedule(seconds: number): void;
 	flush(): void;
-	onSeeked(): void;
 	pending(): boolean;
 	pendingPlayhead(): number | null;
 	dispose(): number | null;
@@ -97,11 +96,6 @@ export function createScrubSeek(options: ScrubSeekOptions): ScrubSeek {
 		},
 		flush() {
 			if (held !== null) commit(held);
-		},
-		onSeeked() {
-			const video = options.video();
-			if (!video || target !== null || video.seeking) return;
-			options.setPlayhead(video.currentTime);
 		},
 		pending: () => target !== null,
 		pendingPlayhead: () => held,

@@ -1,4 +1,5 @@
 <script module lang="ts">
+	import '$lib/styles/segment-composer.css';
 	// Generic item type - any object with at least an id
 	export interface FuzzyFindItem {
 		id: string;

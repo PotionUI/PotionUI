@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/generation-panel.css';
 	import { deckStepText } from '$lib/generation/previewClip';
 	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
 	import dismiss from '$lib/actions/dismiss';

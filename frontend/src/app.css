@@ -1,7 +1,4 @@
 @import './lib/styles/tokens.css';
-@import './lib/styles/chat-concept.css';
-@import './lib/styles/segment-composer.css';
-@import './lib/styles/generation-panel.css';
 @import './lib/styles/context-select.css';
 @import './lib/styles/ai-ring.css';
 
@@ -303,7 +300,6 @@
 .media-zoom img,
 .media-zoom video {
 	transition: transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
-	will-change: transform;
 }
 .group:hover .media-zoom img,
 .group:hover .media-zoom video,
@@ -312,6 +308,7 @@
 .media-zoom:hover img,
 .media-zoom:hover video {
 	transform: scale(1.06);
+	will-change: transform;
 }
 @media (prefers-reduced-motion: reduce) {
 	.media-zoom img,

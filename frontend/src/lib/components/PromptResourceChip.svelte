@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/segment-composer.css';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import Icon from './Icon.svelte';
 	import MediaThumb from './media/MediaThumb.svelte';

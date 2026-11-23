@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/chat-concept.css';
 	import { refusalMessage } from '$lib/plans/refusal';
 	import { blockedUploadMessage } from '$lib/plans/uploadLimit';
 	import { getErrorMessage, logger } from '$lib/utils/logger';

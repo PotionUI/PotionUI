@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/segment-composer.css';
 	import tooltip from '$lib/actions/tooltip';
 	import { parseGroupInner, serializeGroup, type ChoiceGroupSpec } from '$lib/utils/choiceGroups';
 	import Icon from './Icon.svelte';

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/segment-composer.css';
 	import type { ChipData } from '$lib/types/segments';
 	import { api } from '$lib/services/api/index';
 	import { chipIndicatorColor } from '$lib/utils/chipIndicatorColor';

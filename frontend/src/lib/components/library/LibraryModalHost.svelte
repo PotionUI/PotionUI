@@ -2,7 +2,6 @@
 	import { pushState } from '$app/navigation';
 	import { page } from '$app/state';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
-	import LibraryItemModal from '$lib/components/library/LibraryItemModal.svelte';
 	import { closeLibraryResultModal, libraryModalRequest } from '$lib/library/landing';
 	import { libraryItemDisplayName } from '$lib/library/libraryItemMeta';
 	import type { LibraryItem } from '$lib/services/api/library';
@@ -16,6 +15,13 @@
 	let pushedFor = $state<string | null>(null);
 	let stateSeen = $state(false);
 	let itemToDelete = $state<LibraryItem | null>(null);
+	let ItemModal = $state<any>(null);
+
+	$effect(() => {
+		if (request && !ItemModal) {
+			void import('$lib/components/library/LibraryItemModal.svelte').then((module) => (ItemModal = module.default));
+		}
+	});
 
 	$effect(() => {
 		if (!request || onLibraryPage) return;
@@ -58,13 +64,13 @@
 	}
 </script>
 
-{#if request && item && !onLibraryPage}
-	<LibraryItemModal
+{#if request && item && !onLibraryPage && ItemModal}
+	<ItemModal
 		{item}
 		generationLink={request.source}
 		onBackToGeneration={dismiss}
 		onClose={dismiss}
-		onDeleteRequest={(target) => (itemToDelete = target)}
+		onDeleteRequest={(target: LibraryItem) => (itemToDelete = target)}
 	/>
 {/if}
 

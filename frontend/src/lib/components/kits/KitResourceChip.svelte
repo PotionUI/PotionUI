@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/segment-composer.css';
 	import AnchoredPanel from '$lib/components/AnchoredPanel.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaThumb from '$lib/components/media/MediaThumb.svelte';

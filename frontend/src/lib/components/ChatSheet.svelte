@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/chat-concept.css';
 	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import UnifiedAIChat from '$lib/components/UnifiedAIChat.svelte';
 	import { chatPanelStore } from '$lib/stores/chatPanel';

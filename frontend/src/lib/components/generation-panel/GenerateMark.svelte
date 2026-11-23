@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/generation-panel.css';
 	import tooltip from '$lib/actions/tooltip';
 	import { getContext } from 'svelte';
 	import { INSIDE_TOOLTIP_CONTEXT_KEY } from '../tooltipContext';

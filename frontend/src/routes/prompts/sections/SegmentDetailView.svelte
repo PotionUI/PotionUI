@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/segment-composer.css';
 	import InlineChipEditor from '$lib/components/InlineChipEditor.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';

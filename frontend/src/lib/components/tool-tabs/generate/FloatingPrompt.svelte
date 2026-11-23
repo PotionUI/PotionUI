@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '$lib/styles/generation-panel.css';
 	import type { Snippet } from 'svelte';
 	import GenerateMark from '$lib/components/generation-panel/GenerateMark.svelte';
 	import BorderProgress from '$lib/components/generation-panel/BorderProgress.svelte';

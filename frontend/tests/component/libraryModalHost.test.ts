@@ -42,6 +42,7 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
+await import('../../src/lib/components/library/LibraryItemModal.svelte');
 const { default: LibraryModalHost } = await import('../../src/lib/components/library/LibraryModalHost.svelte');
 const { openLibraryResultModal, closeLibraryResultModal, libraryModalRequest } = await import('$lib/library/landing');
 const { registerDetailsReturn } = await import('$lib/tools/detailsReturn');

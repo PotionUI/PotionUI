@@ -2,10 +2,15 @@
 	import { fade, scale } from 'svelte/transition';
 	import { hasOpenDismissLayer } from '$lib/actions/layerStack';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
-	import UnifiedAIChat from '$lib/components/UnifiedAIChat.svelte';
+	import '$lib/styles/chat-concept.css';
 	import { loadHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
 
 	$: isOpen = $chatPanelStore.isOpen;
+
+	let ChatComponent: any = null;
+	$: if (isOpen && !ChatComponent) {
+		void import('$lib/components/UnifiedAIChat.svelte').then((module) => (ChatComponent = module.default));
+	}
 
 	function handleClose() {
 		chatPanelStore.close();
@@ -61,6 +66,8 @@
 		aria-label="AI chat"
 		transition:scale={{ duration: motionDuration, start: 0.98, opacity: 0 }}
 	>
-		<UnifiedAIChat onClose={handleClose} bind:historyRailCollapsed={railCollapsed} />
+		{#if ChatComponent}
+			<svelte:component this={ChatComponent} onClose={handleClose} bind:historyRailCollapsed={railCollapsed} />
+		{/if}
 	</div>
 {/if}

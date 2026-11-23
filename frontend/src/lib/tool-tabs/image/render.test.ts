@@ -166,6 +166,46 @@ describe('ImageRenderer after a lost drawing surface', () => {
 	});
 });
 
+describe('ImageRenderer client prefixes', () => {
+	function counting() {
+		const state = { made: 0 };
+		vi.stubGlobal('document', {
+			createElement: () => {
+				state.made += 1;
+				return fakeCanvas();
+			}
+		});
+		return state;
+	}
+
+	const cropped = () => push(createStack(), cropDraft({ plan: { ...EMPTY_IMAGE_PLAN, rect: { x: 0, y: 0, width: 0.5, height: 1 } }, aspect: 'free' }, 'Free', { width: 4, height: 6 }));
+
+	it('redoes only the last step when it changes', async () => {
+		const fresh = counting();
+		await new ImageRenderer(SOURCE).render(appliedSteps(push(cropped(), resizeDraft({ width: 3, height: 4, lock: false }))));
+		const full = fresh.made;
+
+		const state = counting();
+		const renderer = new ImageRenderer(SOURCE);
+		await renderer.render(appliedSteps(push(cropped(), resizeDraft({ width: 2, height: 3, lock: false }))));
+		const before = state.made;
+		const next = await renderer.render(appliedSteps(push(cropped(), resizeDraft({ width: 3, height: 4, lock: false }))));
+		expect(next.size).toEqual({ width: 3, height: 4 });
+		expect(state.made - before).toBeLessThan(full);
+	});
+
+	it('forgets the prefixes when the renderer is reset', async () => {
+		const state = counting();
+		const renderer = new ImageRenderer(SOURCE);
+		const steps = appliedSteps(push(cropped(), resizeDraft({ width: 2, height: 3, lock: false })));
+		await renderer.render(steps);
+		const once = state.made;
+		renderer.reset();
+		await renderer.render(steps);
+		expect(state.made - once).toBeGreaterThanOrEqual(once);
+	});
+});
+
 describe('ImageRenderer bakes', () => {
 	it('uploads one look layer per source and step chain, and a hidden step does not change it', async () => {
 		const renderer = new ImageRenderer(SOURCE);

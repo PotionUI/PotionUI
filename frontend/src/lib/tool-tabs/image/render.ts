@@ -244,11 +244,13 @@ interface PrefixEntry {
 }
 
 const MAX_PREFIXES = 8;
+const MAX_CLIENT_PREFIXES = 6;
 
 export class ImageRenderer {
 	private bakes = new Map<string, Promise<string>>();
 	private sources = new Map<string, Promise<HTMLCanvasElement>>();
 	private prefixes = new Map<string, PrefixEntry>();
+	private clientPrefixes = new Map<string, Rendered>();
 
 	constructor(private source: RenderSource) {}
 
@@ -260,6 +262,7 @@ export class ImageRenderer {
 		if (source.url !== this.source.url) this.sources.clear();
 		this.bakes.clear();
 		this.dropPrefixes();
+		this.clientPrefixes.clear();
 		this.source = source;
 	}
 
@@ -267,6 +270,7 @@ export class ImageRenderer {
 		this.sources.clear();
 		this.bakes.clear();
 		this.dropPrefixes();
+		this.clientPrefixes.clear();
 	}
 
 	get ref(): MediaToolInputRef | null {
@@ -303,11 +307,31 @@ export class ImageRenderer {
 			const original = await waitFor(this.original(), options.signal, () => undefined);
 			rendered = { canvas: scaled(original, fitSide(this.source.size, maxSide)), size: this.source.size };
 		}
-		for (const step of visible.slice(serverAt + 1)) {
+		const cacheable = maxSide <= PREVIEW_SIDE;
+		const base = `${sourceKey(this.source)}|${maxSide}|`;
+		let from = serverAt + 1;
+		if (cacheable) {
+			for (let end = visible.length; end > from; end--) {
+				const hit = this.clientPrefixes.get(base + stepsKey(visible.slice(0, end)));
+				if (!hit) continue;
+				this.clientPrefixes.delete(base + stepsKey(visible.slice(0, end)));
+				this.clientPrefixes.set(base + stepsKey(visible.slice(0, end)), hit);
+				rendered = hit;
+				from = end;
+				break;
+			}
+		}
+		for (let i = from; i < visible.length; i++) {
 			if (options.signal?.aborted) throw abortError();
-			rendered = await applyClientStep(rendered, step, maxSide, options.signal);
+			rendered = await applyClientStep(rendered, visible[i], maxSide, options.signal);
+			if (cacheable && i < visible.length - 1) this.keepClientPrefix(base + stepsKey(visible.slice(0, i + 1)), rendered);
 		}
 		return rendered;
+	}
+
+	private keepClientPrefix(key: string, rendered: Rendered): void {
+		this.clientPrefixes.set(key, rendered);
+		while (this.clientPrefixes.size > MAX_CLIENT_PREFIXES) this.clientPrefixes.delete(this.clientPrefixes.keys().next().value!);
 	}
 
 	private prefix(steps: readonly EditStep[], maxSide: number, signal?: AbortSignal): Promise<Rendered> {

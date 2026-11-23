@@ -5,9 +5,14 @@ export interface DisplayParams {
 
 export function paint(node: HTMLCanvasElement, canvas: HTMLCanvasElement | null): void {
 	if (!canvas) return;
-	node.width = canvas.width;
-	node.height = canvas.height;
-	node.getContext('2d')?.drawImage(canvas, 0, 0);
+	const resized = node.width !== canvas.width || node.height !== canvas.height;
+	if (resized) {
+		node.width = canvas.width;
+		node.height = canvas.height;
+	}
+	const context = node.getContext('2d');
+	if (!resized) context?.clearRect(0, 0, node.width, node.height);
+	context?.drawImage(canvas, 0, 0);
 }
 
 export function showCanvas(node: HTMLCanvasElement, params: DisplayParams) {

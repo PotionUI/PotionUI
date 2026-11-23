@@ -5,7 +5,9 @@ class FakeDisplay extends EventTarget {
 	width = 300;
 	height = 150;
 	draws: unknown[] = [];
-	context = { drawImage: (source: unknown) => this.draws.push(source) };
+	clears = 0;
+	sizeWrites = 0;
+	context = { drawImage: (source: unknown) => this.draws.push(source), clearRect: () => (this.clears += 1) };
 	getContext() {
 		return this.context;
 	}
@@ -27,6 +29,26 @@ function loseAndRestore(node: FakeDisplay) {
 }
 
 describe('showCanvas', () => {
+	it('keeps the backing store when the size is unchanged and clears it before redrawing', () => {
+		const first = picture(40, 20);
+		const { node, action } = mount(first);
+		let writes = 0;
+		let width = node.width;
+		Object.defineProperty(node, 'width', {
+			get: () => width,
+			set: (value: number) => {
+				writes += 1;
+				width = value;
+			}
+		});
+		const clearsBefore = node.clears;
+		action.update({ canvas: picture(40, 20) });
+		expect(writes).toBe(0);
+		expect(node.clears).toBe(clearsBefore + 1);
+		action.update({ canvas: picture(41, 20) });
+		expect(writes).toBe(1);
+	});
+
 	it('draws the rendered picture at its own size and again on every update', () => {
 		const first = picture(40, 20);
 		const { node, action } = mount(first);

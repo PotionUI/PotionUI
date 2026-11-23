@@ -368,9 +368,14 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 		void $editorsRevision;
 		return activeTool ? railTools.get('image', activeTool) : undefined;
 	});
+	let runRowSig = $derived(
+		Object.values($runViews)
+			.map((view) => `${view.id}|${view.status}|${Math.round((view.progress ?? 0) * 100)}|${view.run?.parts?.done ?? ''}/${view.run?.parts?.total ?? ''}|${view.error ?? ''}`)
+			.join(';')
+	);
 	let rowInfoFor = $derived.by(() => {
 		void $editorsRevision;
-		void $runViews;
+		void runRowSig;
 		void $mediaToolCatalogRevision;
 		const steps = stack.steps;
 		return (step: EditStep) => imageRowInfo(step, stepsBeneath(steps, steps.findIndex((entry) => entry.id === step.id)));
@@ -582,7 +587,7 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 	});
 	let runBeneath = $derived(runStep ? stepsBeneathOf(applied, runStep.step.id) : []);
 	let runOutOfDate = $derived.by(() => {
-		void $runViews;
+		void runRowSig;
 		return runStep ? stepOutOfDate(runStep.step, runBeneath) : false;
 	});
 	let dockHasTemp = $derived(!!runStep && ((runStatus === 'done' && (runStep.params.results.length > 0 || runOutOfDate))));

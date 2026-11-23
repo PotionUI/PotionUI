@@ -60,8 +60,7 @@ describe('EditorCanvas zoom', () => {
 		expect(q('[data-editor-canvas]')!.className).toContain('bg-scrim');
 		const art = q('[data-canvas-art]')!.getAttribute('style')!;
 		expect(art).toContain('width: 1000px');
-		expect(art).toContain('left: 60px');
-		expect(art).toContain(`top: ${60 + CANVAS_ZOOM_RESERVE}px`);
+		expect(art).toContain(`translate(60px, ${60 + CANVAS_ZOOM_RESERVE}px)`);
 		expect(text(q('[data-canvas-zoom-value]'))).toBe('100%');
 		expect(q('[data-canvas-fit]')!.getAttribute('aria-pressed')).toBe('true');
 	});

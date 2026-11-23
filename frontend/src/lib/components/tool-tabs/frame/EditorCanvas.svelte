@@ -228,7 +228,7 @@
 >
 	<div
 		class="absolute"
-		style="left: {art.left}px; top: {art.top}px; width: {art.width}px; height: {art.height}px;"
+		style="left: 0; top: 0; transform: translate({art.left}px, {art.top}px); width: {art.width}px; height: {art.height}px;"
 		data-canvas-art
 	>
 		<div class="absolute inset-0 {checker ? 'alpha-checker' : ''}" data-canvas-layer>{@render layer()}</div>

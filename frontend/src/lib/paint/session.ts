@@ -216,7 +216,8 @@ export class PaintSession implements ToolHost, EditorApi {
 	private adjustToken = 0;
 	private transformBefore: DocSnapshot | null = null;
 	private floating: Layer | null = null;
-	private adjustBase: { layer: Layer; canvas: HTMLCanvasElement; image: ImageData } | null = null;
+	private adjustBase: { layer: Layer; canvas: HTMLCanvasElement; scale: number; image: ImageData } | null = null;
+	private adjustFrame = 0;
 	private filterState: FilterToolState<ActiveFilter> = initialToolState<ActiveFilter>();
 	private filterSteps: RecipeStep[] = [];
 	private fineTune = false;
@@ -1648,8 +1649,16 @@ export class PaintSession implements ToolHost, EditorApi {
 	}
 
 	private scheduleAdjust(): void {
-		const token = ++this.adjustToken;
-		void this.computeAdjust(token);
+		this.adjustToken++;
+		if (this.adjustFrame) return;
+		const run = () => {
+			this.adjustFrame = 0;
+			void this.computeAdjust(this.adjustToken);
+		};
+		this.adjustFrame =
+			typeof requestAnimationFrame === 'function'
+				? requestAnimationFrame(run)
+				: (setTimeout(run, 0) as unknown as number);
 	}
 
 	private async computeAdjust(token: number): Promise<void> {
@@ -1661,33 +1670,50 @@ export class PaintSession implements ToolHost, EditorApi {
 			this.invalidate();
 			return;
 		}
-		const result = await this.runAdjust(layer, steps);
+		const result = await this.runAdjust(layer, steps, true);
 		if (token !== this.adjustToken || !result) return;
 		const canvas =
 			this.adjustPreview?.layer === layer &&
-			this.adjustPreview.canvas.width === layer.canvas.width &&
-			this.adjustPreview.canvas.height === layer.canvas.height
+			this.adjustPreview.canvas.width === result.width &&
+			this.adjustPreview.canvas.height === result.height
 				? this.adjustPreview.canvas
-				: makeCanvas(layer.canvas.width, layer.canvas.height);
+				: makeCanvas(result.width, result.height);
 		context2d(canvas).putImageData(result, 0, 0);
 		this.adjustPreview = { layer, canvas };
 		this.invalidate();
 	}
 
-	private async runAdjust(layer: Layer, steps: FilterStep[]): Promise<ImageData | null> {
-		if (
-			!this.adjustBase ||
-			this.adjustBase.layer !== layer ||
-			this.adjustBase.canvas !== layer.canvas
-		) {
-			this.adjustBase = {
-				layer,
-				canvas: layer.canvas,
-				image: context2d(layer.canvas).getImageData(0, 0, layer.canvas.width, layer.canvas.height)
-			};
+	private adjustBaseFor(layer: Layer, scale: number) {
+		const cached = this.adjustBase;
+		if (cached && cached.layer === layer && cached.canvas === layer.canvas && cached.scale === scale) {
+			return cached;
 		}
-		const base = this.adjustBase.image;
+		let image: ImageData;
+		if (scale === 1) {
+			image = context2d(layer.canvas).getImageData(0, 0, layer.canvas.width, layer.canvas.height);
+		} else {
+			const small = makeCanvas(
+				Math.max(1, Math.round(layer.canvas.width * scale)),
+				Math.max(1, Math.round(layer.canvas.height * scale))
+			);
+			const context = context2d(small);
+			context.imageSmoothingQuality = 'high';
+			context.drawImage(layer.canvas, 0, 0, small.width, small.height);
+			image = context.getImageData(0, 0, small.width, small.height);
+		}
+		this.adjustBase = { layer, canvas: layer.canvas, scale, image };
+		return this.adjustBase;
+	}
+
+	private async runAdjust(
+		layer: Layer,
+		steps: FilterStep[],
+		preview = false
+	): Promise<ImageData | null> {
 		const mask = this.layerSelectionMask(layer);
+		const longest = Math.max(layer.canvas.width, layer.canvas.height);
+		const scale = preview && mask === null ? Math.min(1, PREVIEW_LONG_EDGE / longest) : 1;
+		const base = this.adjustBaseFor(layer, scale).image;
 		const output = await runFilters(
 			{ width: base.width, height: base.height, data: base.data },
 			steps,
@@ -1749,8 +1775,14 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.antsTimer = null;
 	}
 
-	private clientPoint(event: { clientX: number; clientY: number }): Point {
-		const box = this.stage?.getBoundingClientRect();
+	private stageBox: { left: number; top: number } | null = null;
+
+	private clientPoint(event: { clientX: number; clientY: number }, fresh = false): Point {
+		if (fresh || !this.stageBox) {
+			const rect = this.stage?.getBoundingClientRect();
+			this.stageBox = rect ? { left: rect.left, top: rect.top } : null;
+		}
+		const box = this.stageBox;
 		return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) };
 	}
 
@@ -1765,7 +1797,7 @@ export class PaintSession implements ToolHost, EditorApi {
 
 	onPointerDown(event: PointerEvent): void {
 		if (!this.ready || !this.stage) return;
-		const screen = this.clientPoint(event);
+		const screen = this.clientPoint(event, true);
 		this.pointers.set(event.pointerId, screen);
 
 		if (this.pointers.size === 2) {
@@ -1798,7 +1830,7 @@ export class PaintSession implements ToolHost, EditorApi {
 
 	onPointerMove(event: PointerEvent): void {
 		if (!this.stage) return;
-		const screen = this.clientPoint(event);
+		const screen = this.clientPoint(event, this.pointers.size === 0);
 		if (this.pointers.has(event.pointerId)) this.pointers.set(event.pointerId, screen);
 		this.cursor = screenToDoc(this.view, screen);
 
@@ -1863,7 +1895,7 @@ export class PaintSession implements ToolHost, EditorApi {
 	onWheel(event: WheelEvent): void {
 		if (!this.ready) return;
 		event.preventDefault();
-		this.zoomBy(event.deltaY < 0 ? 1.12 : 1 / 1.12, this.clientPoint(event));
+		this.zoomBy(event.deltaY < 0 ? 1.12 : 1 / 1.12, this.clientPoint(event, true));
 	}
 
 	private activeLayerEmpty(): boolean {
@@ -1937,7 +1969,17 @@ export class PaintSession implements ToolHost, EditorApi {
 					layer.canvas.height
 				);
 			} else {
-				context.drawImage(adjusted ? this.adjustPreview!.canvas : layer.canvas, layer.x, layer.y);
+				if (adjusted) {
+					context.drawImage(
+						this.adjustPreview!.canvas,
+						layer.x,
+						layer.y,
+						layer.canvas.width,
+						layer.canvas.height
+					);
+				} else {
+					context.drawImage(layer.canvas, layer.x, layer.y);
+				}
 			}
 			if (this.preview && this.preview.layer === layer) {
 				context.globalAlpha = layer.opacity * this.preview.alpha;

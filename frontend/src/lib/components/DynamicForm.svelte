@@ -25,7 +25,6 @@
 		SECTION_COLLAPSED_CONTEXT_KEY,
 		type SectionCollapsedContext
 	} from '$lib/form/sectionCollapsedContext';
-	import { shouldPublishFormData } from '$lib/utils/formDataPublication';
 	import { cloudModelId, collectCapabilityModelFields } from '$lib/form/capabilityBinder';
 	import { createCapabilityTracker, sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
@@ -530,7 +529,7 @@
 	$: if (initialLoadComplete && formData && onFormDataChange) {
 		const flattenedData = flattenFormData(formData, capabilityHiddenNames);
 		const flattenedDataKey = JSON.stringify(flattenedData);
-		if (shouldPublishFormData(lastPublishedFormDataKey, flattenedData)) {
+		if (flattenedDataKey !== lastPublishedFormDataKey) {
 			const echoOnly =
 				externalWrite !== null &&
 				lastPublishedFormDataKey !== null &&

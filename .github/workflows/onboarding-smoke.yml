@@ -102,6 +102,10 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Bundle budget
+        working-directory: frontend
+        run: npm run check:bundle
+
   backend-deps-resolve:
     name: backend dependency resolution (dry run)
     runs-on: ubuntu-latest

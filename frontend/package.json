@@ -11,7 +11,8 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test:unit": "vitest run",
     "test:component": "vitest run --config vitest.component.config.ts",
-    "build:plugins": "node ../scripts/build-plugins.mjs"
+    "build:plugins": "node ../scripts/build-plugins.mjs",
+    "check:bundle": "node scripts/check-bundle-budget.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

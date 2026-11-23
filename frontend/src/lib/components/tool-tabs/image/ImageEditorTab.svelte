@@ -5,7 +5,8 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { pickFromUpload } from '$lib/components/form-fields/mediaLoaderPicks';
 	import { canvasToPngFile } from '$lib/paint/flatten';
-	import { PaintSession, type SessionSnapshot } from '$lib/paint/session';
+	import { PaintSession, historyBudget, type SessionSnapshot } from '$lib/paint/session';
+	import { trimMarks } from '$lib/tool-tabs/image/undoMarks';
 	import type { Command } from '$lib/paint/history';
 	import type { Layer } from '$lib/paint/types';
 	import { fitInside } from '$lib/paint/geometry';
@@ -942,7 +943,7 @@ import DetectionBoxes from '$lib/components/tool-tabs/generate/DetectionBoxes.sv
 	}
 
 	function recordMarks(marks: HistoryMark[]) {
-		undoMarks = [...undoMarks, ...marks].slice(-400);
+		undoMarks = trimMarks([...undoMarks, ...marks], historyBudget());
 		redoMarks = [];
 	}
 

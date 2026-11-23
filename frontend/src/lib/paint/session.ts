@@ -139,7 +139,7 @@ const PREVIEW_LONG_EDGE = 1600;
 const DESKTOP_BUDGET = 256 * 1024 * 1024;
 const PHONE_BUDGET = 96 * 1024 * 1024;
 
-function historyBudget(): number {
+export function historyBudget(): number {
 	if (typeof matchMedia === 'function' && matchMedia('(max-width: 767px)').matches) {
 		return PHONE_BUDGET;
 	}
@@ -719,13 +719,17 @@ export class PaintSession implements ToolHost, EditorApi {
 		});
 	}
 
-	commitPixels(label: string, layer: Layer, dirty: Rect, before: HTMLCanvasElement): void {
+	commitPixels(label: string, layer: Layer, dirty: Rect, before: HTMLCanvasElement | ImageData): void {
 		const rect = pixelRect(dirty, layer.canvas);
 		if (!rect) return;
-		const beforeContext = before.getContext('2d');
 		const afterContext = layer.canvas.getContext('2d');
-		if (!beforeContext || !afterContext) return;
-		const beforeData = beforeContext.getImageData(rect.x, rect.y, rect.width, rect.height);
+		if (!afterContext) return;
+		let beforeData: ImageData;
+		if ('getContext' in before) {
+			const beforeContext = before.getContext('2d');
+			if (!beforeContext) return;
+			beforeData = beforeContext.getImageData(rect.x, rect.y, rect.width, rect.height);
+		} else beforeData = before;
 		const afterData = afterContext.getImageData(rect.x, rect.y, rect.width, rect.height);
 		const patch = createPatch(rect, beforeData.data, afterData.data);
 		layer.source = undefined;

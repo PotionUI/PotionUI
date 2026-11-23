@@ -114,7 +114,7 @@ export interface ToolHost {
 	invalidate(): void;
 	snapshotLayer(layer: Layer): HTMLCanvasElement;
 	setStrokePreview(layer: Layer | null, canvas: HTMLCanvasElement | null, alpha: number): void;
-	commitPixels(label: string, layer: Layer, dirty: Rect, before: HTMLCanvasElement): void;
+	commitPixels(label: string, layer: Layer, dirty: Rect, before: HTMLCanvasElement | ImageData): void;
 	pickColor(point: Point): void;
 	clipToSelection(context: CanvasRenderingContext2D, layer: Layer): void;
 	layerSelectionMask(layer: Layer): Uint8ClampedArray | null;

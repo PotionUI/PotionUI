@@ -24,12 +24,28 @@ class PixelContext {
 		return held;
 	}
 
-	getImageData(_x: number, _y: number, width: number, height: number) {
-		return { width, height, data: new Uint8ClampedArray(this.buffer()) };
+	getImageData(x: number, y: number, width: number, height: number) {
+		const buffer = this.buffer();
+		if (x === 0 && y === 0 && width === this.canvas.width && height === this.canvas.height) return { width, height, data: new Uint8ClampedArray(buffer) };
+		const data = new Uint8ClampedArray(width * height * 4);
+		for (let row = 0; row < height; row++) {
+			const from = ((y + row) * this.canvas.width + x) * 4;
+			data.set(buffer.subarray(from, from + width * 4), row * width * 4);
+		}
+		return { width, height, data };
 	}
 
-	putImageData(image: { data: Uint8ClampedArray }) {
-		this.buffer().set(image.data);
+	putImageData(image: { data: Uint8ClampedArray; width?: number; height?: number }, dx = 0, dy = 0) {
+		const buffer = this.buffer();
+		const width = image.width ?? this.canvas.width;
+		if (dx === 0 && dy === 0 && width === this.canvas.width) {
+			buffer.set(image.data);
+			return;
+		}
+		const height = image.height ?? image.data.length / 4 / width;
+		for (let row = 0; row < height; row++) {
+			buffer.set(image.data.subarray(row * width * 4, (row + 1) * width * 4), ((dy + row) * this.canvas.width + dx) * 4);
+		}
 	}
 
 	createImageData(width: number, height: number) {

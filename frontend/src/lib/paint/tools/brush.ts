@@ -9,7 +9,6 @@ import { pressureScale } from './pressure';
 interface Stroke {
 	layer: Layer;
 	buffer: HTMLCanvasElement;
-	before: HTMLCanvasElement;
 	context: CanvasRenderingContext2D;
 	last: Point;
 	dirty: Rect | null;
@@ -25,6 +24,7 @@ function extend(active: Stroke, from: Point, to: Point, size: number) {
 
 export function createBrushTool(): PaintTool {
 	let stroke: Stroke | null = null;
+	let spare: HTMLCanvasElement | null = null;
 	return {
 		id: 'brush',
 		label: 'Brush',
@@ -41,7 +41,8 @@ export function createBrushTool(): PaintTool {
 			}
 			const layer = host.activeLayer;
 			if (!layer) return;
-			const buffer = document.createElement('canvas');
+			const buffer = spare ?? document.createElement('canvas');
+			spare = null;
 			buffer.width = layer.canvas.width;
 			buffer.height = layer.canvas.height;
 			const context = buffer.getContext('2d');
@@ -53,7 +54,6 @@ export function createBrushTool(): PaintTool {
 				layer,
 				buffer,
 				context,
-				before: host.snapshotLayer(layer),
 				last: at,
 				dirty: null
 			};
@@ -80,21 +80,24 @@ export function createBrushTool(): PaintTool {
 			const finished = stroke;
 			stroke = null;
 			const target = finished.layer.canvas.getContext('2d');
-			if (target && finished.dirty) {
+			const rect = finished.dirty ? pixelRect(finished.dirty, finished.layer.canvas) : null;
+			if (target && rect) {
+				const before = target.getImageData(rect.x, rect.y, rect.width, rect.height);
 				target.save();
 				target.globalAlpha = host.settings.opacity / 100;
 				target.globalCompositeOperation = 'source-over';
 				target.drawImage(finished.buffer, 0, 0);
 				target.restore();
-				const rect = pixelRect(finished.dirty, finished.layer.canvas);
 				host.setStrokePreview(null, null, 1);
-				if (rect) host.commitPixels('Brush stroke', finished.layer, rect, finished.before);
+				host.commitPixels('Brush stroke', finished.layer, rect, before);
 			} else {
 				host.setStrokePreview(null, null, 1);
 			}
+			spare = finished.buffer;
 			host.invalidate();
 		},
 		pointerCancel(host: ToolHost) {
+			if (stroke) spare = stroke.buffer;
 			stroke = null;
 			host.setStrokePreview(null, null, 1);
 			host.invalidate();

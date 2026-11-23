@@ -19,6 +19,7 @@
 		type MaskSurface
 	} from '$lib/tool-tabs/image/maskOverlays';
 	import { regionBounds, stampShape } from '$lib/tool-tabs/image/maskRegion';
+	import { alphaPatch, applyAlphaPatch, trimPatches, type AlphaPatch } from '$lib/tool-tabs/image/maskHistory';
 	import { backgroundMarkFrom } from '$lib/tool-tabs/image/generate/subject';
 	import CanvasChip from '$lib/components/tool-tabs/frame/CanvasChip.svelte';
 	import EditorEntryComponent from '$lib/components/tool-tabs/frame/EditorEntryComponent.svelte';
@@ -78,29 +79,42 @@
 		return canvas ? canvas.width / Math.max(1, canvas.getBoundingClientRect().width) : 1;
 	}
 
-	function refreshArea() {
+	function refreshArea(pixels?: Uint8ClampedArray) {
 		const surfaceContext = context();
 		if (!canvas || !surfaceContext) return;
 		try {
-			area = regionBounds(surfaceContext.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+			area = regionBounds(pixels ?? surfaceContext.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
 		} catch {
 			area = null;
 		}
 		maskArea.set(area ? { width: area.width, height: area.height } : null);
 	}
 
-	const HISTORY_LIMIT = 12;
 	let baseline: Uint8Array | null = null;
-	let past: Uint8Array[] = [];
-	let future: Uint8Array[] = [];
+	let past: AlphaPatch[] = [];
+	let future: AlphaPatch[] = [];
 
-	function alphaOf(): Uint8Array | null {
+	function alphaOf(pixels?: Uint8ClampedArray): Uint8Array | null {
 		const surfaceContext = context();
 		if (!canvas || !surfaceContext) return null;
-		const data = surfaceContext.getImageData(0, 0, canvas.width, canvas.height).data;
+		const data = pixels ?? surfaceContext.getImageData(0, 0, canvas.width, canvas.height).data;
 		const alpha = new Uint8Array(canvas.width * canvas.height);
 		for (let i = 0; i < alpha.length; i++) alpha[i] = data[i * 4 + 3];
 		return alpha;
+	}
+
+	function paintPatch(patch: AlphaPatch, side: 'before' | 'after') {
+		const surfaceContext = context();
+		if (!surfaceContext) return;
+		const source = patch[side];
+		const image = surfaceContext.createImageData(patch.width, patch.height);
+		for (let i = 0; i < source.length; i++) {
+			image.data[i * 4] = tint[0];
+			image.data[i * 4 + 1] = tint[1];
+			image.data[i * 4 + 2] = tint[2];
+			image.data[i * 4 + 3] = source[i];
+		}
+		surfaceContext.putImageData(image, patch.x, patch.y);
 	}
 
 	function paintAlpha(alpha: Uint8Array) {
@@ -120,20 +134,24 @@
 		onhistory?.({ canUndo: past.length > 0, canRedo: future.length > 0 });
 	}
 
-	function record() {
-		if (baseline) past = [...past, baseline].slice(-HISTORY_LIMIT);
+	function record(pixels?: Uint8ClampedArray) {
+		const next = alphaOf(pixels);
+		if (baseline && next && canvas) {
+			const patch = alphaPatch(baseline, next, canvas.width, canvas.height);
+			if (patch) past = trimPatches([...past, patch]);
+		}
 		future = [];
-		baseline = alphaOf();
+		baseline = next;
 		announce();
 	}
 
 	export function undo(): boolean {
-		const previous = past[past.length - 1];
-		if (!previous || !baseline) return false;
-		future = [...future, baseline];
+		const patch = past[past.length - 1];
+		if (!patch || !baseline || !canvas) return false;
+		applyAlphaPatch(baseline, patch, canvas.width, 'before');
+		future = [...future, patch];
 		past = past.slice(0, -1);
-		baseline = previous;
-		paintAlpha(previous);
+		paintPatch(patch, 'before');
 		refreshArea();
 		onstroke?.(true);
 		announce();
@@ -141,12 +159,12 @@
 	}
 
 	export function redo(): boolean {
-		const next = future[future.length - 1];
-		if (!next || !baseline) return false;
-		past = [...past, baseline];
+		const patch = future[future.length - 1];
+		if (!patch || !baseline || !canvas) return false;
+		applyAlphaPatch(baseline, patch, canvas.width, 'after');
+		past = [...past, patch];
 		future = future.slice(0, -1);
-		baseline = next;
-		paintAlpha(next);
+		paintPatch(patch, 'after');
 		refreshArea();
 		onstroke?.(true);
 		announce();
@@ -154,8 +172,10 @@
 	}
 
 	function changed() {
-		refreshArea();
-		record();
+		const surfaceContext = context();
+		const pixels = canvas && surfaceContext ? surfaceContext.getImageData(0, 0, canvas.width, canvas.height).data : undefined;
+		refreshArea(pixels);
+		record(pixels);
 		onstroke?.(true);
 	}
 

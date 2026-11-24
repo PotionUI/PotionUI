@@ -95,6 +95,11 @@ def test_families_without_a_text_encoder_do_not_weight():
         assert FAMILY_CAPABILITIES[variant].prompt_weighting is False
 
 
+def test_yue2_guides_with_cfg_against_a_built_negative_prefix():
+    assert FAMILY_CAPABILITIES["yue2_3b"] == FamilyCapabilities(False, False, "cfg")
+    assert registry_variants()["yue2_3b"].sampling_settings["guidance"] == "cfg"
+
+
 def test_anima_weights_ride_on_the_t5_side():
     assert "t5xxl_weights" in inspect.getsource(AnimaTextEncoder.encode)
 

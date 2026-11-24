@@ -31,7 +31,15 @@ EXPECTED = {
     ("Flux3", "txt2img"), ("Flux3", "edit"),
     ("MOSS-Image", "txt2img"),
     ("MiniMax-H3-Image", "txt2img"), ("MiniMax-H3-Image", "edit"),
+    ("MiniMax-H3", "txt2video"), ("MiniMax-H3", "img2video"), ("MiniMax-H3", "first_last"), ("MiniMax-H3", "video"),
+    ("MiniMax-H3", "refs"), ("MiniMax-H3", "upscale"), ("MiniMax-H3", "refine_faces"), ("MiniMax-H3", "extend"),
+    ("MiniMax-H3", "remix"), ("MiniMax-H3", "talk"), ("MiniMax-H3", "motion_transfer"), ("MiniMax-H3", "loop"),
+    ("MiniMax-H3-Fast", "video"), ("MiniMax-H3-Fast", "refine_faces"), ("MiniMax-H3-Fast", "extend"),
+    ("MiniMax-H3-VDN", "video"),
+    ("MiniMax-Music3", "song"), ("SeedVR2", "upscale"), ("SeedVR2", "video_upscale"), ("YuE2", "song"),
 }
+
+NO_ENCODER = {("MiniMax-Music3", "song"), ("SeedVR2", "upscale"), ("SeedVR2", "video_upscale"), ("YuE2", "song")}
 
 
 @pytest.fixture(scope="module")
@@ -82,11 +90,15 @@ def test_declaration_matches_what_the_encoder_does(shipped):
                 assert "speed_profile" in str(e), (directory, mode, overrides, e)
                 continue
             pipes = processor.process(preset, build_generation_data(mode, values, preset.modes[mode]))
-            encoder = next(p for p in pipes if p["name"] == "prompt_encoder")["config"]
+            node = next((p for p in pipes if p["name"] == "prompt_encoder"), None)
+            if (directory, mode) in NO_ENCODER:
+                assert node is None, (directory, mode)
+                continue
+            encoder = node["config"]
             encoded = (
                 float(encoder.get("guidance_scale", 7.5)) > 1.0
                 or float(encoder.get("nag_scale", 1.0)) > 1.0
             )
             assert encoder["negative_applied"] is encoded, (directory, mode, overrides, encoder)
             checked += 1
-    assert checked > 4 * len(EXPECTED)
+    assert checked > 4 * (len(EXPECTED) - len(NO_ENCODER))

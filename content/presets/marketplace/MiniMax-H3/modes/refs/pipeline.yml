@@ -162,6 +162,7 @@ pipeline:
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
       guidance_scale: 1.0
+      negative_applied: "{{ generation.negative_applied }}"
       # Caps the reference area the TE's vision tower sees, as a multiple of
       # the output canvas. Inert with no references picked.
       image_pixel_budget: "{{ form.reference_pixel_budget }}"
@@ -224,6 +225,7 @@ pipeline:
           template: "{{ item.reference_indices }}"
       quantity: "{{ (form.video_director.segments | length) if form.video_director is defined else 1 }}"
       guidance_scale: 1.0
+      negative_applied: "{{ generation.negative_applied }}"
       image_pixel_budget: "{{ form.reference_pixel_budget }}"
       output_resolution: "{{ form.resolution }}"
       reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"

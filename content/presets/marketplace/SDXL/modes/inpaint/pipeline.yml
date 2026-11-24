@@ -187,17 +187,6 @@ pipeline:
       scaler_end: "{{ form.adm_scaler_end }}"
 
   #############
-  ## Sharpness (optional enhancement)
-  ############
-  - name: "sharpness/sdxl"
-    id: "sharpness"
-    enabled: "{{ form.sharpness | default(0)|float > 0 }}"
-    input:
-      - ["model", "checkpoint_loader/sdxl", "model"]
-    configuration:
-      strength: "{{ form.sharpness | default(0) }}"
-
-  #############
   ## Self-Attention Guidance (optional enhancement, ~15-20% overhead when
   ## enabled - see src/pipelines/pipes/sag/sdxl/main.py's docstring). Was previously
   ## dead UI: advanced.yml's sag_enabled/sag_scale/sag_sigma/sag_threshold

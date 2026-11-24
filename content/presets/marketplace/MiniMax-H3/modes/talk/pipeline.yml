@@ -66,6 +66,7 @@ pipeline:
             negative: ""
       quantity: "{{ form.quantity }}"
       guidance_scale: 1.0
+      negative_applied: "{{ generation.negative_applied }}"
       reference_video_frames: "{{ (form.max_seconds * preset.vars.fps) | round(0, 'floor') | int }}"
 
   - name: "seed_generator"

@@ -217,6 +217,9 @@ formulas:
     sparse:  { label: "Sparse attention" }
     models:  { label: "Models", preselect: false }
 
+negative_prompt:
+  applies_when: false
+
 modes:
   - video
   - refine_faces

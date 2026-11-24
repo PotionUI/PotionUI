@@ -84,6 +84,10 @@
           "type": "str",
           "value": "0"
         },
+        "negative_applied": {
+          "type": "bool",
+          "value": false
+        },
         "output_resolution": {
           "type": "str",
           "value": "1344x768"

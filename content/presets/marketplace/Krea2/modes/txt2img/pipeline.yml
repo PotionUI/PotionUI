@@ -289,6 +289,7 @@ pipeline:
       crop_padding: "{{ form.face_detailer_crop_padding }}"
       crop_size: "{{ form.face_detailer_crop_size }}"
       max_faces: "{{ form.face_detailer_max_faces }}"
+      detection_confidence: "{{ form.face_detailer_confidence }}"
       min_face_ratio: "{{ form.face_detailer_min_face_ratio }}"
       max_face_ratio: "{{ form.face_detailer_max_face_ratio }}"
       feather: "{{ form.face_detailer_feather }}"

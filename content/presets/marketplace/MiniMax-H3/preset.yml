@@ -642,6 +642,9 @@ prompt_syntax:
       help: "References an audio reference by its 1-based position"
       color: "cadetblue"
 
+negative_prompt:
+  applies_when: false
+
 modes:
   - txt2video
   - img2video

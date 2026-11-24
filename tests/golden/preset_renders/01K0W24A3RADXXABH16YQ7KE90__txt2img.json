@@ -391,7 +391,7 @@
         },
         "detections.eyes.model": {
           "type": "str",
-          "value": "models/mediapipe/face_landmarker.task"
+          "value": "/GOLDEN/models/eye_detector_model.safetensors"
         },
         "detections.eyes.sampler": {
           "type": "str",

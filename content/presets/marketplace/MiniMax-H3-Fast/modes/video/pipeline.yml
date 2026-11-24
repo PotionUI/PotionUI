@@ -155,6 +155,7 @@ pipeline:
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
       guidance_scale: 1.0
+      negative_applied: "{{ generation.negative_applied }}"
       # Caps the keyframe area the TE's vision tower sees, as a multiple of the
       # output canvas. Both keys are inert without a keyframe.
       image_pixel_budget: "{{ form.keyframe_pixel_budget }}"
@@ -188,6 +189,7 @@ pipeline:
             negative: ""
       quantity: "{{ (form.video_director.segments | length) if form.video_director is defined else 1 }}"
       guidance_scale: 1.0
+      negative_applied: "{{ generation.negative_applied }}"
       output_resolution: "{{ form.resolution }}"
 
   #############
@@ -248,7 +250,7 @@ pipeline:
         - "@loop":
             items: "{{ form.refine_loras | default([]) | active_loras }}"
             template: ["model", "{{ item.model }}"]
-        - ["frames", "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (form.frames | default(preset.vars.default_frames)) }}"]
+        - ["frames", "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else preset.vars.default_frames }}"]
         - ["fps", "{{ preset.vars.fps }}"]
 
   #############
@@ -287,7 +289,7 @@ pipeline:
       # this value is vestigial -- each window's own `frames`
       # (windows.py's `build_director_plan`) is what actually runs -- so
       # reading it here costs nothing.
-      frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (form.frames | default(preset.vars.default_frames)) }}"
+      frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else preset.vars.default_frames }}"
       quantity: "{{ form.quantity }}"
       preview: "{{ form.preview }}"
       # Positional with the `keyframes` loader's `items:` above -- SAME filter,

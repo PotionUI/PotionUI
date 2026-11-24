@@ -103,5 +103,8 @@ formulas:
     song:   { label: "Song" }
     models: { label: "Models", preselect: false }
 
+negative_prompt:
+  applies_when: false
+
 modes:
   - song

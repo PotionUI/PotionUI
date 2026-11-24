@@ -292,10 +292,6 @@
             }
           ]
         },
-        "preview_decoder": {
-          "type": "str",
-          "value": ""
-        },
         "quality_cfg": {
           "type": "float",
           "value": 1.0

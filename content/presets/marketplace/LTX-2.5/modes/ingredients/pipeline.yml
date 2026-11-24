@@ -137,7 +137,6 @@ pipeline:
       step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       media_placements:
         - { source: "image", index: 0, frame: "first", strength: 1.0, role: "reference", hold: true }
-      preview_decoder: "{{ form.preview_decoder | default('') }}"
       scoped_loras:
         - file_path: "{{ form.effect_lora }}"
           weight: "{{ form.effect_strength }}"

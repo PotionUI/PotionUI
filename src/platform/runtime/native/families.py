@@ -39,5 +39,5 @@ FAMILY_CAPABILITIES: dict[str, FamilyCapabilities] = {
     "h3": _caps(False, False, "none"),
     "h3_image": _caps(False, False, "none"),
     "music3": _caps(False, False, "cfg"),
-    "yue2_3b": _caps(False, False, "none"),
+    "yue2_3b": _caps(False, False, "cfg"),
 }

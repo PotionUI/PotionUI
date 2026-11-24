@@ -99,6 +99,10 @@
           "type": "float",
           "value": 1.0
         },
+        "negative_applied": {
+          "type": "bool",
+          "value": false
+        },
         "p_prompt.input": {
           "type": "str",
           "value": "subject_definitions: <Subject 1> is the person in <Picture 1>. summary: [reference generation] + [audio reuse] <Subject 1> speaks with the voice of <Audio 1>. retention_analysis: <Subject 1> (appears in [Shot 1]): fully_preserved - face, hair and outfit match <Picture 1>. <Audio 1>: fully_copy - the speech is reused exactly, with lip movement in sync. detailed_description: Natural, realistic footage. [Shot 1] golden positive prompt <Subject 1> (S1) speaks the words of <Audio 1>, with lip movement in sync with the voice. overall_soundscape: Soft room tone. non_diegetic_music: N/A"

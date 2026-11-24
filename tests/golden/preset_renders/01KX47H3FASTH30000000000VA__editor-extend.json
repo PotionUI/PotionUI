@@ -76,6 +76,10 @@
           "type": "float",
           "value": 1.0
         },
+        "negative_applied": {
+          "type": "bool",
+          "value": false
+        },
         "p_prompt.input": {
           "type": "str",
           "value": "golden positive prompt"

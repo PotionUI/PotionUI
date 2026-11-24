@@ -149,6 +149,10 @@
           "type": "float",
           "value": 1.0
         },
+        "negative_applied": {
+          "type": "bool",
+          "value": false
+        },
         "p_prompt.input": {
           "type": "str",
           "value": "integrated_multimodal_description: [Shot 1] The shot begins from <Picture 1>. golden positive prompt\noverall_soundscape: Soft ambient sound and the sounds of the person moving.\nnon_diegetic_music: N/A"

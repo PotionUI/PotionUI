@@ -85,6 +85,10 @@
           "type": "float",
           "value": 1.0
         },
+        "negative_applied": {
+          "type": "bool",
+          "value": false
+        },
         "p_prompt.input": {
           "type": "str",
           "value": "subject_definitions: <Video 1> is the source video. summary: [video editing] Re-create <Video 1> with this change: golden positive prompt retention_analysis: <Video 1> (appears in [Shot 1]): partially_preserved - camera movement, motion, timing and composition are kept and the requested change is applied. detailed_description: The video follows <Video 1> moment by moment, keeping its camera movement, motion and timing. [Shot 1] golden positive prompt overall_soundscape: The same sounds as <Video 1>. non_diegetic_music: N/A"

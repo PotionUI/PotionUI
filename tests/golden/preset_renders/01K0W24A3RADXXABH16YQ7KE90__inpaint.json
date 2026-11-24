@@ -307,15 +307,6 @@
         "type": "bool",
         "value": false
       },
-      "id": "sharpness",
-      "name": "sharpness/sdxl"
-    },
-    {
-      "config": {},
-      "enabled": {
-        "type": "bool",
-        "value": false
-      },
       "id": "sag",
       "name": "sag/sdxl"
     },

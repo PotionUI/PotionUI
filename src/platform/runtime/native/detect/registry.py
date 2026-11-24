@@ -728,7 +728,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
         model_class="src.platform.runtime.native.arch.yue2.model:YuE2Model",
         sampling_settings={
             "prediction": "const",
-            "guidance": "none",
+            "guidance": "cfg",
         },
         latent_format={"latent_channels": 64, "format": "yue2", "temporal": True, "modality": "audio"},
         expected_unexpected_keys={"latent_pos_embed.pe", *_SIDECAR_GLOBS},

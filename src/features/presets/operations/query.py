@@ -222,6 +222,7 @@ def get_available_modes(collaborators: PresetCollaborators, preset_id: str) -> D
             'label': mode_display_name(mode_name, mode_data.mode_label),
             'icon': mode_display_icon(mode_name, mode_data.mode_icon),
             'short_description': _mode_short_description(mode_data),
+            'unvalidated': mode_name in (found_preset.modes_unvalidated or []),
             'variants': _build_variants(mode_data),
             'source_plugin': mode_data.source_plugin,
         }

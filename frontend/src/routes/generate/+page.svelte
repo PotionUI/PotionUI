@@ -2049,7 +2049,7 @@
 						{readiness}
 						{isLoading}
 						isReloading={isReloadingPreset && tab.id === activeTabId}
-						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon, requirementsMissing: m.requirements_missing, install: m.install }))}
+						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon, requirementsMissing: m.requirements_missing, unvalidated: m.unvalidated, install: m.install }))}
 						onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
 						onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
 						onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}

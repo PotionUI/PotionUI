@@ -166,6 +166,7 @@ class PresetTemplate:
     modes: Dict[str, ModeTemplate]  # mode name -> mode definition
     description: Optional[str] = None
     tags: List[str] = None
+    modes_unvalidated: List[str] = field(default_factory=list)
     category: Optional[str] = None  # "image", "video", "audio", "3d", "utility"
     vars: Dict[str, Any] = None
     # Named generation profiles from preset.yml's `speed_profiles:` (roadmap 3.6),

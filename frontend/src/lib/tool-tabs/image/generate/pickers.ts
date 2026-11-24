@@ -38,7 +38,8 @@ export function modeOptionsOf(offers: readonly TaskOffer[], presetId: string | n
 		value: offer.mode,
 		label: modeName(offer),
 		...(offer.mode_icon ? { icon: offer.mode_icon } : {}),
-		description: descriptionOf(offer)
+		description: descriptionOf(offer),
+		...(offer.unvalidated ? { unvalidated: true } : {})
 	}));
 }
 

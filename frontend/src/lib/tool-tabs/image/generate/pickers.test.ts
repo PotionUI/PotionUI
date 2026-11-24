@@ -35,6 +35,11 @@ describe('presetDisabledReasons', () => {
 });
 
 describe('modeOptionsOf', () => {
+	it('carries the derived unvalidated flag of an offer onto its option', () => {
+		const options = modeOptionsOf([offer({ unvalidated: true }), offer({ mode: 'editor:edit2', mode_label: 'Edit 2' })], 'qwen');
+		expect(options.map((option) => option.unvalidated)).toEqual([true, undefined]);
+	});
+
 	it('lists the usable modes of the preset with the editor mode name and its short description', () => {
 		const options = modeOptionsOf(
 			[offer({ label: 'Edit', short_description: 'Change one part' }), offer({ mode: 'editor:edit2', mode_label: 'Edit 2', region_strategy: 'crop' }), offer({ mode: 'editor:bad', qualifies: false, reason: 'models_missing' }), offer({ preset_id: 'flux', mode: 'editor:fill' })],

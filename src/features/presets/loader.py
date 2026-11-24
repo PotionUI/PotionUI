@@ -435,6 +435,7 @@ class PresetTemplateLoader:
             version=manifest.version,
             description=description,
             tags=manifest.tags,
+            modes_unvalidated=list(manifest.modes_unvalidated),
             category=manifest.category,
             modes=modes_dict,
             path=str(preset_path.parent),

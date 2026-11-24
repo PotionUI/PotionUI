@@ -7,6 +7,7 @@
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import UnvalidatedBadge from '$lib/components/preset/UnvalidatedBadge.svelte';
 	import PickerSelect from '$lib/components/preset/PickerSelect.svelte';
 	import PresetPicker from '$lib/components/preset/PresetPicker.svelte';
 	import PresetThumbnail from '$lib/components/preset/PresetThumbnail.svelte';
@@ -380,6 +381,7 @@
 									{#if select.selected?.marker}
 										<span class="-ml-1 flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{select.selected.marker}</span>
 									{/if}
+									{#if select.selected?.unvalidated}<UnvalidatedBadge />{/if}
 								</span>
 								<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {select.open ? 'rotate-180' : ''}" />
 							</button>

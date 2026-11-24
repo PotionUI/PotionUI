@@ -13,6 +13,7 @@ export interface PresetModeChoice {
 	description?: string | null;
 	icon?: string | null;
 	requirementsMissing?: string[] | null;
+	unvalidated?: boolean;
 	install?: PresetModeInstall | null;
 }
 
@@ -23,6 +24,7 @@ export interface PresetModeOption {
 	description?: string;
 	marker?: string;
 	markerLabel?: string;
+	unvalidated?: boolean;
 	issue?: string;
 	notice?: string;
 	action?: { label: string; onclick: () => void };
@@ -64,6 +66,7 @@ export function presetModeOptions(modes: PresetModeChoice[], options: { admin?: 
 		description: mode.description || undefined,
 		marker: mode.sourcePlugin ? '•' : undefined,
 		markerLabel: mode.sourcePlugin ? `contributed by ${mode.sourcePlugin}` : undefined,
+		...(mode.unvalidated ? { unvalidated: true } : {}),
 		...installOptions(mode, admin)
 	}));
 }

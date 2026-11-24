@@ -94,6 +94,7 @@ export interface PresetModeInfo {
 	variants: PresetModeVariant[];
 	short_description?: string | null;
 	description?: string | null;
+	unvalidated?: boolean;
 	/** The contributing plugin's id when this mode came from a plugin's
 	 *  `preset_modes:` instead of the preset's own preset.yml. */
 	source_plugin?: string | null;
@@ -297,6 +298,7 @@ export interface PresetInfo {
 	source?: string;
 	origin?: PresetOrigin | null;
 	modes?: string[];
+	modes_unvalidated?: string[];
 	engine?: string;
 	supports_prompt_batch?: boolean;
 	driver?: string | null;

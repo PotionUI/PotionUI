@@ -84,6 +84,7 @@
 		description: modeDescription(m),
 		icon: m.icon,
 		requirementsMissing: m.requirements_missing,
+		unvalidated: m.unvalidated,
 		install: m.install
 	}));
 	$: presetName = presets.find((p: any) => p.id === tab.selectedPreset)?.name;

@@ -6,6 +6,7 @@
 		description?: string;
 		marker?: string;
 		markerLabel?: string;
+		unvalidated?: boolean;
 		issue?: string;
 		notice?: string;
 		action?: { label: string; onclick: () => void };
@@ -16,6 +17,7 @@
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import UnvalidatedBadge from './UnvalidatedBadge.svelte';
 	import DropdownShell from '$lib/components/drawer/DropdownShell.svelte';
 	import DrawerHeader from '$lib/components/drawer/DrawerHeader.svelte';
 	import { isMobile } from '$lib/stores/viewport';
@@ -87,6 +89,7 @@
 	{#if selected?.marker}
 		<span class="-ml-1 flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{selected.marker}</span>
 	{/if}
+	{#if selected?.unvalidated}<UnvalidatedBadge />{/if}
 	<Icon name="chevron-down" className="w-4 h-4 text-fg-subtle flex-shrink-0 transition-transform {open ? 'rotate-180' : ''}" />
 </button>
 {/if}
@@ -120,6 +123,8 @@
 								{#if option.markerLabel}
 									<span class="sr-only">{option.markerLabel}</span>
 								{/if}
+								{#if option.unvalidated}<UnvalidatedBadge />{/if}
+								
 							</span>
 							{#if option.description}
 								<span class="line-clamp-2 text-sm leading-4 text-fg-subtle">{option.description}</span>

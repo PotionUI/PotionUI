@@ -65,6 +65,7 @@ export interface TaskOffer {
 	mode_icon?: string | null;
 	label: string | null;
 	short_description: string | null;
+	unvalidated?: boolean;
 	order: number;
 	region_strategy: 'crop' | 'mask' | 'whole' | string;
 	quantity_field?: string | null;
@@ -367,6 +368,7 @@ function offerOf(raw: unknown): TaskOffer[] {
 			mode_icon: str(raw.mode_icon),
 			label: str(raw.label),
 			short_description: str(raw.short_description),
+			unvalidated: raw.unvalidated === true,
 			order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : 0,
 			region_strategy: str(raw.region_strategy) ?? 'crop',
 			quantity_field: str(raw.quantity_field),

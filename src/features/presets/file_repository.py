@@ -66,6 +66,7 @@ class FilePresetRepository:
             source=source,
             origin=PresetOrigin(**preset_template.origin) if preset_template.origin else None,
             modes=list((preset_template.modes or {}).keys()),
+            modes_unvalidated=list(getattr(preset_template, "modes_unvalidated", None) or []),
             engine=preset_template.engine,
             driver=preset_template.driver,
             media=media,

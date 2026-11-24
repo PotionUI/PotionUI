@@ -135,6 +135,7 @@ class EditorTaskManager:
             "mode_icon": mode_display_icon(entry.name, entry.mode.mode_icon),
             "label": spec.label or mode_label,
             "short_description": short_description_of(entry),
+            "unvalidated": spec.from_mode is not None and spec.from_mode in (getattr(template, "modes_unvalidated", None) or []),
             "order": spec.order,
             "region_strategy": spec.region,
             "max_range_s": spec.max_range_s,

@@ -493,6 +493,16 @@ class PresetLinter:
                         )
                     )
 
+        for unvalidated in manifest.modes_unvalidated:
+            if unvalidated not in manifest.modes:
+                issues.append(
+                    LintIssue(
+                        "error",
+                        preset_str,
+                        f"modes_unvalidated: '{unvalidated}' is not listed in modes:",
+                    )
+                )
+
         # Missing mode dirs: declared but not on disk (loader would already skip these,
         # surfaced here too for a single lint pass)
         for mode_name in manifest.modes:

@@ -129,6 +129,7 @@ class TestPresetOperationsQuery:
         template.id = "test-preset"
         template.name = "Test Preset"
         template.vars = {"key": "value"}
+        template.modes_unvalidated = []
         template.llm = None
         template.prompt_resources = {}
         template.prompt_syntax = {}

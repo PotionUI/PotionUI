@@ -37,6 +37,7 @@ class PresetInfo(BaseModel):
     source: Optional[str] = None
     origin: Optional[PresetOrigin] = None
     modes: List[str] = []
+    modes_unvalidated: List[str] = []
     engine: Optional[str] = None
     driver: Optional[str] = None
     supports_prompt_batch: bool = False

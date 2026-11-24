@@ -961,6 +961,7 @@ class PresetManifest(BaseModel):
     speed_profiles: Optional[Dict[str, SpeedProfile]] = None
     formulas: Optional[FormulasSpec] = None
     modes: List[str]
+    modes_unvalidated: List[str] = Field(default_factory=list)
     media: Optional[PresetMedia] = None
     # Optional hardware guidance shown at preset-choice time, before a user
     # downloads the model. See docs/presets.md "Hardware requirements".

@@ -108,7 +108,7 @@ or modes; the form.yml entry point of each mode is the only per-mode file that s
 
 `content/presets/_shared/native/` holds the blocks the native image families repeat: the seed and
 quantity row (`seed_quantity.yml`), the turbo/base Sampling fields (`sampling_turbo_base.yml`,
-parameterised through `vars:`) and the Step Cache row (`step_cache.yml`). Pass per-model values
+parameterised through `vars:`), the Step Cache row (`step_cache.yml`) and the LoRA picker (`lora.yml`, and `lora_windowed.yml` with the From step / To step columns). Pass per-model values
 with the `file` + `vars` form of `children:` (see
 [Modes and the form root](presets/forms.md#modes-and-the-form-root)).
 
@@ -601,6 +601,21 @@ vars:
 ```
 
 `modes` are mode ids of the preset and `size_field` is the `resolution` field the canvas takes its shape from. The option names no prompt format. The client sends `form_data.regional_prompt` as `{enabled, items: [{x, y, w, h, caption}]}` with `x`, `y`, `w`, `h` as fractions of the canvas from the top-left corner; the form binder keeps it only for a declared mode and drops it otherwise. The mode's pipeline must contain a `regional_prompt/*` stage, which turns the document into whatever the model reads; the linter reports a missing mode, a missing stage and a `size_field` that is not a `resolution` field of that mode. Wire the stage before `prompt_encoder` with `enabled: "{{ (form.regional_prompt | default({})).enabled | default(false) }}"` and feed its `pairs` output to the encoder's optional `pairs` input: the encoder falls back to its configured `pairs` when the stage did not run.
+
+### LoRA tab policy
+
+Native image presets take the LoRA picker from `_shared/native/lora.yml` through `children: {file, vars}`, with the vars `hint`, `placeholder`, `max_items`, `strength_min`, `strength_max` and `strength_step`. The default is up to 10 LoRAs at strength -10 to 10. Step windows (`step_start`, `step_end`) go with `lora_windowed.yml`, and only for a family whose loader applies them (`model_loader/krea2`, and the Enhance detailer); on any other loader a windowed entry is refused rather than baked in. A family that narrows the range says why in its model page: MiniMax-H3-Image stays at -2 to 2 because it is distilled to six steps and has not been run on real weights at higher strengths.
+
+## Modes not yet validated
+
+A mode that ships before anyone has run it on real weights is listed in `preset.yml`:
+
+```yaml
+modes: [txt2img, img2img, inpaint]
+modes_unvalidated: [inpaint]
+```
+
+Every id must also be in `modes:` (otherwise the linter reports an **error**). The mode picker shows a "Not validated" badge on those modes, `GET /api/presets/<id>/modes` serves `modes[].unvalidated`, and `GET /api/presets/<id>` serves the list as `modes_unvalidated`. An editor mode inherits the flag from the mode named by its `from:`; it never declares one itself, and the editor offers (the editor task offers) carry the derived `unvalidated`. Remove the id from the list once the mode has a dated line in the validation log. An absent key means every mode is validated.
 
 ## Display names and mirrors (admin-set)
 

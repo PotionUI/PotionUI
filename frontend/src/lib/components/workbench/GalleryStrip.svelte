@@ -117,7 +117,7 @@
 				>
 					<div class="w-32 h-32 bg-surface-2 rounded-lg overflow-hidden border {selectedIndex === index ? 'border-line-hover' : 'border-line hover:border-line-hover'} transition-colors">
 						<img
-							src={tileThumbUrl(imageKeys[index])}
+							src={tileThumbUrl(imageData.url)}
 							alt="Generated image {index + 1}"
 							class="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
 							loading="lazy"

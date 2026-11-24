@@ -51,8 +51,18 @@ def main(argv=None) -> int:
     for e in api_report.errors:
         print(f"ERROR {e}")
 
-    total_errors = len(report.errors) + len(reference_report.errors) + len(api_report.errors)
-    total_warnings = len(report.warnings) + len(reference_report.warnings) + len(api_report.warnings)
+    from scripts.model_modes_reference import check as check_model_modes
+
+    modes_report = check_model_modes()
+    for w in modes_report.warnings:
+        print(f"WARN  {w}")
+    for e in modes_report.errors:
+        print(f"ERROR {e}")
+
+    total_errors = len(report.errors) + len(reference_report.errors) + len(api_report.errors) + len(modes_report.errors)
+    total_warnings = (
+        len(report.warnings) + len(reference_report.warnings) + len(api_report.warnings) + len(modes_report.warnings)
+    )
     print(f"\n{total_errors} error(s), {total_warnings} warning(s).")
     return 0 if total_errors == 0 else 1
 

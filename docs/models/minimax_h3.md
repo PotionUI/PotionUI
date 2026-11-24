@@ -45,6 +45,36 @@ The text encoder is the trimmed Qwen3-VL-32B repack — 50 decoder layers, no fi
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+**MiniMax-H3**
+
+- `txt2video`: Text to Video
+- `img2video`: Image to Video
+- `first_last`: First to Last Frame
+- `video`: Video Director
+- `refs`: References to Video
+- `upscale`: Upscale
+- `refine_faces`: Refine faces
+- `extend`: Extend video
+- `remix`: Remix video
+- `talk`: Talking video
+- `motion_transfer`: Motion transfer
+- `loop`: Perfect loop
+
+**MiniMax-H3-Fast**
+
+- `video`: Video
+- `refine_faces`: Refine faces
+- `extend`: Extend video
+
+**MiniMax-H3-VDN**
+
+- `video`: Video
+
+<!-- modes:end -->
+
 `content/presets/marketplace/MiniMax-H3` opens on three single-clip modes for one video and no Director: Text to Video (`txt2video`, `t2va`), Image to Video (`img2video`, `fl2va` with a start picture) and First to Last Frame (`first_last`, `fl2va` with a start and an end picture). Each is a plain form (the prompt, Length in seconds, the resolution and speed profile, the pictures it needs); the sound is the one the model samples with the picture, as in every H3 mode. They have no pipeline of their own: `pipeline.yml` is `pipeline_from: video`, and the server builds the same one-shot Video Director document the editor would send (`vars.video_director.simple_modes`, `src/features/video_director/simple_modes.py`), so the generator receives byte-identical inputs from either route (`tests/features/presets/test_minimax_h3_simple_modes.py`). `video` is labelled Video Director: films in shots, with keyframes and sound. `refs` covers `ref2va`, conditioning on a set of references instead of keyframes; `upscale` is a standalone latent-space upscale + refine of an existing H3 video (see "Latent upscale" below); the rest are the specialised modes described below. The same checkpoint architecture and the same generator pipe handle the single-clip, `video` and `refs` modes, but `ref2va` and `fl2va` are different *partitions* of the weights, so the `refs` mode needs the `ref2va` DiT file and every other mode the `fl2va` one, and nothing can detect a wrong pick.
 
 ### The `refs` mode (`ref2va`)

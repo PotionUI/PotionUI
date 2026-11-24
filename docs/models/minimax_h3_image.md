@@ -43,6 +43,14 @@ The VAE is `minimax_h3_image_vae_fp16.safetensors` (1.1 GB): the MiniMax-H3 caus
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `txt2img`: Text to Image
+- `edit`: Edit
+
+<!-- modes:end -->
+
 The shipped **MiniMax-H3-Image** preset has `txt2img` and `edit`. The pipes are `model_loader/minimax_h3_image` and `generator/minimax_h3_image`.
 
 **Edit** takes up to 16 pictures in order. Picture 1 is the image being edited. The text encoder sees each picture after a `Picture n: ` label at a 1024-pixel short edge; the generator VAE-encodes each one at a 1024 to 2048-pixel short edge and puts it in the sequence ahead of the image being generated. *Same size as Picture 1* (on by default) gives the result Picture 1's shape at that VAE size.

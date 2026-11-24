@@ -35,7 +35,22 @@ One model-loader pipe handles both variants, and Krea-2 checkpoints share its te
 
 ## Presets & modes
 
-The shipped Flux preset ships `txt2img`. img2img is available through the shared img2img mixin used by every image-family generator.
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+**Flux1**
+
+- `txt2img`: Text to Image
+- `img2img`: Image to Image
+
+**Flux2**
+
+- `txt2img`: Text to Image
+- `img2img`: Image to Image
+
+<!-- modes:end -->
+
+Flux1 and Flux2 each ship the modes above. `img2img` uses the shared img2img mixin that every image-family generator has.
 
 ## Sampling
 

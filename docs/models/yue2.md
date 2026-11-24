@@ -38,6 +38,13 @@ Filename-based detection also exists as a fallback (`detect_yue2_role_from_filen
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `song`: Song
+
+<!-- modes:end -->
+
 `content/presets/marketplace/YuE2` ships a single `song` mode. There is no structured caption form — the Generation tab's "Style tags" field is free text (genre/instruments/vocal character/language/tempo), and lyrics are the standard [Prompt section](../presets.md) (the same segmented editor every image preset uses), not a Director document. `modes/song/pipeline.yml`'s `style` is `form.style` and its `lyrics` is the resolved positive prompt — both empty-safe. There is no separate instrumental toggle: leaving the Prompt box empty already produces an instrumental track, since `lyrics` is an optional pipe config (`generator/audio_yue2`'s `validate_config` only requires `style`).
 
 The Generation tab's "Chain of thought" select (`off`/`melody`/`full`) picks between direct codec sampling and the two ABC-transcription modes; the Advanced tab's ABC field lets a user supply a hand-written transcription instead of letting the model write its own, and is form-guarded (`pipeline.yml`) to render empty whenever `cot` is `off` — the generator pipe's own `validate_config` raises if `abc` is non-empty without a cot stage to condition, and the field's UI visibility toggle alone does not clear a stale value when the user switches `cot` back to `off`.

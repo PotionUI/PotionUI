@@ -34,6 +34,16 @@ The text encoder is Qwen3-VL-4B. The VAE is the Wan 2.1 causal-3D VAE verbatim â
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `txt2img`: Text to Image
+- `enhance`: Enhance
+- `upscale`: Upscale
+- `edit`: Edit
+
+<!-- modes:end -->
+
 The shipped Krea-2 preset ships `txt2img`, `enhance`, `upscale` and `edit`.
 
 ### Upscale

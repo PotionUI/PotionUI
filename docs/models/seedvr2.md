@@ -29,6 +29,14 @@ Two checkpoint shapes exist: `seedvr2_3b` and a wider/deeper `seedvr2_7b` (plain
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `upscale`: Upscale
+- `video_upscale`: Video Upscale
+
+<!-- modes:end -->
+
 The shipped SeedVR2 preset is an upscale pipe, not a generation mode — it takes an input image or video and produces an upscaled one.
 
 ## Sampling

@@ -32,6 +32,13 @@ Four checkpoint shapes share the Wan family, disambiguated by input/output chann
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `video`: Video
+
+<!-- modes:end -->
+
 The shipped Wan preset's only generation mode is `video`, a Video Director flow covering four sub-modes: plain text-to-video (`t2v`), image-to-video (`i2v`), first-last-frame (`flf`), and `director` — a routed multi-shot chain that composes a long video from a sequence of shots. The standalone `txt2vid` and `img2vid` modes were retired in favor of the Director's `t2v`/`i2v` sub-modes, which route to the same `generator/txt2vid_wan22` / `generator/img2vid_wan22` pipes; the `director` sub-mode runs `generator/chain_video_wan22`. The `director` sub-mode replaced an earlier `chain` sub-mode — the editor and document are unified now, and Wan declares `segment_routing: true` in its `video_director` capabilities, which is what makes the shared Director editor render Wan's multi-shot composer (per-shot duration/LoRAs/sub-type, first-only keyframe, continuity controls) instead of LTX's keyframe/audio timeline. A single-shot `director` document is a degenerate chain of one. See [Video Director](../video-director.md) for the composition contract this preset implements.
 
 ### Two checkpoint sets

@@ -78,6 +78,14 @@ Upstream and ComfyUI export the mesh 180° apart about the up axis. Upstream's c
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `img2mesh`: Image to 3D
+- `views2mesh`: Views to 3D
+
+<!-- modes:end -->
+
 The shipped preset is `content/presets/marketplace/Pixal3D/`, with two modes:
 
 - `img2mesh` (Image to 3D): one source image, Camera FOV (default Auto (MoGe-2); Manual uses Field of View, default 49.13°), Detail Level 1024 / 1536 (default 1536).

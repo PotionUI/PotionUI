@@ -119,6 +119,40 @@ shape: 1,316 MiB at 768×768 and 65 frames, for a logical peak of 2,163 MiB.
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+**LTX-2**
+
+- `video`: Video
+- `upscale`: Upscale
+- `motion_transfer`: Motion transfer
+- `follow_motion`: Follow motion
+
+**LTX-2.5**
+
+- `txt2video`: Text to Video
+- `img2video`: Image to Video
+- `first_last`: First to Last Frame
+- `video`: Video
+- `upscale`: Upscale
+- `extend`: Extend
+- `refine_faces`: Refine faces
+- `restore`: Restore
+- `colorize`: Colorize
+- `day_to_night`: Day to night
+- `add_water`: Add water
+- `remove_object`: Remove object
+- `layout_to_render`: Layout to render
+- `motion_transfer`: Motion transfer
+- `cinemagraph`: Cinemagraph
+- `transition`: Transition
+- `transparent_video`: Transparent video
+- `follow_motion`: Follow motion
+- `ingredients`: Ingredients
+
+<!-- modes:end -->
+
 The family ships **two** presets, split by checkpoint layout — pick the one that matches the files you have:
 
 | Preset | Checkpoints | File pickers |
@@ -128,7 +162,7 @@ The family ships **two** presets, split by checkpoint layout — pick the one th
 
 Pointing the 2.0/2.3 preset at a transformer-only 2.5 DiT is rejected up front by `_require_embedded_component` (that preset leaves `vae`/`audio_model` unset, so there is nothing to slice) rather than failing deep inside VAE construction. The reverse — an all-in-one file in the 2.5 preset — is not guarded, because its required `video_vae` picker satisfies the pre-flight check; it just loads a mismatched component set, so pick the preset that matches your files.
 
-Both presets carry the same two modes — a `video`/Director mode (first-frame/last-frame/arbitrary-keyframe conditioning, IC-LoRA reference videos, an optional jointly-generated or muxed-in audio track, and an in-flow two-stage latent upscale) and a standalone `upscale` mode that refines an existing clip. With Upscale on, a Director IC-LoRA and its reference apply to the first pass only unless "Use IC-LoRA in the refine pass" is on. See [Video Director](../video-director.md) for the keyframe/IC-LoRA/audio composition contract. What genuinely differs between them, beyond the pickers, is the stage-1 sampler and schedule — see [Sampling](#sampling).
+Both presets carry the `video` (Director) mode and the standalone `upscale` mode; the other modes are covered in the sections below. `video` takes first-frame/last-frame/arbitrary-keyframe conditioning, IC-LoRA reference videos, an optional jointly-generated or muxed-in audio track, and an in-flow two-stage latent upscale; `upscale` refines an existing clip. With Upscale on, a Director IC-LoRA and its reference apply to the first pass only unless "Use IC-LoRA in the refine pass" is on. See [Video Director](../video-director.md) for the keyframe/IC-LoRA/audio composition contract. What genuinely differs between the presets, beyond the pickers, is the stage-1 sampler and schedule — see [Sampling](#sampling).
 
 ### Text to video, Image to video, First to last frame
 

@@ -38,6 +38,7 @@ ALLOWED_BASENAMES = {
     "hf_variants.py",
     "docs_lint.py",
     "pipes_reference.py",
+    "model_modes_reference.py",
     "api_reference.py",
     "build-plugins.mjs",
     "plugin-stylesheet.mjs",

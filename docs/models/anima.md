@@ -31,6 +31,13 @@ The text encoder is Qwen3-0.6B — small, which is why Anima's memory footprint 
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `txt2img`: Text to Image
+
+<!-- modes:end -->
+
 The shipped Anima preset ships `txt2img`.
 
 ## Sampling

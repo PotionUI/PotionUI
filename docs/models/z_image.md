@@ -35,6 +35,16 @@ A `z_image_modulation` flag in the checkpoint distinguishes a Z-Image checkpoint
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `txt2img`: Text to Image
+- `enhance`: Enhance
+- `inpaint`: Inpaint
+- `control`: Structure
+
+<!-- modes:end -->
+
 The shipped Z-Image preset ships `txt2img`, `enhance`, `inpaint` and `control` (shown as Structure).
 
 - **Enhance** upscales a picture by 1.5x, 2x or 3x and redraws it at a low strength set by *Added detail* (Subtle 0.12, Balanced 0.2, Strong 0.35), then optionally runs the face detailer on the result. It is the same `img2img` generator with `img2img_scale`, followed by `detailer/native`.

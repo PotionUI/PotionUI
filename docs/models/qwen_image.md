@@ -31,6 +31,17 @@ The text encoder is Qwen2.5-VL-7B. The VAE is the Wan 2.1 causal-3D VAE, with pe
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `txt2img`: Text to Image
+- `img2img`: Image to Image
+- `edit`: Edit
+- `camera`: Camera angle
+- `real`: Make it real
+
+<!-- modes:end -->
+
 The shipped Qwen-Image preset ships `txt2img`, `img2img`, `edit`, `camera` and `real`.
 
 ### Picture layout in edit modes

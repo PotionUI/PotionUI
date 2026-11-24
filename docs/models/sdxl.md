@@ -32,6 +32,18 @@ SDXL checkpoints load via `from_single_file()` (a single safetensors file), with
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `txt2img`: Text to Image
+- `inpaint`: Inpaint
+- `refine_faces`: Fix faces & hands
+- `upscale`: Upscale & refine
+- `restyle`: Img2img / restyle
+- `control`: Structure
+
+<!-- modes:end -->
+
 The shipped SDXL preset lives under the same directory layout as the native-engine presets — the shared "native" label refers to plugin-free in-process execution, contrasted with a remote ComfyUI backend, not to the transformer engine. A ComfyUI-backed SDXL preset also exists as an alternative.
 
 ### Fix faces & hands (`refine_faces`)

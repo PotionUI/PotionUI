@@ -40,6 +40,13 @@ Three files, all required, no optional component:
 
 ## Presets & modes
 
+<!-- modes:start -->
+_Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
+
+- `song`: Song
+
+<!-- modes:end -->
+
 `content/presets/marketplace/MiniMax-Music3` ships a single `song` mode. Its
 Generation tab has a required **Style description** (the caption: genre, tempo,
 mood, vocals and arrangement in plain text), **Max duration (seconds, 0 =

@@ -70,6 +70,10 @@
 
 	$effect(() => {
 		if (!root || kind !== 'video') return;
+		if (typeof IntersectionObserver === 'undefined') {
+			inView = true;
+			return;
+		}
 		const observer = new IntersectionObserver((records) => {
 			inView = records.some((record) => record.isIntersecting);
 		});

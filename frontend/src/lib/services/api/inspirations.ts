@@ -15,6 +15,7 @@ export interface InspirationMedia {
 	type: string;
 	width?: number | null;
 	height?: number | null;
+	thumbnail_url?: string | null;
 }
 
 export interface InspirationParamPreview {

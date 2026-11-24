@@ -3,6 +3,7 @@ import {
 	inspirationPrimaryMedia,
 	inspirationIsVideo,
 	inspirationAspect,
+	inspirationCardFace,
 	inspirationDisplayTitle,
 	inspirationAuthorInitial,
 	canModerateInspiration
@@ -102,5 +103,37 @@ describe('canModerateInspiration', () => {
 
 	it('denies a signed-out viewer', () => {
 		expect(canModerateInspiration({ author }, null)).toBe(false);
+	});
+});
+
+describe('inspirationCardFace', () => {
+	const image = { url: '/a.png', type: 'image', thumbnail_url: '/a-thumb.webp' };
+	const video = { url: '/a.mp4', type: 'video', thumbnail_url: '/a-thumb.webp' };
+
+	it('shows the thumbnail for an image and the original when there is none', () => {
+		expect(inspirationCardFace(image, false)).toEqual({ kind: 'image', src: '/a-thumb.webp' });
+		expect(inspirationCardFace({ url: '/a.png', type: 'image' }, false)).toEqual({
+			kind: 'image',
+			src: '/a.png'
+		});
+		expect(inspirationCardFace({ ...image, thumbnail_url: null }, false)?.src).toBe('/a.png');
+	});
+
+	it('shows a poster for a thumbnailed video and mounts the video only when engaged', () => {
+		expect(inspirationCardFace(video, false)).toEqual({ kind: 'poster', src: '/a-thumb.webp' });
+		expect(inspirationCardFace(video, true)).toEqual({ kind: 'video', src: '/a.mp4' });
+	});
+
+	it('falls back to the video element when there is no thumbnail or it failed', () => {
+		expect(inspirationCardFace({ url: '/a.mp4', type: 'video' }, false)).toEqual({
+			kind: 'video',
+			src: '/a.mp4'
+		});
+		expect(inspirationCardFace(video, false, true)).toEqual({ kind: 'video', src: '/a.mp4' });
+		expect(inspirationCardFace(image, false, true)?.src).toBe('/a.png');
+	});
+
+	it('is null without media', () => {
+		expect(inspirationCardFace(null, false)).toBeNull();
 	});
 });

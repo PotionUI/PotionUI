@@ -219,6 +219,7 @@
 					alt={displayName}
 					class="w-full h-full object-contain"
 					loading="lazy"
+					decoding="async"
 					on:load={() => (loadedSrc = gridSrc)}
 					on:error={() => (loadedSrc = gridSrc)}
 				/>
@@ -244,6 +245,7 @@
 					alt={displayName}
 					class="w-full h-full object-contain"
 					loading="lazy"
+					decoding="async"
 					on:load={() => (loadedSrc = gridSrc)}
 					on:error={() => (loadedSrc = gridSrc)}
 				/>

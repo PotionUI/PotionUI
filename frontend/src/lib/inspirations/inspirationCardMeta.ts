@@ -21,6 +21,25 @@ export function inspirationIsVideo(media: InspirationMedia | null): boolean {
 	return (media?.type ?? '').toLowerCase() === 'video';
 }
 
+export interface InspirationCardFace {
+	kind: 'image' | 'poster' | 'video';
+	src: string;
+}
+
+export function inspirationCardFace(
+	media: InspirationMedia | null,
+	engaged: boolean,
+	thumbnailFailed = false
+): InspirationCardFace | null {
+	if (!media) return null;
+	const thumbnail = thumbnailFailed ? null : media.thumbnail_url || null;
+	if (inspirationIsVideo(media)) {
+		if (thumbnail && !engaged) return { kind: 'poster', src: thumbnail };
+		return { kind: 'video', src: media.url };
+	}
+	return { kind: 'image', src: thumbnail ?? media.url };
+}
+
 /**
  * Native aspect ratio (width / height) of the card's primary media, clamped
  * the same way the history justified grid clamps generation tiles. Falls

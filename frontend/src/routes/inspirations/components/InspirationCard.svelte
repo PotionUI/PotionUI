@@ -7,6 +7,7 @@
 	import {
 		inspirationPrimaryMedia,
 		inspirationIsVideo,
+		inspirationCardFace,
 		inspirationDisplayTitle,
 		inspirationAuthorInitial
 	} from '$lib/inspirations/inspirationCardMeta';
@@ -19,7 +20,11 @@
 	 */
 	export let tile: { width: number; height: number } | null = null;
 
+	let engaged = false;
+	let thumbnailFailed = false;
+
 	$: media = inspirationPrimaryMedia(item);
+	$: face = inspirationCardFace(media, engaged, thumbnailFailed);
 	$: isVideo = inspirationIsVideo(media);
 	$: title = inspirationDisplayTitle(item);
 	$: authorInitial = inspirationAuthorInitial(item.author);
@@ -30,28 +35,38 @@
 	class="group text-left w-full rounded-lg overflow-hidden border border-line-strong hover:border-line-hover bg-surface-1 transition-colors duration-100"
 	style={tile ? `width: ${tile.width}px` : undefined}
 	on:click={() => onOpen(item)}
+	on:mouseenter={() => (engaged = true)}
+	on:mouseleave={() => (engaged = false)}
+	on:focus={() => (engaged = true)}
+	on:blur={() => (engaged = false)}
 >
 	<div
 		class="relative bg-black overflow-hidden {tile ? '' : 'aspect-[4/3]'}"
 		style={tile ? `height: ${tile.height}px` : undefined}
 	>
-		{#if media}
-			{#if isVideo}
+		{#if face}
+			{#if face.kind === 'video'}
 				<video
-					src={media.url}
+					src={face.src}
 					class="w-full h-full {tile ? 'object-contain' : 'object-cover'}"
 					muted
+					loop
 					playsinline
+					autoplay={engaged}
 					preload="metadata"
 				>
 					<track kind="captions" />
 				</video>
 			{:else}
 				<img
-					src={media.url}
+					src={face.src}
 					alt={title}
 					class="w-full h-full {tile ? 'object-contain' : 'object-cover'}"
+					width={tile?.width}
+					height={tile?.height}
 					loading="lazy"
+					decoding="async"
+					on:error={() => (thumbnailFailed = true)}
 				/>
 			{/if}
 		{:else}

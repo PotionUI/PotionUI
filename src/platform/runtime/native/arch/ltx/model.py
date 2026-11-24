@@ -64,6 +64,7 @@ from vendor.gpl.comfyui.ltx.rope import CompressedTimestep
 from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cancellation import raise_if_cancelled
+from ...memory.tiering import CALIBRATION_PATCH
 from ...nag import apply_nag
 from ...ops.embedding import sinusoidal_embedding
 from ...sampling.step_cache import GroupedProbe
@@ -630,6 +631,7 @@ class LTXAVModel(NativeArchModule):
             self.a_patchifier = AudioPatchifier(1, start_end=True)
         # Load-time contract: every non-VAE arch module exposes ``patch_size``.
         self.patch_size = self.patchifier.patch_size
+        self.sampling_headroom_patch = CALIBRATION_PATCH
         self.vae_scale_factors = (8, 32, 32)
         self.num_audio_channels = 8
         self.audio_frequency_bins = 16

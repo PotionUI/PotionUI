@@ -6,11 +6,15 @@ import pytest
 import torch
 
 from src.platform.runtime.native import engine as engine_mod
+from src.platform.runtime.native.arch.ltx.model import LTXAVModel
 from src.platform.runtime.native.arch.qwen_image21.model import QwenImage21DiT
 from src.platform.runtime.native.engine import NativeGenerator
 from src.platform.runtime.native.memory import residency
 from src.platform.runtime.native.memory.device_plan import DevicePlan
 from src.platform.runtime.native.memory.tiering import ref_latents_headroom_gb, sampling_headroom_gb
+
+from ._native_ops import fp32_ops
+from .arch.test_ltx_model import TINY as LTX_TINY
 
 QWEN21_LATENT = (1, 64, 1, 67, 120)
 QWEN21_TEXT_TOKENS = 105
@@ -110,6 +114,18 @@ def test_the_same_token_count_reserves_the_same_headroom_whatever_the_vae_factor
     eight_x_patch_two = sampling_headroom_gb((134, 240))
     sixteen_x_patch_one = sampling_headroom_gb((67, 120), patch=1)
     assert sixteen_x_patch_one == pytest.approx(eight_x_patch_two, rel=0.01)
+
+
+def test_ltx_keeps_the_calibrated_headroom_despite_its_patch_one_patchifier(monkeypatch):
+    with torch.device("meta"):
+        module = LTXAVModel.from_config(LTX_TINY, fp32_ops())
+    assert module.patch_size == (1, 1, 1)
+    gen, *_ = _generator(monkeypatch, free_gb=11.0, module=module)
+    base = (1, 128, 16, 15, 26)
+    refine = (1, 128, 16, 30, 52)
+    assert gen._sampling_headroom_gb(base) == pytest.approx(0.75)
+    assert gen._sampling_headroom_gb(refine) == pytest.approx(sampling_headroom_gb((30, 52), latent_frames=16))
+    assert gen._sampling_headroom_gb(refine) < 2.5
 
 
 @pytest.mark.parametrize("patch", [2, (1, 2, 2), None, "x"])

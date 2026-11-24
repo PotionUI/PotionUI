@@ -1382,7 +1382,10 @@ class NativeGenerator:
         return headroom
 
     def _dit_spatial_patch(self) -> int:
-        patch = getattr(getattr(self.dit, "module", None), "patch_size", None)
+        module = getattr(self.dit, "module", None)
+        patch = getattr(module, "sampling_headroom_patch", None)
+        if patch is None:
+            patch = getattr(module, "patch_size", None)
         if isinstance(patch, (tuple, list)):
             patch = patch[-1] if patch else None
         try:

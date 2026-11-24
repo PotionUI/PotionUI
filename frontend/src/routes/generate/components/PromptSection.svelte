@@ -16,6 +16,7 @@
 	import type { PresetStyle } from '$lib/types/api';
 	import { appliedStyleTag, applyStyleToPrompt, clearStyle } from '$lib/prompt/styleSegments';
 	import { countUsagesInSegments } from '$lib/utils/promptVariables';
+	import PromptWeightsNotice from './PromptWeightsNotice.svelte';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import PromptTabs from '$lib/components/PromptTabs.svelte';
 	import { DEFAULT_PROMPT_PLACEHOLDER, NO_PROMPT_COPY, promptTitle, type PromptCopy } from '$lib/utils/promptModeCopy';
@@ -97,6 +98,7 @@
 		canBatch = false,
 		negativePromptSupported = true,
 		negativeInert = false,
+		promptWeightsSupported = true,
 		presetSegmentTemplates = [],
 		presetStyles = [],
 		promptCopy = NO_PROMPT_COPY,
@@ -116,6 +118,7 @@
 		canBatch?: boolean;
 		negativePromptSupported?: boolean;
 		negativeInert?: boolean;
+		promptWeightsSupported?: boolean;
 		presetSegmentTemplates?: PresetSegmentTemplate[];
 		presetStyles?: PresetStyle[];
 		promptCopy?: PromptCopy;
@@ -448,6 +451,7 @@
 					</PromptTabs>
 				{/snippet}
 			</SegmentedPromptEditor>
+			<PromptWeightsNotice {prompts} supported={promptWeightsSupported} class="mt-3" />
 			<div class="mt-3 space-y-2 empty:hidden">
 				<KitSkippedLine texts={kitCiteTexts} specs={promptResourceSpecs} formData={resourceFieldValues} {tabId} presetId={selectedPreset || null} mode={selectedMode || null} />
 			</div>

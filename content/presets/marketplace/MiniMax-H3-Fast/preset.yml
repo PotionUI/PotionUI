@@ -66,6 +66,7 @@ speed_profiles:
     steps: 8
 
 vars:
+  supports_prompt_weights: false
   # H3's frame rate is fixed by the model, not chosen per request: the audio
   # stream's latent count is derived from it (40 latents per second of video),
   # so this is a constant the pipeline reports rather than a knob.

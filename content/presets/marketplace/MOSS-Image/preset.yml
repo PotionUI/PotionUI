@@ -70,6 +70,7 @@ negative_prompt:
   applies_when: { field: "cfg", not_equals: 1 }
 
 vars:
+  supports_prompt_weights: false
   regional_prompt:
     modes: [txt2img]
     size_field: resolution

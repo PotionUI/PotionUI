@@ -50,6 +50,7 @@ configuration:
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
 
 vars:
+  supports_prompt_weights: false
   steps: 6
 
 llm:

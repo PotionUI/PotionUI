@@ -29,6 +29,7 @@ speed_profiles:
   custom: { steps: 50, guidance: 3.5, sampler: "euler" }
 
 vars:
+  supports_prompt_weights: false
   default_shift: 6.93
 
 llm:

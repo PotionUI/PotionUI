@@ -25,6 +25,7 @@
 	export let canBatch: boolean;
 	export let negativePromptSupported: boolean;
 	export let negativeInert: boolean;
+	export let promptWeightsSupported = true;
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
 	export let promptCopy: PromptCopy = NO_PROMPT_COPY;
 	export let presetStyles: PresetStyle[] = [];
@@ -59,6 +60,7 @@
 			{canBatch}
 			{negativePromptSupported}
 			{negativeInert}
+			{promptWeightsSupported}
 			spacingClass="mt-0"
 		/>
 	</div>

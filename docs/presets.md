@@ -249,6 +249,9 @@ Write the condition from the pipeline, not from the field labels: read what feed
 declares nothing. A preset that never takes one sets `vars.supports_negative_prompt: false`
 instead.
 
+A preset whose text encoder ignores `(word:1.3)` prompt weights sets `vars.supports_prompt_weights: false`;
+the Generate page then shows a notice under the prompt, only while the prompt contains weight syntax.
+
 ## Elixir contract
 
 Elixirs chain preset modes together ([Elixirs](elixirs.md)), so every mode needs a contract:

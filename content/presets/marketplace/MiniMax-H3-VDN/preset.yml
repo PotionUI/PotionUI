@@ -86,6 +86,7 @@ speed_profiles:
     steps: 50
 
 vars:
+  supports_prompt_weights: false
   # Fixed by the model, not chosen per request: the audio stream's latent count
   # is derived from it (40 latents per second of video).
   fps: 24

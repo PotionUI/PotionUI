@@ -85,6 +85,7 @@ configuration:
     description: "Only models with any of these tags appear in the Spatial Upscaler picker."
 
 vars:
+  supports_prompt_weights: false
   optional_prompt_modes: ["motion_transfer", "follow_motion"]
   distilled_sigma_recipe: "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
   default_frames: 49

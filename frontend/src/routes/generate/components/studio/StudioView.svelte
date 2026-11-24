@@ -51,6 +51,7 @@
 	export let canBatch: boolean;
 	export let negativePromptSupported: boolean;
 	export let negativeInert: boolean;
+	export let promptWeightsSupported = true;
 	export let promptlessActive: boolean;
 	export let dynamicFormRefs: Record<string, DynamicForm>;
 	export let onFormDataChange: (data: Record<string, unknown>) => void;
@@ -154,6 +155,7 @@
 		{canBatch}
 		{negativePromptSupported}
 		{negativeInert}
+		{promptWeightsSupported}
 		onClose={closeSheet}
 	/>
 {:else if openSheet === 'settings'}

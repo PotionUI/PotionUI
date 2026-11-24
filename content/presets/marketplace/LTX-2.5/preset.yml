@@ -114,6 +114,7 @@ configuration:
     description: "Only models with any of these tags appear in the Spatial Upscaler picker."
 
 vars:
+  supports_prompt_weights: false
   # Distilled recipe: Lightricks' own DISTILLED_SIGMA_VALUES constant
   # (packages/ltx-pipelines in github.com/Lightricks/LTX-2, Apache-2.0) --
   # unchanged from 2.3 to 2.5, so this list is byte-identical to

@@ -51,6 +51,7 @@
 	export let canBatch: boolean;
 	export let negativePromptSupported = true;
 	export let negativeInert = false;
+	export let promptWeightsSupported = true;
 	/** Resolved on the page from the preset's `vars.prompt`; passed straight
 	 *  through to every PromptSection instance below. */
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
@@ -332,6 +333,7 @@
 					{canBatch}
 					{negativePromptSupported}
 					{negativeInert}
+					{promptWeightsSupported}
 					{presetSegmentTemplates}
 					{promptCopy}
 					{presetStyles}
@@ -443,6 +445,7 @@
 							{canBatch}
 							{negativePromptSupported}
 							{negativeInert}
+							{promptWeightsSupported}
 							{presetSegmentTemplates}
 							{promptCopy}
 							{presetStyles}
@@ -503,6 +506,7 @@
 							{canBatch}
 							{negativePromptSupported}
 							{negativeInert}
+							{promptWeightsSupported}
 							{presetSegmentTemplates}
 							{promptCopy}
 							{presetStyles}

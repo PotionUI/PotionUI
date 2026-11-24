@@ -1,0 +1,6 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Source Image"
+    required: true
+    ai_hint: "Upload the image to start from. Output resolution matches this image, snapped to the model's patch grid."

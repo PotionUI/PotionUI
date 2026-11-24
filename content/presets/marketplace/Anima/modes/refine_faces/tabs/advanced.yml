@@ -1,0 +1,50 @@
+fields:
+  - type: "section"
+    label: "Face pass"
+    formula: "detailer"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 24
+        configuration: {min: 1, max: 100, step: 1}
+        ai_hint: "Denoising steps of the full schedule per face; only the tail that Face Denoise selects is run."
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG scale"
+        audience: "advanced"
+        default: 5.0
+        configuration: {min: 1.0, max: 30.0, step: 0.5}
+        ai_hint: "True CFG: above 1 the negative prompt is used and every step costs two passes."
+
+      - name: "fix_confidence"
+        type: "slider"
+        label: "Detection confidence"
+        audience: "advanced"
+        default: 0.5
+        configuration: {min: 0.1, max: 0.95, step: 0.05}
+        ai_hint: "Lower finds more faces, including false ones; higher keeps only clear faces."
+
+      - name: "fix_feather"
+        type: "slider"
+        label: "Feather"
+        audience: "advanced"
+        default: 24
+        configuration: {min: 0, max: 128, step: 4}
+        ai_hint: "Width in pixels of the blend between the repainted face and the original."
+
+      - name: "fix_latent_mask"
+        type: "checkbox"
+        label: "Mask-Guided Refine"
+        audience: "advanced"
+        default: true
+        ai_hint: "Holds everything outside the face mask on the original image at every sampling step, so only the face can change."
+
+      - name: "fix_colour_match"
+        type: "checkbox"
+        label: "Colour Match"
+        audience: "advanced"
+        default: true
+        ai_hint: "Matches the repainted face's brightness and colour spread to the original so it cannot come back paler or warmer than the body."

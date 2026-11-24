@@ -45,7 +45,7 @@ _Generated from the preset definitions by `scripts/model_modes_reference.py`; ed
 
 <!-- modes:end -->
 
-The shipped **FLUX 3** preset has `txt2img` and `edit`, with a Turbo (16 steps, no CFG), a Base (50 steps, CFG 3.5, the default) and a Custom speed profile. The pipes (`model_loader/flux3`, `generator/flux3`) pick their behaviour from the loaded checkpoint, not from the profile: a distilled checkpoint ignores CFG and the step cache and refuses any sampler but Euler, a base checkpoint runs two-pass CFG. The profile only sets steps and CFG: a Base profile on a distilled checkpoint still runs, and a Turbo profile on a base checkpoint runs without guidance (the log says so).
+The shipped **FLUX 3** preset has `txt2img` and `edit`, each with a LoRA tab (up to 10 LoRAs, strength -10 to 10; the DiT takes LoRAs keyed per layer, including ones that split q/k/v), with a Turbo (16 steps, no CFG), a Base (50 steps, CFG 3.5, the default) and a Custom speed profile. The pipes (`model_loader/flux3`, `generator/flux3`) pick their behaviour from the loaded checkpoint, not from the profile: a distilled checkpoint ignores CFG and the step cache and refuses any sampler but Euler, a base checkpoint runs two-pass CFG. The profile only sets steps and CFG: a Base profile on a distilled checkpoint still runs, and a Turbo profile on a base checkpoint runs without guidance (the log says so).
 
 `edit` takes 1 to 10 reference images (`generator/flux3/references.py`):
 
@@ -59,7 +59,8 @@ Resolutions are multiples of 16. The sigma shift is 6.93 unless the Advanced tab
 
 ## Limitations
 
-- No LoRA tab, no img2img, no bounding boxes and no prompt upsampler.
+- No img2img and no inpaint: FLUX 3 Klein changes an existing picture only through `edit`, which conditions on 1 to 10 reference images and has no denoise strength or mask. For that reason the preset ships no Upscale or Fix faces mode either, since both are low-denoise img2img passes.
+- No bounding boxes and no prompt upsampler.
 - The distilled checkpoint runs only with Euler and ignores CFG.
 - NVFP4 checkpoints are not supported.
 

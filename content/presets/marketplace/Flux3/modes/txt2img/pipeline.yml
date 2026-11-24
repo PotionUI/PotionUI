@@ -11,6 +11,12 @@ pipeline:
       vae:
         file_path: "{{ form.vae }}"
         name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
 
   - name: "prompt_encoder"
     input:
@@ -60,6 +66,9 @@ pipeline:
         - ["model", "{{ form.diffusion_model }}"]
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
         - ["cfg", "{{ form.cfg }}"]

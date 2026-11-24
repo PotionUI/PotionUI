@@ -2,7 +2,7 @@
 type: model
 title: Anima
 family_key: anima
-modes: [txt2img]
+modes: [txt2img, img2img, upscale, refine_faces]
 spec:
   arch: Cosmos-Predict2 MiniTrainDIT backbone with an in-model LLMAdapter
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)
@@ -35,10 +35,20 @@ The text encoder is Qwen3-0.6B — small, which is why Anima's memory footprint 
 _Generated from the preset definitions by `scripts/model_modes_reference.py`; edit the presets, not this list._
 
 - `txt2img`: Text to Image
+- `img2img`: Image to Image
+- `upscale`: Upscale
+- `refine_faces`: Fix faces
 
 <!-- modes:end -->
 
-The shipped Anima preset ships `txt2img`.
+The shipped Anima preset has `txt2img`, `img2img`, `upscale` and `refine_faces`. `img2img`, `upscale` and `refine_faces` are listed under `modes_unvalidated` and show a "Not validated" badge: they have been wired and rendered but not yet run on real weights.
+
+- `img2img` takes a source image and a Denoising Strength; the output size follows the source.
+- `upscale` enlarges the picture 2 to 4 times and rebuilds its detail tile by tile (`tiled_refiner`).
+- `refine_faces` repaints each detected face with a mask-guided low-denoise pass (`detailer/native`, MediaPipe face landmarks). It does faces only; hands are not wired for Anima.
+- There is no inpaint mode: `generator/anima` has no mask input.
+
+Every mode has a LoRA tab (up to 10 LoRAs, strength -10 to 10, no step windows). Anima has no dedicated LoRA key map; the loader falls back to the plain comfy/kohya scheme over the DiT's own layer names (`blocks.N.self_attn.q_proj`, `blocks.N.mlp.layer1`, `llm_adapter.*`, and so on), so LoRAs keyed `diffusion_model.<name>`, `lora_unet_<name>` or `base_model.model.<name>` apply. It has not been tried against a published Anima LoRA yet; if the log reports 0 patched parameters, the file's keys did not match.
 
 ## Sampling
 

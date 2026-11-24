@@ -1,0 +1,22 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+      - name: "denoise"
+        type: "slider"
+        formula: "speed"
+        label: "Denoising Strength"
+        default: 0.55
+        configuration:
+          min: 0.0
+          max: 1.0
+          step: 0.05
+          tooltip: "Fraction of the schedule to walk. Low (0.2-0.4) preserves structure and only refines; high (0.8-1.0) approaches a full re-render."
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/modes/txt2img/tabs/models.yml"

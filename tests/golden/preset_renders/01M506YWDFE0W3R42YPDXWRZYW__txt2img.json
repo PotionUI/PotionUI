@@ -11,6 +11,10 @@
           "type": "str",
           "value": "/GOLDEN/models/diffusion_model.safetensors"
         },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
         "text_encoder.file_path": {
           "type": "str",
           "value": "/GOLDEN/models/text_encoder.safetensors"
@@ -154,6 +158,7 @@
               "model",
               "/GOLDEN/models/vae.safetensors"
             ],
+            [],
             [
               "positive_prompt",
               [

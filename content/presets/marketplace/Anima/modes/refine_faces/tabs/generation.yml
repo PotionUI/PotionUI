@@ -1,0 +1,57 @@
+fields:
+  - name: "seed"
+    type: "seed"
+    label: "Seed"
+    default: -1
+
+  - type: "section"
+    label: "Faces"
+    formula: "detailer"
+    children:
+      - name: "fix_strength"
+        type: "slider"
+        label: "Face Denoise"
+        default: 0.3
+        ai_hint: "How much of each face is re-drawn. Low values sharpen without changing identity; higher values add more detail but drift further from the original face."
+        configuration:
+          min: 0.1
+          max: 0.75
+          step: 0.05
+          tooltip: "How much of the face is re-rendered. 0.2-0.35 keeps the identity and only fixes detail; above 0.5 the face starts becoming someone else."
+
+      - name: "fix_max_faces"
+        type: "slider"
+        label: "Max Faces"
+        default: 4
+        configuration: {min: 1, max: 10, step: 1}
+
+      - name: "fix_mask_mode"
+        type: "select"
+        label: "Mask Shape"
+        default: "oval"
+        ai_hint: "Oval follows the detected face contour, so hair, neck and background inside the crop are never re-drawn. Box is a rounded rectangle."
+        configuration:
+          options:
+            - { label: "Face Oval", value: "oval", sub_label: "Follows the landmarks" }
+            - { label: "Box", value: "box", sub_label: "Rounded rectangle" }
+
+  - type: "section"
+    label: "Detector"
+    formula: "models"
+    children:
+      - name: "fix_face_model"
+        type: "model"
+        label: "Face Detection Model"
+        configuration:
+          model_type: "mediapipe"
+          filter_tags: "@config:mediapipe_tags"
+          recommendations:
+            - name: "MediaPipe Face Landmarker"
+              link: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+              size: "3.58 MB"
+              description: "Locates facial landmarks so faces can be found precisely for refinement."
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/modes/txt2img/tabs/models.yml"

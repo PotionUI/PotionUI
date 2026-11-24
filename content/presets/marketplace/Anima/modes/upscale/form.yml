@@ -1,0 +1,47 @@
+name: "custom"
+mode_label: "Upscale"
+short_description: "Enlarge a picture 2 to 4 times and rebuild its detail, tile by tile."
+prompt_label: "What is in the picture"
+prompt_placeholder: "a close-up portrait of an old fisherman, weathered skin"
+negative_prompt:
+  applies_when: { field: "cfg", greater_than: 1 }
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/upscale/tabs/generation.yml"
+      - type: "tab"
+        anchor: "references"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/upscale/tabs/references.yml"
+      - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children:
+          file: "{{ paths._shared }}/native/lora.yml"
+          vars:
+            hint: "LoRAs add specialized styles, concepts, or characters to Anima. Multiple LoRAs can be combined. Check the LoRA's own page for a recommended strength; 0.5-0.8 suits most, 1.0 is full effect, and negative values invert the effect. Leave empty if not needed."
+            placeholder: "Select an Anima LoRA..."
+            max_items: 10
+            strength_min: -10.0
+            strength_max: 10.0
+            strength_step: 0.1
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/upscale/tabs/advanced.yml"

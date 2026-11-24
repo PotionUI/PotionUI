@@ -11,6 +11,21 @@ fields:
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/txt2img/tabs/generation.yml"
       - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children:
+          file: "{{ paths._shared }}/native/lora.yml"
+          vars:
+            hint: "LoRAs add specialized styles, concepts, or characters to FLUX 3. Multiple LoRAs can be combined. Check the LoRA's own page for a recommended strength; 0.5-0.8 suits most, 1.0 is full effect, and negative values invert the effect. Leave empty if not needed."
+            placeholder: "Select a FLUX 3 LoRA..."
+            max_items: 10
+            strength_min: -10.0
+            strength_max: 10.0
+            strength_step: 0.1
+      - type: "tab"
         anchor: "advanced"
         label: "Advanced"
         audience: "advanced"

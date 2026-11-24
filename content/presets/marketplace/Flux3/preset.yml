@@ -22,6 +22,10 @@ configuration:
     type: "model_tags"
     label: "VAE tags"
     description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
 
 speed_profiles:
   turbo:  { steps: 16, guidance: 1.0, sampler: "euler" }
@@ -54,6 +58,7 @@ formulas:
   groups:
     speed:  { label: "Speed and sampling" }
     size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
     cache:  { label: "Step cache" }
     models: { label: "Models", preselect: false }
 

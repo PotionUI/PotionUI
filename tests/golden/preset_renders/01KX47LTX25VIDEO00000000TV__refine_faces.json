@@ -240,6 +240,10 @@
           "type": "int",
           "value": 4
         },
+        "require_detectors": {
+          "type": "bool",
+          "value": true
+        },
         "strength": {
           "type": "str",
           "value": "balanced"

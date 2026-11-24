@@ -99,6 +99,7 @@ pipeline:
       color_correction: "{{ form.color_correction }}"
       face_model: "{{ form.face_detector_model or 'models/mediapipe/face_landmarker.task' }}"
       hand_model: "{{ form.hand_detector_model or 'models/mediapipe/hand_landmarker.task' }}"
+      require_detectors: true
 
   - name: "gallery"
     input:

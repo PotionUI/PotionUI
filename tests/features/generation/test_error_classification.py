@@ -111,6 +111,15 @@ def test_a_missing_safetensors_file_classifies_as_missing_model_file():
     assert classification.suggestions
 
 
+def test_a_missing_mediapipe_task_file_classifies_as_missing_model_file():
+    exc = FileNotFoundError("The MediaPipe face detection model is not installed (models/mediapipe/face_landmarker.task).")
+
+    classification = classify_generation_error(exc)
+
+    assert classification is not None
+    assert classification.category == "missing_model_file"
+
+
 def test_a_missing_file_without_a_model_extension_does_not_classify_as_missing_model_file():
     """Conservative: a FileNotFoundError for a config/JSON file is not
     necessarily a missing model weight."""

@@ -501,6 +501,7 @@ Refine faces and hands in an LTX-2/2.3 video as stabilized spatiotemporal tubes 
 | `temporal_ramp_frames` | `int` | `4` | no | — | 0 | 30 | Fade-in/out length at each tube segment end (frames) |
 | `face_model` | `str` | `"models/mediapipe/face_landmarker.task"` | no | — | — | — | MediaPipe face landmarker model path |
 | `hand_model` | `str` | `"models/mediapipe/hand_landmarker.task"` | no | — | — | — | MediaPipe hand landmarker model path |
+| `require_detectors` | `bool` | `false` | no | — | — | — | Fail instead of returning the video unchanged when no detection model is available |
 
 ### <a id="pipe-detailer-video-minimax-h3"></a>`detailer/video_minimax_h3`
 
@@ -545,6 +546,7 @@ Refine faces and hands in a MiniMax-H3 video as stabilized spatiotemporal tubes 
 | `temporal_ramp_frames` | `int` | `4` | no | — | 0 | 30 | Fade-in/out length at each tube segment end (frames) |
 | `face_model` | `str` | `"models/mediapipe/face_landmarker.task"` | no | — | — | — | MediaPipe face landmarker model path |
 | `hand_model` | `str` | `"models/mediapipe/hand_landmarker.task"` | no | — | — | — | MediaPipe hand landmarker model path |
+| `require_detectors` | `bool` | `false` | no | — | — | — | Fail instead of returning the video unchanged when no detection model is available |
 | `refine_steps` | `int` | `6` | no | — | 1 | 30 | Denoising steps per tube |
 | `refine_video_sigma_shift` | `float` | `1.0` | no | — | 0.1 | 50.0 | Video sigma shift for the tube refine (1.0 makes strength the starting sigma) |
 | `refine_sampler` | `str` | `"euler"` | no | `euler`, `res_multistep`, `dpmpp_2m`, `er_sde`, `sa_solver`, `lcm` | — | — | Solver for the tube refine |

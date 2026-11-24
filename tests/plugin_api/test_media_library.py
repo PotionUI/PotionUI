@@ -33,7 +33,15 @@ from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
 from src.platform.util.video_transcode import VideoProbe, find_ffprobe
 from src.plugin_api import generation, media
-from src.plugin_api.media import MediaRefError, copy_media_file, extract_frame, media_local_path, save_user_media, upload_formats
+from src.plugin_api.media import (
+    MediaRefError,
+    copy_media_file,
+    delete_user_media,
+    extract_frame,
+    media_local_path,
+    save_user_media,
+    upload_formats,
+)
 from src.plugin_api.presets import bind_director_media
 from tests.features.content_safety.fakes import FakeResolver, FakeSettings, FakeTagger
 from tests.fixtures.seed import seed_user
@@ -469,6 +477,85 @@ async def test_saving_needs_a_user(world, export):
         await save_user_media(SimpleNamespace(id=None), export)
 
 
+@pytest.mark.asyncio
+async def test_a_helper_file_the_plugin_stored_is_deleted_with_its_row(world, export):
+    stored = await save_user_media(world.owner, export, purpose="derived_artifact")
+
+    await delete_user_media(world.owner, stored["ref"])
+
+    assert world.uploads_of("owner") == []
+    assert not (world.library / stored["value"]).exists()
+    with pytest.raises(MediaRefError) as gone:
+        generation.resolve_media_ref(world.owner, stored["ref"])
+    assert gone.value.code == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_a_helper_file_whose_file_is_already_gone_loses_its_row(world, export):
+    stored = await save_user_media(world.owner, export, purpose="derived_artifact")
+    (world.library / stored["value"]).unlink()
+
+    await delete_user_media(world.owner, stored["ref"])
+
+    assert world.uploads_of("owner") == []
+
+
+@pytest.mark.asyncio
+async def test_a_library_item_the_user_browses_is_never_deleted(world, export):
+    stored = await save_user_media(world.owner, export)
+
+    with pytest.raises(MediaRefError) as refused:
+        await delete_user_media(world.owner, stored["ref"])
+
+    assert refused.value.code == "not_found"
+    assert world.uploads_of("owner") == [("user_upload", "board.png")]
+    assert (world.library / stored["value"]).is_file()
+
+
+@pytest.mark.asyncio
+async def test_a_helper_file_of_another_user_reads_as_an_unknown_item(world, export):
+    stored = await save_user_media(world.owner, export, purpose="derived_artifact")
+    working = await world.store.upload_media(
+        b"working", "crop.png", "image/png", "owner", validators.UPLOAD_PURPOSE_EDITOR_RUN, internal=True)
+    library = world.library_image()
+    refusals = []
+    for user, ref in (
+        (world.other, stored["ref"]),
+        (world.owner, {"kind": "library", "item_id": "no-such-item"}),
+        (world.owner, library),
+        (world.owner, {"kind": "library", "item_id": working.id}),
+    ):
+        with pytest.raises(MediaRefError) as refused:
+            await delete_user_media(user, ref)
+        refusals.append((refused.value.code, str(refused.value)))
+
+    assert len(set(refusals)) == 1 and refusals[0][0] == "not_found"
+    assert world.uploads_of("owner") == [("derived_artifact", "board.png"), ("editor_run_working", "crop.png")]
+    assert (world.library / stored["value"]).is_file()
+    assert (world.library / "uploads" / "still-1.png").is_file()
+    assert world.uploads.get_by_id("still-1", "owner") is not None
+
+
+@pytest.mark.asyncio
+async def test_deleting_takes_a_library_reference_only(world):
+    history = world.history_clip()
+    for ref in (history, {"kind": "library"}, {"kind": "library", "item_id": ""},
+                {"kind": "library", "item_id": "x", "extra": 1}, "uploads/x.png"):
+        with pytest.raises(MediaRefError) as refused:
+            await delete_user_media(world.owner, ref)
+        assert refused.value.code == "invalid_ref"
+
+
+@pytest.mark.asyncio
+async def test_deleting_needs_a_user(world, export):
+    stored = await save_user_media(world.owner, export, purpose="derived_artifact")
+
+    with pytest.raises(PermissionError):
+        await delete_user_media(SimpleNamespace(id=None), stored["ref"])
+
+    assert world.uploads_of("owner") == [("derived_artifact", "board.png")]
+
+
 def test_a_media_the_user_may_see_has_its_path_on_this_server(world):
     clip = world.library_clip()
     history = world.history_clip()
@@ -590,7 +677,10 @@ async def test_an_extension_the_formats_do_not_list_is_unsupported(world, tmp_pa
 
 
 def test_the_media_names_import_from_the_root_and_the_media_module():
-    for name in ("extract_frame", "save_user_media", "StoredMedia", "media_local_path", "copy_media_file", "upload_formats"):
+    for name in (
+        "extract_frame", "save_user_media", "delete_user_media", "StoredMedia",
+        "media_local_path", "copy_media_file", "upload_formats",
+    ):
         assert name in media.__all__ and name in root.__all__
         assert getattr(root, name) is getattr(media, name)
     for name in ("resolve_media_ref", "MediaRefError", "HistoryMediaRef", "LibraryMediaRef", "ResolvedMedia"):

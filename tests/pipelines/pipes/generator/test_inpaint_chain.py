@@ -11,6 +11,7 @@ from PIL import Image
 
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.canvas_expand.main import CanvasExpandPipe
+from src.pipelines.pipes.generator.flux.main import GeneratorFluxPipe
 from src.pipelines.pipes.generator.krea2.main import GeneratorKrea2Pipe
 from src.pipelines.pipes.generator.moss_image.main import GeneratorMossImagePipe
 from src.pipelines.pipes.generator.qwen_image21.main import GeneratorQwenImage21Pipe
@@ -74,6 +75,7 @@ def _fake_generator(five_d: bool, channels: int):
 
 
 FAMILIES = {
+    "flux": (GeneratorFluxPipe, False, 3),
     "z_image": (GeneratorZImagePipe, False, 3),
     "moss": (GeneratorMossImagePipe, False, 3),
     "krea2": (GeneratorKrea2Pipe, True, 3),

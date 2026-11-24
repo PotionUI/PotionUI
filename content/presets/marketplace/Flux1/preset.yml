@@ -43,6 +43,14 @@ configuration:
     type: "model_tags"
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  upscaler_tags:
+    type: "model_tags"
+    label: "Upscaler tags"
+    description: "Only models with any of these tags appear in the Upscaler picker."
+  mediapipe_tags:
+    type: "model_tags"
+    label: "Mediapipe tags"
+    description: "Only models with any of these tags appear in the Mediapipe picker."
 
 llm:
   guide: |
@@ -60,6 +68,7 @@ formulas:
     size:   { label: "Size" }
     loras:  { label: "LoRAs" }
     cache:  { label: "Step cache" }
+    enhance: { label: "Upscale and refine" }
     models: { label: "Models", preselect: false }
 
 negative_prompt:
@@ -68,3 +77,11 @@ negative_prompt:
 modes:
   - txt2img
   - img2img
+  - inpaint
+  - upscale
+  - refine_faces
+
+modes_unvalidated:
+  - inpaint
+  - upscale
+  - refine_faces

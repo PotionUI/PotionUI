@@ -304,3 +304,10 @@ def test_release_idle_te_removed():
     memory/residency.py's run_text_encode + NativeGenerator._own_models)."""
     assert not hasattr(GeneratorFluxPipe, "_release_idle_te")
     assert "MODELS" not in {s.name for s in GeneratorFluxPipe.inputs()}
+
+
+def test_inpaint_is_a_declared_mode_with_a_mask_input():
+    mode_spec = next(s for s in GeneratorFluxPipe.configuration() if s.name == "mode")
+    assert mode_spec.choices == ["txt2img", "img2img", "inpaint"]
+    mask = next(s for s in GeneratorFluxPipe.inputs() if s.name == "mask")
+    assert mask.io_type == IOType.IMAGE and mask.required is False and mask.is_array is True

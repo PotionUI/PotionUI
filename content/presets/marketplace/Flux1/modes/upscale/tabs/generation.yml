@@ -1,0 +1,60 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "source_image"
+        type: "image"
+        label: "Picture"
+        required: true
+        ai_hint: "The picture to enlarge. Describe it in the prompt for the best result."
+
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+  - type: "section"
+    label: "Upscale"
+    formula: "enhance"
+    children:
+      - name: "upscale_factor"
+        type: "slider"
+        formula: "enhance"
+        label: "Scale"
+        default: 2.0
+        ai_hint: "How many times larger the picture gets. 2 is safe on most cards; 4 needs a lot of time."
+        configuration: {min: 1.5, max: 4.0, step: 0.5}
+
+      - name: "refine_amount"
+        type: "select"
+        formula: "enhance"
+        label: "Added detail"
+        default: "balanced"
+        ai_hint: "How much new detail is painted in while upscaling. Subtle stays closest to the original, Strong changes the most."
+        configuration:
+          options:
+            - { label: "Subtle", value: "subtle", sub_label: "Stays closest to the picture" }
+            - { label: "Balanced", value: "balanced", sub_label: "Default" }
+            - { label: "Strong", value: "strong", sub_label: "Most new detail, may drift" }
+
+  - type: "section"
+    label: "Upscaler"
+    formula: "enhance"
+    children:
+      - name: "upscale_model"
+        type: "model"
+        formula: "models"
+        label: "Upscaler Model"
+        configuration:
+          model_type: "upscaler"
+          placeholder: "Plain resize (no model)"
+          filter_tags: "@config:upscaler_tags"
+          recommendations:
+            - name: "RealESRGAN_x4.pth"
+              link: "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x4.pth"
+              size: "63.9 MB"
+              sha256: "aa00f09ad753d88576b21ed977e97d634976377031b178acc3b5b238df463400"
+              description: "General-purpose 4x upscaler. Leave empty for a plain resize."
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models.yml"

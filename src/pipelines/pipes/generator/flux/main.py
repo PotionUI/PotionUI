@@ -46,7 +46,7 @@ class GeneratorFluxPipe(FlowMatchGeneratorPipe):
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
-            PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True, choices=["txt2img", "img2img"]),
+            PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True, choices=["txt2img", "img2img", "inpaint"]),
             *cls.img2img_config_specs(default_denoise=0.55),
             PipeConfigSpec("steps", int, 20, "Denoising steps", required=False, min_value=1, max_value=100),
             PipeConfigSpec("guidance", float, 3.5, "Embedded (distilled) guidance scale", required=False,
@@ -81,6 +81,7 @@ class GeneratorFluxPipe(FlowMatchGeneratorPipe):
             PipeInputSpec("conditioning", IOType.CONDITIONING, True, "Encoded prompt conditioning (per image)", is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
             cls.img2img_input_spec(),
+            cls.inpaint_input_spec(),
         ]
 
     @classmethod

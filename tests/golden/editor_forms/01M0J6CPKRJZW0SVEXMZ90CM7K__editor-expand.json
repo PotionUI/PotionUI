@@ -1,0 +1,89 @@
+{
+  "editor_mode": "expand",
+  "from": "inpaint",
+  "preset_id": "01M0J6CPKRJZW0SVEXMZ90CM7K",
+  "preset_name": "Flux1",
+  "shown": [
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "Grow",
+      "name": "mask_grow",
+      "type": "slider"
+    },
+    {
+      "label": "Feather",
+      "name": "mask_feather",
+      "type": "slider"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "CLIP-L",
+      "name": "clip_l",
+      "type": "model"
+    },
+    {
+      "label": "VAE",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "sampler"
+    },
+    {
+      "label": "Schedule",
+      "name": "schedule",
+      "type": "schedule"
+    },
+    {
+      "label": "Guidance",
+      "name": "guidance",
+      "type": "slider"
+    },
+    {
+      "label": "Cache threshold",
+      "name": "step_cache_threshold",
+      "type": "slider"
+    },
+    {
+      "label": "Warmup steps",
+      "name": "step_cache_warmup_steps",
+      "type": "slider"
+    },
+    {
+      "label": "Max consecutive skips",
+      "name": "step_cache_max_skips",
+      "type": "slider"
+    }
+  ],
+  "task": "expand"
+}

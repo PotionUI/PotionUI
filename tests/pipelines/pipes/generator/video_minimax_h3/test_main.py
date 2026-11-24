@@ -4247,3 +4247,32 @@ def test_a_configured_seed_wins_over_the_request_seed_for_a_seedless_document():
     document = _director_document(2)
     document["settings"]["seed"] = None
     assert _plan_seeds(document, input_seeds=[4242], config_seed=77) == [77, 78]
+
+
+def test_runtime_loras_make_room_on_the_card_before_they_are_staged():
+    calls = []
+    stack = [({"fake.key": torch.zeros(1)}, 0.8)]
+    _, ctx = _residency_bundle_and_ctx(runtime_lora_stack=stack)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    with patch(f"{_MAIN}.make_room_for_lora_stack", side_effect=lambda *a: calls.append(("room", a))), \
+         patch(f"{_MAIN}.snapshot_lora_state", side_effect=lambda m: calls.append("snapshot_lora_state") or "snap"), \
+         patch(f"{_MAIN}.apply_loras", side_effect=lambda m, loras, row_masked=None: calls.append("apply_loras")), \
+         patch(f"{_MAIN}.restore_lora_state"):
+        pipe.generate_one(ctx, 0, 7, progress)
+
+    assert [c if isinstance(c, str) else c[0] for c in calls] == ["room", "snapshot_lora_state", "apply_loras"]
+    bundle = ctx.extra.bundle
+    assert calls[0][1] == (ctx.extra.device, stack, (bundle.video_vae, bundle.audio_vae))
+
+
+def test_runtime_loras_empty_makes_no_room():
+    _, ctx = _residency_bundle_and_ctx()
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+    with patch(f"{_MAIN}.make_room_for_lora_stack") as mock_room:
+        pipe.generate_one(ctx, 0, 7, progress)
+    mock_room.assert_not_called()

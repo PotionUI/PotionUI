@@ -145,8 +145,10 @@ from src.platform.runtime.native.arch.minimax_h3.vdn import (
 )
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext, emit_gallery
 from src.pipelines.pipes._shared.generation.dit_placement import (
+    _release_idle_pool,
     dequant_transient_reserve_gb,
     guard_sampling_oom,
+    make_room_for_lora_stack,
     place_dit_for_sequence,
 )
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
@@ -2169,6 +2171,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 c.bundle.video_vae.offload()
             if needs_audio_vae:
                 c.bundle.audio_vae.offload()
+            _release_idle_pool(c.device)
 
         # All four arguments come off the SAME `ReferenceConditioning`, which
         # `prepare_reference_conditioning` built in one pass over
@@ -2690,6 +2693,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             if preview_hook is not None:
                 hooks.append(preview_hook)
 
+        if c.runtime_lora_stack:
+            make_room_for_lora_stack(c.device, c.runtime_lora_stack, (c.bundle.video_vae, c.bundle.audio_vae))
         lora_snapshot = snapshot_lora_state(c.bundle.dit.module) if c.runtime_lora_stack else None
         if lora_snapshot is not None:
             apply_loras(c.bundle.dit.module, c.runtime_lora_stack, row_masked=c.runtime_lora_masked)

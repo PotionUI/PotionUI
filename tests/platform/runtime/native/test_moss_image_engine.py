@@ -92,3 +92,24 @@ def test_the_spec_schedule_drives_the_sampler_sigmas():
     expected = build_sigmas(3, shift=5.0, schedule="moss_grid")
     seen = [c["sigma"] for c in calls[::2]]
     assert seen == pytest.approx([float(s) for s in expected[:-1]], abs=1e-6)
+
+
+def _unforced_sample(gen, **guidance):
+    torch.manual_seed(5)
+    cond = _cond()
+    uncond = _cond()
+    return gen.sample(
+        Conditioning(cond, uncond), SHAPE, steps=3, seed=1, cfg_scale=3.0,
+        guidance_options={"uncond_skip_layers": [], **guidance},
+    )
+
+
+def test_cfg_zero_star_is_off_by_default_for_the_family_and_an_explicit_true_overrides_it():
+    default_gen, _ = _generator()
+    off_gen, _ = _generator()
+    on_gen, _ = _generator()
+    default = _unforced_sample(default_gen)
+    off = _unforced_sample(off_gen, cfg_zero_star=False)
+    on = _unforced_sample(on_gen, cfg_zero_star=True)
+    assert torch.equal(default, off)
+    assert (default - on).abs().max() > 1e-5

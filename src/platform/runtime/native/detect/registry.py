@@ -223,6 +223,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
             "shift": 6.93,
             "guidance": "cfg",
             "default_steps": 50,
+            "cfg_zero_star": False,
         },
         latent_format={
             "latent_channels": 32,
@@ -267,6 +268,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
             "shift": 5.0,
             "guidance": "cfg",
             "default_steps": 50,
+            "cfg_zero_star": False,
             "schedule": "moss_grid",
             "uncond_skip_layers": [22],
         },

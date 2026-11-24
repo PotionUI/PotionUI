@@ -2025,7 +2025,7 @@ class NativeGenerator:
                     is_cancelled=is_cancelled,
                     seed_noise=seed_noise,
                     denoise_strength=denoise_strength,
-                    cfg_zero_star=opts.get("cfg_zero_star", True),
+                    cfg_zero_star=opts.get("cfg_zero_star", self.spec.sampling_settings.get("cfg_zero_star", True)),
                     zero_init_steps=opts.get("zero_init_steps", 0),
                     sampler_options=sampler_options,
                     step_cache_options=step_cache_options,

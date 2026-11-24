@@ -553,7 +553,7 @@ function patchModes(body: any, admin: boolean) {
 			requirements_missing: ['file'],
 			...(admin ? { install: { recipe_id: RECIPE_ID, ready: false, missing_bytes: m.missing } } : {})
 		})),
-		{ name: 'upscale', label: 'Upscale', icon: null, variants: [], short_description: 'Sharper video at a higher resolution', requirements_missing: null, ...(admin ? { install: { recipe_id: RECIPE_ID, ready: true, missing_bytes: 0 } } : {}) }
+		{ name: 'upscale_video', label: 'Upscale video', icon: null, variants: [], short_description: 'Sharper video at a higher resolution', requirements_missing: null, ...(admin ? { install: { recipe_id: RECIPE_ID, ready: true, missing_bytes: 0 } } : {}) }
 	];
 	const real = (body.data?.modes ?? []).map((mode: any) => {
 		const { install: _install, ...rest } = mode;

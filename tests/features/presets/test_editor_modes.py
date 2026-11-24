@@ -169,7 +169,7 @@ def test_a_standalone_mode_declares_its_own_icon_or_takes_the_default(tree):
     }
     _write_editor_mode(tree.sdxl, "remove", {**spec, "icon": "sparkles"}, _standalone_files(tree))
     _write_editor_mode(tree.sdxl, "cleanup", spec, _standalone_files(tree))
-    sdxl = next(p for p in _load(tree.root).presets if "inpaint" in p.modes)
+    sdxl = next(p for p in _load(tree.root).presets if p.name == "SDXL")
     assert sdxl.editor_modes["remove"].mode_icon == "sparkles"
     assert sdxl.editor_modes["cleanup"].mode_icon is None
 
@@ -228,7 +228,7 @@ def test_pipeline_operations_beside_a_pipeline_yml_are_refused(tree):
 def test_a_derived_sdxl_inpaint_mode_with_nothing_else_equals_the_from_mode(tree):
     _write_editor_mode(tree.sdxl, "inpaint", SDXL_INPAINT_EDITOR)
     loader = _load(tree.root)
-    sdxl = next(p for p in loader.presets if "inpaint" in p.modes)
+    sdxl = next(p for p in loader.presets if p.name == "SDXL")
     assert loader.load_errors == {}
     mode = sdxl.editor_modes["inpaint"]
     shown = _names(apply_overrides_to_fields(mode.forms[0].fields, editor_overrides(mode.editor)))
@@ -278,7 +278,7 @@ def test_a_standalone_mode_loads_its_own_form_and_pipeline_with_tab_files_of_a_g
     }
     _write_editor_mode(tree.sdxl, "remove", spec, _standalone_files(tree))
     loader = _load(tree.root)
-    sdxl = next(p for p in loader.presets if "inpaint" in p.modes)
+    sdxl = next(p for p in loader.presets if p.name == "SDXL")
     assert loader.load_errors == {}
     mode = sdxl.editor_modes["remove"]
     assert mode.editor.from_mode is None
@@ -297,7 +297,7 @@ def test_a_standalone_mode_needs_its_form_and_pipeline(tree):
     loader = _load(tree.root)
     assert "form.yml: file not found" in _errors_text(loader)
     assert "pipeline.yml: file not found" in _errors_text(loader)
-    assert next(p for p in loader.presets if "inpaint" in p.modes).editor_modes == {}
+    assert next(p for p in loader.presets if p.name == "SDXL").editor_modes == {}
 
 
 def test_a_standalone_mode_refuses_derivation_keys(tree):

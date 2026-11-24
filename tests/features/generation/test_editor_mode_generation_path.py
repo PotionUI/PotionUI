@@ -301,7 +301,7 @@ def test_the_sessions_and_grid_routes_start_through_the_controller_that_refuses(
 
 
 def test_an_sdxl_inpaint_editor_mode_serves_without_its_picture_and_mask_inputs(world):
-    sdxl_id = next(p.id for p in world.loader.presets if "inpaint" in p.modes)
+    sdxl_id = next(p.id for p in world.loader.presets if p.name == "SDXL")
     own = served_names(operations.get_form_schema(collaborators(world), sdxl_id, mode="inpaint"))
     schema = operations.get_form_schema(collaborators(world), sdxl_id, mode="editor:inpaint")
     served = served_names(schema)

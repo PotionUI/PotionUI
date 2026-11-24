@@ -1,4 +1,5 @@
 import logging
+import sys
 import types
 from unittest.mock import MagicMock, patch
 
@@ -173,7 +174,8 @@ def test_hand_landmarker_is_built_once_per_detector():
     detector = MediaPipeHandDetector("hand.task")
     landmarker = MagicMock()
     landmarker.detect.return_value = types.SimpleNamespace(hand_landmarks=[])
-    with patch.object(detector, "_build", return_value=landmarker) as build:
+    with patch.dict(sys.modules, {"mediapipe": MagicMock()}), \
+            patch.object(detector, "_build", return_value=landmarker) as build:
         for _ in range(3):
             detector.detect(Image.new("RGB", (32, 32)))
         detector.close()

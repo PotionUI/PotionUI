@@ -32,7 +32,7 @@ EXPECTED = {
     ("MOSS-Image", "txt2img"),
     ("Anima", "img2img"), ("Anima", "refine_faces"), ("Anima", "upscale"),
     ("Flux1", "inpaint"), ("Flux1", "refine_faces"), ("Flux1", "upscale"),
-    ("Flux2", "inpaint"), ("Flux2", "refine_faces"), ("Flux2", "upscale"),
+    ("Flux2", "edit"), ("Flux2", "inpaint"), ("QwenImage", "control"), ("Flux2", "refine_faces"), ("Flux2", "upscale"),
     ("Krea2", "inpaint"), ("Krea2", "refine_faces"),
     ("MOSS-Image", "img2img"), ("MOSS-Image", "refine_faces"), ("MOSS-Image", "upscale"),
     ("QwenImage", "inpaint"), ("QwenImage", "refine_faces"), ("QwenImage", "upscale"),

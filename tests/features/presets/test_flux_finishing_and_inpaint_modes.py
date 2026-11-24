@@ -76,8 +76,9 @@ def _providers(pipes, consumer):
 @pytest.mark.parametrize("family", FAMILIES)
 def test_the_new_modes_are_declared_and_flagged_unvalidated(templates, family):
     template = templates[family]
-    assert list(template.modes) == ["txt2img", "img2img", *NEW_MODES]
-    assert set(template.modes_unvalidated) == set(NEW_MODES)
+    extra = ["edit"] if family == "Flux2" else []
+    assert list(template.modes) == ["txt2img", "img2img", *extra, *NEW_MODES]
+    assert set(template.modes_unvalidated) == set(extra) | set(NEW_MODES)
 
 
 @pytest.mark.parametrize("family", FAMILIES)

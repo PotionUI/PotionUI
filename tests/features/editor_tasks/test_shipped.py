@@ -18,6 +18,7 @@ EXPECTED = {
     ("QwenImage", "edit"): "crop",
     ("MiniMax-H3-Image", "edit"): "crop",
     ("Krea2", "edit"): "crop",
+    ("Flux2", "edit"): "crop",
     ("QwenImage-2.1", "edit"): "crop",
     ("QwenImage-2.1", "inpaint"): "mask",
     ("ZImage", "inpaint"): "mask",

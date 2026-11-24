@@ -270,8 +270,10 @@ def test_no_tab_body_file_is_orphaned():
     for tab_file in sorted(tab_files):
         preset_dir = tab_file.split("/modes/")[0]
         composed = set()
-        for form in glob.glob(f"{preset_dir}/modes/*/form.yml") + glob.glob(
-            f"{preset_dir}/modes/*/variants/*/form.yml"
+        for form in (
+            glob.glob(f"{preset_dir}/modes/*/form.yml")
+            + glob.glob(f"{preset_dir}/modes/*/variants/*/form.yml")
+            + [f for f in tab_files if f.startswith(f"{preset_dir}/modes/") and f != tab_file]
         ):
             # `children:` is a Jinja path; only `{{ paths.preset }}` is
             # substituted, and textually (see docs/presets.md).

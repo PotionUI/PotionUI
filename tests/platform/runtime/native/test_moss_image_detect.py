@@ -63,7 +63,7 @@ def test_the_spec_matches_and_carries_the_reference_sampling_defaults():
     assert (spec.family, spec.variant) == ("moss_image", "moss_image")
     assert spec.sampling_settings == {
         "prediction": "const", "shift": 5.0, "guidance": "cfg", "default_steps": 50,
-        "schedule": "moss_grid", "uncond_skip_layers": [22],
+        "cfg_zero_star": False, "schedule": "moss_grid", "uncond_skip_layers": [22],
     }
     assert spec.latent_format == {"latent_channels": 32, "scale_factor": 1.0, "shift_factor": 0.0}
     assert spec.clip_targets == ["qwen35_9b"]

@@ -121,7 +121,7 @@ def test_an_editor_yml_alone_is_not_reported(root):
 def test_the_shipped_editor_modes_have_no_errors_and_no_warnings(shipped_editor_issues):
     files = sorted(MARKETPLACE.glob("*/editor_modes/*/editor_mode.yml"))
 
-    assert len(files) == 52
+    assert len(files) == 53
     issues = [issue for issue in shipped_editor_issues if issue.level != "info"]
     assert [issue.message for issue in issues] == []
 

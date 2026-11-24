@@ -51,7 +51,7 @@ def _names(pipes):
 
 
 def test_modes_and_display_name(moss_template):
-    assert list(moss_template.modes.keys()) == ["txt2img", "inpaint"]
+    assert list(moss_template.modes.keys()) == ["txt2img", "inpaint", "img2img", "upscale", "refine_faces"]
     assert moss_template.name == "MOSS-Image"
 
 

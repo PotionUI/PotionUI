@@ -384,6 +384,34 @@ def test_required_detectors_with_one_model_present_still_refine(monkeypatch):
     assert out.output["video"][0] != "/src/clip.mp4"
 
 
+@pytest.mark.parametrize("required", [True, False])
+def test_the_detectors_are_built_once_per_run_and_shared_by_every_video(monkeypatch, required):
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(), 24.0))
+    detector = object()
+    builds = []
+
+    def build(*a, **k):
+        builds.append(k)
+        return DetectorBuildResult(detectors=[detector], missing=["hand"])
+
+    seen = []
+
+    def tracks(frames, detectors, **k):
+        seen.append(list(detectors))
+        return []
+
+    monkeypatch.setattr(f"{_SHARED}.build_frame_detectors", build)
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", tracks)
+
+    out = _pipe(require_detectors=required).process(
+        PipeInput(input={"model": _bundle(), "video": ["/src/a.mp4", "/src/b.mp4"], "conditioning": [object()]}),
+        lambda o: None)
+
+    assert out.output["video"] == ["/src/a.mp4", "/src/b.mp4"]
+    assert len(builds) == 1
+    assert seen == [[detector], [detector]]
+
+
 def test_detectors_are_optional_by_default():
     assert DetailerVideoLtxPipe.get_default_config()["require_detectors"] is False
 

@@ -72,6 +72,7 @@
 	bind:this={anchor}
 	aria-haspopup="listbox"
 	aria-expanded={open}
+	aria-describedby={selected?.unvalidated ? `${uid}-unvalidated-explain` : undefined}
 	onclick={() => (open = !open)}
 	onkeydown={handleTriggerKeydown}
 >
@@ -89,7 +90,7 @@
 	{#if selected?.marker}
 		<span class="-ml-1 flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{selected.marker}</span>
 	{/if}
-	{#if selected?.unvalidated}<UnvalidatedBadge />{/if}
+	{#if selected?.unvalidated}<UnvalidatedBadge id="{uid}-unvalidated" />{/if}
 	<Icon name="chevron-down" className="w-4 h-4 text-fg-subtle flex-shrink-0 transition-transform {open ? 'rotate-180' : ''}" />
 </button>
 {/if}
@@ -107,6 +108,7 @@
 						type="button"
 						role="option"
 						aria-selected={current}
+						aria-describedby={option.unvalidated ? `${uid}-unvalidated-${option.value}-explain` : undefined}
 						data-nav
 						data-autofocus={current ? '' : undefined}
 						class="picker-row flex w-full items-center gap-3 rounded px-2 pt-2 text-left {option.action ? 'pb-1' : 'pb-2'}"
@@ -123,8 +125,7 @@
 								{#if option.markerLabel}
 									<span class="sr-only">{option.markerLabel}</span>
 								{/if}
-								{#if option.unvalidated}<UnvalidatedBadge />{/if}
-								
+								{#if option.unvalidated}<UnvalidatedBadge id="{uid}-unvalidated-{option.value}" />{/if}
 							</span>
 							{#if option.description}
 								<span class="line-clamp-2 text-sm leading-4 text-fg-subtle">{option.description}</span>

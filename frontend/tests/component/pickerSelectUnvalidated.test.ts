@@ -48,4 +48,29 @@ describe('mode picker unvalidated badge', () => {
 		await openWith(presetModeOptions([{ id: 'txt2img', label: 'Text to image' }]), 'txt2img');
 		expect(document.body.querySelector('[data-unvalidated-badge]')).toBeNull();
 	});
+
+	it('describes the unvalidated trigger and rows through aria-describedby', async () => {
+		const target = document.body.appendChild(document.createElement('div'));
+		instance = mount(PickerSelect, { target, props: { label: 'Mode', value: 'inpaint', options, onchange: () => {} } });
+		flushSync();
+		const trigger = target.querySelector('button')!;
+		const describedBy = trigger.getAttribute('aria-describedby')!;
+		expect(describedBy).toBeTruthy();
+		expect(document.getElementById(describedBy)?.textContent).toContain('Not yet tested');
+		expect(trigger.textContent).toContain('Not validated');
+		trigger.click();
+		flushSync();
+		await settle();
+		const row = Array.from(document.body.querySelectorAll('[role="option"]')).find((r) => r.textContent?.includes('Inpaint'))!;
+		expect(document.getElementById(row.getAttribute('aria-describedby')!)?.textContent).toContain('Not yet tested');
+		const plain = Array.from(document.body.querySelectorAll('[role="option"]')).find((r) => r.textContent?.includes('Text to image'))!;
+		expect(plain.hasAttribute('aria-describedby')).toBe(false);
+	});
+
+	it('nests no block element inside the trigger button', () => {
+		const target = document.body.appendChild(document.createElement('div'));
+		instance = mount(PickerSelect, { target, props: { label: 'Mode', value: 'inpaint', options, onchange: () => {} } });
+		flushSync();
+		expect(target.querySelector('button')!.querySelector('div')).toBeNull();
+	});
 });

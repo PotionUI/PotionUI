@@ -369,8 +369,9 @@
 								class="{controlClass(select.open)} {capClass || 'min-w-[132px] max-w-[240px]'} text-base font-medium"
 								aria-haspopup="listbox"
 								aria-expanded={select.open}
-								aria-labelledby="{uid}-mode {uid}-mode-value"
-																onclick={select.toggle}
+								aria-labelledby={select.selected?.unvalidated ? `${uid}-mode ${uid}-mode-value ${uid}-mode-unvalidated` : `${uid}-mode ${uid}-mode-value`}
+								aria-describedby={select.selected?.unvalidated ? `${uid}-mode-unvalidated-explain` : undefined}
+								onclick={select.toggle}
 								onkeydown={select.keydown}
 							>
 								<span class="ctx-valuerow">
@@ -381,7 +382,7 @@
 									{#if select.selected?.marker}
 										<span class="-ml-1 flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{select.selected.marker}</span>
 									{/if}
-									{#if select.selected?.unvalidated}<UnvalidatedBadge />{/if}
+									{#if select.selected?.unvalidated}<UnvalidatedBadge id="{uid}-mode-unvalidated" />{/if}
 								</span>
 								<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {select.open ? 'rotate-180' : ''}" />
 							</button>

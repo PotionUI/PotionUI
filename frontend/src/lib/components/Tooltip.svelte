@@ -14,10 +14,11 @@
 	export let kbd: string | string[] | undefined = undefined;
 	export let wrapperClass: string = 'inline-flex items-center';
 	export let truncateOnly: boolean = false;
+	export let inline: boolean = false;
 
 	const id = `tooltip-${Math.random().toString(36).slice(2, 10)}`;
 	let showTooltip = false;
-	let triggerElement: HTMLDivElement;
+	let triggerElement: HTMLElement;
 	let describedElement: Element | null = null;
 
 	function reveal() {
@@ -42,15 +43,16 @@
 	);
 </script>
 
-<div class={wrapperClass}>
-	<div
+<svelte:element this={inline ? 'span' : 'div'} class={wrapperClass}>
+	<svelte:element
+		this={inline ? 'span' : 'div'}
 		bind:this={triggerElement}
 		role="presentation"
 		class={wrapperClass}
 	>
 		<slot />
-	</div>
-</div>
+	</svelte:element>
+</svelte:element>
 
 {#if showTooltip && text}
 	<TooltipBubble {text} {detail} {id} {position} {kbd} anchor={triggerElement} />

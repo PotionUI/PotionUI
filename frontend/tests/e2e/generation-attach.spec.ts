@@ -16,6 +16,21 @@ const LIVE_PREVIEW =
 	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGM4oaEBAALUARkFUI+kAAAAAElFTkSuQmCC';
 const TOTAL_STEPS = 30;
 
+async function shownPreview(page: Page): Promise<string | null> {
+	return page.evaluate(async () => {
+		const image = Array.from(document.querySelectorAll<HTMLImageElement>('img[src^="blob:"]')).find((el) => el.offsetParent !== null);
+		if (!image) return null;
+		const bytes = new Uint8Array(await (await fetch(image.src)).arrayBuffer());
+		let binary = '';
+		for (const byte of bytes) binary += String.fromCharCode(byte);
+		return btoa(binary);
+	});
+}
+
+function payload(dataUrl: string): string {
+	return dataUrl.slice(dataUrl.indexOf(',') + 1);
+}
+
 interface Preset {
 	id: string;
 	name: string;
@@ -211,8 +226,7 @@ test.describe('a generation started outside a tab shows up and can be followed',
 			.poll(async () => (await persistedTabs(page)).find((tab) => (tab.openedFrom as { generationId?: string } | null)?.generationId === RUNNING_ID))
 			.toMatchObject({ selectedPreset: preset.id, selectedMode: preset.mode, prompt: PROMPT, activeGenerationId: RUNNING_ID, formData: { seed: SEED } });
 
-		const preview = page.locator(`img[src="${REPLAYED_PREVIEW}"]`).first();
-		await expect(preview).toBeVisible({ timeout: 15000 });
+		await expect.poll(() => shownPreview(page), { timeout: 15000 }).toBe(payload(REPLAYED_PREVIEW));
 		await expect(page.getByRole('progressbar', { name: 'Generation progress' })).toHaveAttribute('aria-valuenow', '70', { timeout: 10000 });
 
 		const push_ = (message: object) => push(server, RUNNING_ID, message);
@@ -223,11 +237,10 @@ test.describe('a generation started outside a tab shows up and can be followed',
 		await expect(progressBar).toHaveAttribute('aria-valuenow', '50', { timeout: 10000 });
 
 		push_({ type: 'workbench_update', generation_id: RUNNING_ID, pipe_id: 1, pipe_name: 'generator', output_type: 'image', temporary: true, image: LIVE_PREVIEW });
-		await expect(page.locator(`img[src="${LIVE_PREVIEW}"]`).first()).toBeVisible({ timeout: 10000 });
+		await expect.poll(() => shownPreview(page), { timeout: 10000 }).toBe(payload(LIVE_PREVIEW));
 		push_({ type: 'workbench_update', generation_id: RUNNING_ID, pipe_id: 1, pipe_name: 'generator', output_type: 'image', temporary: true, image: REPLAYED_PREVIEW, replayed: true });
 		await page.waitForTimeout(500);
-		await expect(page.locator(`img[src="${LIVE_PREVIEW}"]`).first()).toBeVisible();
-		await expect(page.locator(`img[src="${REPLAYED_PREVIEW}"]`)).toHaveCount(0);
+		expect(await shownPreview(page)).toBe(payload(LIVE_PREVIEW));
 		await screenshot(page, JOURNEY, 'following-1440');
 
 		push_({
@@ -387,7 +400,7 @@ test.describe('on a phone', () => {
 		await sheet.getByRole('button', { name: 'Open in a tab' }).click();
 		await expect(sheet).toHaveCount(0);
 		await expect(page.getByRole('button', { name: /^Open tabs/ })).toContainText(preset.name);
-		await expect(page.locator(`img[src="${REPLAYED_PREVIEW}"]`).first()).toBeVisible({ timeout: 15000 });
+		await expect.poll(() => shownPreview(page), { timeout: 15000 }).toBe(payload(REPLAYED_PREVIEW));
 		await screenshot(page, JOURNEY, 'following-390');
 	});
 });

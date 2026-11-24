@@ -1,0 +1,42 @@
+name: "custom"
+short_description: "Change an image by instruction, using up to 4 reference pictures."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/edit/tabs/generation.yml"
+      - type: "tab"
+        anchor: "references"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/edit/tabs/references.yml"
+      - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children:
+          file: "{{ paths._shared }}/native/lora.yml"
+          vars:
+            hint: LoRAs add specialized styles, concepts, or characters to the base model. Multiple LoRAs can be combined. Check model page for recommended strength values. 0.5-0.8 is recommended for most LoRAs, 1.0 = full effect; negative values invert the effect. Leave empty if not needed.
+            placeholder: Select a LoRA...
+            max_items: 10
+            strength_min: -10.0
+            strength_max: 10.0
+            strength_step: 0.1
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/img2img/tabs/advanced.yml"

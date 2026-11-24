@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[3]
 MARKETPLACE = ROOT / "content" / "presets" / "marketplace"
 
 NINE = {
+    ("Flux2", "edit"): ("edit", "crop"),
     ("Flux3", "edit"): ("edit", "crop"),
     ("Krea2", "edit"): ("edit", "crop"),
     ("MOSS-Image", "inpaint"): ("inpaint", "mask"),

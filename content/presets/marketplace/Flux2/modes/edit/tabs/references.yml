@@ -1,0 +1,9 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Reference Images"
+    required: true
+    configuration:
+      multi: true
+      max_items: 4
+    ai_hint: "Up to 4 images, jointly conditioned. With a single image, that image is the one being edited and the output matches its size and aspect (large images are fitted under 4 megapixels). With several images, each is fitted under 1 megapixel and the output defaults to the first image's size. Use the Output size field on the Generation tab to override the size."

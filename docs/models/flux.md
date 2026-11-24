@@ -50,13 +50,23 @@ _Generated from the preset definitions by `scripts/model_modes_reference.py`; ed
 
 - `txt2img`: Text to Image
 - `img2img`: Image to Image
+- `edit`: Edit
 - `inpaint`: Inpaint
 - `upscale`: Upscale
 - `refine_faces`: Fix faces and hands
 
 <!-- modes:end -->
 
-Flux1 and Flux2 each ship the modes above. `img2img` uses the shared img2img mixin that every image-family generator has.
+Flux1 and Flux2 each ship the modes above, except `edit`, which only Flux2 has. `img2img` uses the shared img2img mixin that every image-family generator has.
+
+### Edit with reference pictures (Flux2 / Klein)
+
+`edit` takes 1-4 reference pictures (the Klein limit in Black Forest Labs' documentation). Each is VAE-encoded and joined to the noisy tokens as extra sequence entries with its own position ids: the time axis carries 10, 20, 30 for the first, second, third picture (the noise is 0), and the height and width axes cover that picture's own grid. The model's output is cut back to the noise tokens, so the references are conditioning only. The same arch code path runs for Klein 4B (Apache-2.0) and 9B; the preset adds nothing size-specific.
+
+- One picture: it is the picture being edited. It is fitted under 4 megapixels, padded to the 16 px grid and cropped back, so the output matches its size and aspect.
+- Several pictures: each is fitted under 1 megapixel and centre-cropped to the grid; the output defaults to the first picture's size. The Output size field overrides either case.
+- There is no Guidance slider: Klein has no guidance input. FLUX.1 refuses `edit` with an error, because the Flux1 checkpoints have no reference-picture training.
+- The mode is listed as not validated until it has run with real weights. Prompt weights still apply, because the pictures reach the DiT as latents and never pass through the text encoder.
 
 ## Sampling
 

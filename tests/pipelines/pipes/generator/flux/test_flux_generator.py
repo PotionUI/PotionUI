@@ -308,6 +308,6 @@ def test_release_idle_te_removed():
 
 def test_inpaint_is_a_declared_mode_with_a_mask_input():
     mode_spec = next(s for s in GeneratorFluxPipe.configuration() if s.name == "mode")
-    assert mode_spec.choices == ["txt2img", "img2img", "inpaint"]
+    assert mode_spec.choices == ["txt2img", "img2img", "inpaint", "edit"]
     mask = next(s for s in GeneratorFluxPipe.inputs() if s.name == "mask")
     assert mask.io_type == IOType.IMAGE and mask.required is False and mask.is_array is True

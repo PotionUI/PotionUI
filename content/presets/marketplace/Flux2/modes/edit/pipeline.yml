@@ -1,0 +1,113 @@
+pipeline:
+  - name: "model_loader/flux"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.source_image }}"
+          template:
+            type: "image"
+            path: "{{ item.path | default(item) }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/flux", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+      guidance_scale: 1.0
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
+        - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
+        - ["output_size", "{{ form.output_size }}"]
+
+  - name: "generator/flux"
+    input:
+      - ["model", "model_loader/flux", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      mode: "edit"
+      output_size: "{{ form.output_size }}"
+      steps: "{{ form.steps | default(preset.vars.default_steps) }}"
+      shift: "{% set s = form.shift %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      schedule: "{{ form.schedule }}"
+      sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+      quantity: "{{ form.quantity }}"
+      step_cache:
+        rel_threshold: "{{ form.step_cache_threshold }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips }}"
+
+  - name: "gallery"
+    input:
+      - ["image", "generator/flux", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

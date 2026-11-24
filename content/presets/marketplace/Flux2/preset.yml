@@ -69,6 +69,10 @@ llm:
     exact words in quotes. Describe what you WANT - Flux runs guidance-distilled with no
     negative prompt, so express constraints positively ("empty street" not "no people").
     More concrete detail yields better results; think of briefing a photographer.
+    Edit mode takes 1-4 reference images: the first sets the output's size and is the
+    image being edited; describe the change you want (e.g. "put a red bandana around
+    the dog's neck"), and refer to the other images by position ("the dog from the
+    second image").
 
 formulas:
   groups:
@@ -85,11 +89,13 @@ negative_prompt:
 modes:
   - txt2img
   - img2img
+  - edit
   - inpaint
   - upscale
   - refine_faces
 
 modes_unvalidated:
+  - edit
   - inpaint
   - upscale
   - refine_faces

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import random
 from contextlib import ExitStack
 from dataclasses import dataclass, field
@@ -25,7 +26,12 @@ from src.pipelines.pipes._shared.generation.img2img import img2img_denoise
 from src.pipelines.pipes._shared.generation.native_generator import build_native_generator
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
 from src.pipelines.pipes.detailer.native.colour import match_colour
-from src.pipelines.pipes.detailer.native.detection import FaceDetection, build_face_detector
+from src.pipelines.pipes.detailer.native.detection import (
+    CombinedDetector,
+    FaceDetection,
+    build_face_detector,
+    build_hand_detector,
+)
 from src.pipelines.pipes.detailer.native.latent_blend import LatentInpaintFilter, latent_mask_tensor
 from src.pipelines.pipes.detailer.native.loras import (
     DROP,
@@ -63,6 +69,8 @@ class _FaceRun:
     min_face_ratio: float
     max_face_ratio: float
     max_faces: int
+    max_hands: int
+    min_hand_ratio: float
     crop_padding: float
     crop_size: int
     mask_dilate: float
@@ -104,6 +112,14 @@ class DetailerNativePipe(BasePipe):
                            required=False, min_value=0.0, max_value=1.0),
             PipeConfigSpec("max_faces", int, 4, "Maximum number of faces refined per image",
                            required=False, min_value=1, max_value=20),
+            PipeConfigSpec("detect_hands", bool, False,
+                           "Also detect and refine hands (needs a hand detector model)",
+                           required=False),
+            PipeConfigSpec("max_hands", int, 4, "Maximum number of hands refined per image",
+                           required=False, min_value=1, max_value=20),
+            PipeConfigSpec("min_hand_ratio", float, 0.003,
+                           "Skip hands smaller than this fraction of the frame area",
+                           required=False, min_value=0.0, max_value=1.0),
             PipeConfigSpec("min_face_ratio", float, 0.02,
                            "Skip faces smaller than this fraction of the frame area",
                            required=False, min_value=0.0, max_value=1.0),
@@ -155,6 +171,10 @@ class DetailerNativePipe(BasePipe):
                            "MediaPipe face landmarker model path (mediapipe backend only)", required=False),
             PipeConfigSpec("yolo_model", str, None,
                            "YOLO face detector model path (yolo backend only)", required=False),
+            PipeConfigSpec("hand_model", str, None,
+                           "MediaPipe hand landmarker model path (mediapipe backend only)", required=False),
+            PipeConfigSpec("hand_yolo_model", str, None,
+                           "YOLO hand detector model path (yolo backend only)", required=False),
             device_config_spec(),
         ]
 
@@ -225,6 +245,19 @@ class DetailerNativePipe(BasePipe):
         )
         generator = build_native_generator(bundle, device=device)
         progress = ProgressEmitter(generation_outputs, title=self.name)
+        max_hands = int(self.config.get("max_hands", 4))
+        if bool(self.config.get("detect_hands", False)):
+            hand_path = self.config.get("hand_yolo_model") if backend == "yolo" else self.config.get("hand_model")
+            if hand_path and os.path.isfile(hand_path):
+                detector = CombinedDetector([detector, build_hand_detector(
+                    backend, model_path=hand_path, confidence=confidence, max_hands=max_hands,
+                    device=device,
+                )])
+            else:
+                progress.state(
+                    "Hand refinement was skipped because the hand detection model isn't available yet",
+                    icon=Icon(name="warning"),
+                )
         ring = mediapipe_oval_ring() if mask_mode == "oval" else None
 
         results: List[Image.Image] = []
@@ -235,7 +268,9 @@ class DetailerNativePipe(BasePipe):
                 lora_scope, _FaceRun(
                     conditioning=conditioning, seeds=seeds, ring=ring,
                     min_face_ratio=min_face_ratio, max_face_ratio=max_face_ratio,
-                    max_faces=max_faces, crop_padding=crop_padding, crop_size=crop_size,
+                    max_faces=max_faces, max_hands=max_hands,
+                    min_hand_ratio=float(self.config.get("min_hand_ratio", 0.003)),
+                    crop_padding=crop_padding, crop_size=crop_size,
                     mask_dilate=mask_dilate, feather=feather, steps=steps, guidance=guidance,
                     sampler=sampler, denoise=denoise, latent_mask=latent_mask,
                     colour_match=colour_match, overlay=overlay, seed_offset=seed_offset,
@@ -280,7 +315,7 @@ class DetailerNativePipe(BasePipe):
 
             plans = self._plan_faces(
                 detector.detect(image), image, min_face_ratio, max_face_ratio, max_faces,
-                crop_padding, ring, mask_dilate, feather,
+                crop_padding, ring, mask_dilate, feather, run.max_hands, run.min_hand_ratio,
             )
             faces = [plan for plan in plans if plan.reason is None]
             if not faces:
@@ -302,7 +337,7 @@ class DetailerNativePipe(BasePipe):
                     break
 
                 progress.state(
-                    f"Refining face <<NUMBER:{face_idx + 1}>>/<<NUMBER:{len(faces)}>>, "
+                    f"Refining {face.kind} <<NUMBER:{face_idx + 1}>>/<<NUMBER:{len(faces)}>>, "
                     f"image {index + 1}/{len(images)}",
                     icon=Icon(name="face-smile", effect="pulse"),
                 )
@@ -432,7 +467,7 @@ class DetailerNativePipe(BasePipe):
     @classmethod
     def _plan_faces(cls, detections, image: Image.Image, min_ratio: float, max_ratio: float,
                     max_faces: int, crop_padding: float, ring, dilate_fraction: float,
-                    feather: int) -> List["_FacePlan"]:
+                    feather: int, max_hands: int = 0, min_hand_ratio: float = 0.0) -> List["_FacePlan"]:
         width, height = image.size
         area = max(1, width * height)
         short_side = max(1, min(width, height))
@@ -443,7 +478,7 @@ class DetailerNativePipe(BasePipe):
             if box[2] <= box[0] or box[3] <= box[1]:
                 continue
             box_w, box_h = face.box[2] - face.box[0], face.box[3] - face.box[1]
-            if face.area / area < min_ratio:
+            if face.area / area < (min_hand_ratio if face.kind == "hand" else min_ratio):
                 skipped.append(_FacePlan(face=face, box=tuple(box), reason=_TOO_SMALL))
                 continue
             if max_ratio > 0.0 and max(box_w, box_h) / short_side > max_ratio:
@@ -452,7 +487,9 @@ class DetailerNativePipe(BasePipe):
             kept.append(_FacePlan(face=face, box=tuple(box)))
 
         kept.sort(key=lambda plan: plan.face.area, reverse=True)
-        kept = kept[:max_faces]
+        faces_kept = [plan for plan in kept if plan.face.kind != "hand"][:max_faces]
+        hands_kept = [plan for plan in kept if plan.face.kind == "hand"][:max_hands]
+        kept = sorted(faces_kept + hands_kept, key=lambda plan: plan.face.area, reverse=True)
         for plan in kept:
             plan.mask, plan.mask_mode = cls._face_mask(plan.face, plan.box, ring, dilate_fraction, feather)
         return kept + skipped

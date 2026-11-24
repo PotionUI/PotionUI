@@ -385,6 +385,9 @@ Family-agnostic native face detailer: detect -> mask-guided latent inpaint -> co
 | `detection_backend` | `str` | `"mediapipe"` | no | `mediapipe`, `yolo` | — | — | Detector backend (mediapipe = Apache-2.0 default; yolo = AGPL, opt-in) |
 | `detection_confidence` | `float` | `0.5` | no | — | 0.0 | 1.0 | Face detection confidence threshold |
 | `max_faces` | `int` | `4` | no | — | 1 | 20 | Maximum number of faces refined per image |
+| `detect_hands` | `bool` | `false` | no | — | — | — | Also detect and refine hands (needs a hand detector model) |
+| `max_hands` | `int` | `4` | no | — | 1 | 20 | Maximum number of hands refined per image |
+| `min_hand_ratio` | `float` | `0.003` | no | — | 0.0 | 1.0 | Skip hands smaller than this fraction of the frame area |
 | `min_face_ratio` | `float` | `0.02` | no | — | 0.0 | 1.0 | Skip faces smaller than this fraction of the frame area |
 | `max_face_ratio` | `float` | `0.6` | no | — | 0.0 | 1.0 | Skip faces wider than this fraction of the frame's short side |
 | `crop_padding` | `float` | `0.6` | no | — | 0.0 | 2.0 | Padding around each face box, as a fraction of the box's own size |
@@ -405,6 +408,8 @@ Family-agnostic native face detailer: detect -> mask-guided latent inpaint -> co
 | `seed_offset` | `int` | `0` | no | — | — | — | Added to every face's per-face seed |
 | `face_model` | `str` | — | no | — | — | — | MediaPipe face landmarker model path (mediapipe backend only) |
 | `yolo_model` | `str` | — | no | — | — | — | YOLO face detector model path (yolo backend only) |
+| `hand_model` | `str` | — | no | — | — | — | MediaPipe hand landmarker model path (mediapipe backend only) |
+| `hand_yolo_model` | `str` | — | no | — | — | — | YOLO hand detector model path (yolo backend only) |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 
 ### <a id="pipe-detailer-sdxl"></a>`detailer/sdxl`

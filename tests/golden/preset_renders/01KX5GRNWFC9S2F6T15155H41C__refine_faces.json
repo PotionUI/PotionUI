@@ -217,6 +217,10 @@
           "type": "float",
           "value": 0.3
         },
+        "detect_hands": {
+          "type": "bool",
+          "value": false
+        },
         "detection_backend": {
           "type": "str",
           "value": "mediapipe"
@@ -236,6 +240,10 @@
         "guidance": {
           "type": "float",
           "value": 5.0
+        },
+        "hand_model": {
+          "type": "str",
+          "value": "/GOLDEN/models/face_detailer_hand_model.safetensors"
         },
         "latent_mask": {
           "type": "bool",

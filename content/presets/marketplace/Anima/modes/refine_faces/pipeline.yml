@@ -103,6 +103,8 @@ pipeline:
       colour_match: "{{ form.fix_colour_match }}"
       detection_backend: "mediapipe"
       face_model: "{{ form.fix_face_model }}"
+      detect_hands: "{{ form.face_detailer_hands }}"
+      hand_model: "{{ form.face_detailer_hand_model }}"
 
   - name: "gallery"
     input:

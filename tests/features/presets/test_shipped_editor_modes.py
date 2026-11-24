@@ -29,6 +29,8 @@ NINE = {
     ("Krea2", "expand"): ("inpaint", "mask"),
     ("Krea2", "fix_faces"): ("refine_faces", "crop"),
     ("Krea2", "upscale"): ("upscale", "whole"),
+    ("Anima", "fix_faces"): ("refine_faces", "crop"),
+    ("Anima", "upscale"): ("upscale", "whole"),
     ("ZImage", "expand"): ("inpaint", "mask"),
     ("ZImage", "fix_faces"): ("refine_faces", "crop"),
     ("ZImage", "upscale"): ("upscale", "whole"),

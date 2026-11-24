@@ -1,6 +1,6 @@
 name: "custom"
-mode_label: "Fix faces"
-short_description: "Repaint the faces in a picture with your checkpoint."
+mode_label: "Fix faces and hands"
+short_description: "Repaint the faces and hands in a picture with your checkpoint."
 prompt: "optional"
 prompt_label: "Describe the face"
 prompt_placeholder: "smiling, detailed eyes, soft light"

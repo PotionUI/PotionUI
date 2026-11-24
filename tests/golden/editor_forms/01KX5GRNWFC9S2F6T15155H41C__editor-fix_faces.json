@@ -1,0 +1,89 @@
+{
+  "editor_mode": "fix_faces",
+  "from": "refine_faces",
+  "preset_id": "01KX5GRNWFC9S2F6T15155H41C",
+  "preset_name": "Anima",
+  "shown": [
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Max Faces",
+      "name": "fix_max_faces",
+      "type": "slider"
+    },
+    {
+      "label": "Mask Shape",
+      "name": "fix_mask_mode",
+      "type": "select"
+    },
+    {
+      "label": "Face Detection Model",
+      "name": "fix_face_model",
+      "type": "model"
+    },
+    {
+      "label": "Also fix hands",
+      "name": "face_detailer_hands",
+      "type": "checkbox"
+    },
+    {
+      "label": "Hand Detection Model",
+      "name": "face_detailer_hand_model",
+      "type": "model"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3-0.6B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE (Wan 2.1)",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "CFG scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Detection confidence",
+      "name": "fix_confidence",
+      "type": "slider"
+    },
+    {
+      "label": "Feather",
+      "name": "fix_feather",
+      "type": "slider"
+    },
+    {
+      "label": "Mask-Guided Refine",
+      "name": "fix_latent_mask",
+      "type": "checkbox"
+    },
+    {
+      "label": "Colour Match",
+      "name": "fix_colour_match",
+      "type": "checkbox"
+    }
+  ],
+  "task": "fix_faces"
+}

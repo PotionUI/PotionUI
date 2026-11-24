@@ -1,0 +1,16 @@
+schema_version: 1
+task: fix_faces
+from: refine_faces
+label: Fix faces and hands
+region: crop
+inputs:
+  source: source_image
+context: 0.5
+strength:
+  field: fix_strength
+  default: 0.3
+  min: 0.1
+  max: 0.75
+fields:
+  hide:
+    - fix_strength

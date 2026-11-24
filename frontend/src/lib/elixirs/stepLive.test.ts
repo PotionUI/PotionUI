@@ -111,7 +111,7 @@ describe('step live attach', () => {
 			{ type: 'workbench_update', generation_id: 'g-run', pipe_id: 1, pipe_name: 'generator', output_type: 'image', file_type: 'image', temporary: true, image: 'data:image/png;base64,AAAA' } as never,
 			{ unsubscribe: () => {} }
 		);
-		expect(tab(tabId).generation.currentGeneration?.current_image).toBe('data:image/png;base64,AAAA');
+		expect(tab(tabId).generation.currentGeneration?.current_image).toMatch(/^blob:/);
 	});
 
 	it('shows a generation that finished while attached as a normal completion', async () => {

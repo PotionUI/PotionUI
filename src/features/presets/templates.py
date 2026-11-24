@@ -67,6 +67,7 @@ class FieldTemplate:
     # Hides this field when the Video Director editor owns its preset mode.
     # Mirrors FieldSpec.hidden_when_video_director in schema.py.
     hidden_when_video_director: bool = False
+    display_only: bool = False
     capability: Optional[Dict[str, Any]] = None
     formula: Union[str, Literal[False], None] = None
     merge_from: Optional[List[str]] = None

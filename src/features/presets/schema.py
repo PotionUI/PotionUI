@@ -238,6 +238,7 @@ class FieldSpec(BaseModel):
     # default still submits; only rendering changes, same contract as
     # `audience`. See docs/presets.md field reference.
     hidden_when_video_director: Optional[bool] = False
+    display_only: StrictBool = False
     capability: Optional[CapabilitySpec] = None
     formula: Optional[Union[StrictStr, Literal[False]]] = None
     merge_from: Optional[List[str]] = None

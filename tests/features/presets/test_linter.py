@@ -1300,7 +1300,7 @@ class TestLintPipelineTemplates:
 
     # --- form.<name> reference existence check --------------------------------
 
-    def test_missing_form_field_without_default_is_warning(self, tmp_path):
+    def test_missing_form_field_without_default_is_error(self, tmp_path):
         self._write_mode(
             tmp_path, "ref_missing",
             "pipeline:\n  - name: generator\n"
@@ -1310,19 +1310,24 @@ class TestLintPipelineTemplates:
         )
         issues = PresetLinter([str(tmp_path)]).lint()
         assert any(
-            i.level == "warning" and "form.nonexistent" in i.message and "no field named" in i.message
+            i.level == "error" and "form.nonexistent" in i.message and "no field named" in i.message
             for i in issues
         )
 
-    def test_missing_form_field_with_default_is_clean(self, tmp_path):
+    def test_missing_form_field_with_default_is_warning_not_error(self, tmp_path):
         self._write_mode(
             tmp_path, "ref_defaulted",
             "pipeline:\n  - name: generator\n"
             "    configuration:\n"
             "      v: \"{{ form.nonexistent | default('x') }}\"\n",
+            form_yaml="name: custom\nfields:\n  - {type: string, name: real, default: ''}\n",
         )
         issues = PresetLinter([str(tmp_path)]).lint()
         assert not any("no field named" in i.message for i in issues)
+        assert any(
+            i.level == "warning" and "form.nonexistent" in i.message and "declares no field" in i.message
+            for i in issues
+        )
 
     def test_existing_form_field_is_clean(self, tmp_path):
         self._write_mode(
@@ -1928,7 +1933,7 @@ class TestLintVariantFormRefs:
         (variant_dir / "form.yml").write_text(f"name: compact\nfields:\n{variant_fields}\n")
         return preset_dir
 
-    def test_field_missing_from_one_variant_is_warning_naming_variant(self, tmp_path):
+    def test_field_missing_from_one_variant_is_error_naming_variant(self, tmp_path):
         self._write_variant_preset(
             tmp_path, "variant_ref_missing",
             'pipeline:\n  - name: "fake/consumer"\n'
@@ -1939,7 +1944,7 @@ class TestLintVariantFormRefs:
         catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
         issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
         assert any(
-            i.level == "warning" and "form.only_in_default" in i.message and "variant 'compact'" in i.message
+            i.level == "error" and "form.only_in_default" in i.message and "variant 'compact'" in i.message
             for i in issues
         )
         assert not any("variant 'default'" in i.message for i in issues)

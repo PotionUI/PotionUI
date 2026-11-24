@@ -6,6 +6,7 @@ Used by `scripts/preset_lint.py` and `GET /api/developer/presets/lint`.
 """
 
 import copy
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -83,6 +84,17 @@ SHORT_DESCRIPTION_MAX = 100
 # is legitimate even though no field defines it, so the form-reference check
 # treats them as known.
 _INJECTED_FORM_KEYS = frozenset({"video_director", "music_director", "timeline", "llm", "prompt_timeline"})
+_HOST_FORM_KEYS = frozenset({"quantity", "regional_prompt"})
+_HOST_FORM_SUFFIXES = ("__origin", "_inpaint_mask")
+_HOST_CONSUMED_FIELD_NAMES = frozenset({
+    "prompt", "negative_prompt", "seed", "quantity", "width", "height", "resolution", "fps", "upscale",
+    "speed_profile", "region", "region_context", "regional_prompt",
+})
+_NON_VALUE_FIELD_TYPES = frozenset({"alert", "markdown", "header", "section", "anchor", "gate"})
+_FORM_BRACKET_RE = re.compile(r"\bform\s*\[\s*(['\"])([A-Za-z_][A-Za-z0-9_]*)\1(\s*~)?")
+_FORM_GET_RE = re.compile(r"\bform\.get\(\s*(['\"])([A-Za-z_][A-Za-z0-9_]*)\1")
+_FORM_BARE_RE = re.compile(r"\bform\b(?!\s*\.\s*[A-Za-z_]|\s*\[\s*['\"])")
+_GUIDANCE_FIELD_NAMES = frozenset({"guidance", "guidance_scale", "cfg", "cfg_scale", "true_cfg_scale"})
 _PROMPT_RESOURCE_FIELD_TYPES = frozenset({"image", "video", "audio", "media"})
 _FORMULA_EXEMPT_ACTIONS = frozenset({"set_visibility", "set_required", "set_filter_tags"})
 
@@ -517,6 +529,8 @@ class PresetLinter:
             issues.extend(self._lint_variant_form_refs(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_guard_default_mismatch(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_negative_prompt(preset_file, mode_dir, mode_name, manifest))
+            issues.extend(self._lint_unread_fields(preset_file, mode_dir, mode_name))
+            issues.extend(self._lint_family_capabilities(preset_file, mode_dir, mode_name, manifest))
 
         issues.extend(self._lint_media_refs(preset_file, manifest))
 
@@ -1847,9 +1861,9 @@ class PresetLinter:
         field still fails strict evaluation for every submission that picked
         THIS one.
 
-        A block carrying `| default(...)` is skipped (same as before) - the
-        default makes a missing field safe under strict eval regardless of
-        variant.
+        A block carrying `| default(...)` stays safe under strict eval but is
+        still reported as a warning: the field is never submitted, so the
+        fallback always wins. Host-injected names are exempt.
         """
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
@@ -1880,18 +1894,30 @@ class PresetLinter:
             for path, node in self._iter_nodes(data, "pipeline.yml"):
                 if not isinstance(node, str):
                     continue
-                for name in self._missing_form_refs(node, known_fields):
-                    issues.append(
-                        LintIssue(
-                            "warning",
-                            preset_str,
-                            f"{loc}: {path}: references form.{name} but no field named '{name}' "
-                            f"exists in form variant '{variant_name}' ({vloc}/form.yml) and the "
-                            f"expression has no | default(...) - a submission using this variant "
-                            f"would fail strict evaluation. Add the field to this variant or a "
-                            f"| default(...) fallback.",
+                for name, guarded in self._dangling_form_refs(node, known_fields):
+                    if guarded:
+                        issues.append(
+                            LintIssue(
+                                "warning",
+                                preset_str,
+                                f"{loc}: {path}: references form.{name} but form variant '{variant_name}' "
+                                f"({vloc}/form.yml) declares no field '{name}'; the | default(...) fallback "
+                                f"hides it, so the value is never submitted and the fallback always wins. "
+                                f"Declare the field or drop the reference.",
+                            )
                         )
-                    )
+                    else:
+                        issues.append(
+                            LintIssue(
+                                "error",
+                                preset_str,
+                                f"{loc}: {path}: references form.{name} but no field named '{name}' "
+                                f"exists in form variant '{variant_name}' ({vloc}/form.yml) and the "
+                                f"expression has no | default(...) - a submission using this variant "
+                                f"would fail strict evaluation. Add the field to this variant or a "
+                                f"| default(...) fallback.",
+                            )
+                        )
 
         return issues
 
@@ -2561,20 +2587,224 @@ class PresetLinter:
         return hits
 
     @staticmethod
-    def _missing_form_refs(scalar: str, known_fields: set) -> List[str]:
-        """Names referenced as `{{ form.<name> }}` in ``scalar`` that are not a
-        known field AND whose enclosing `{{ }}` block has no `| default(...)`
-        fallback. A block that carries a `default(` is skipped entirely - the
-        default makes a missing field safe under strict eval."""
-        missing: List[str] = []
+    def _dangling_form_refs(scalar: str, known_fields: set) -> List[Tuple[str, bool]]:
+        found: Dict[str, bool] = {}
         for m in _TEMPLATE_REGION_RE.finditer(scalar):
             region = m.group(0)
-            if "default(" in region:
-                continue
+            guarded = "default(" in region
             for name in _FORM_REF_RE.findall(region):
-                if name not in known_fields and name not in missing:
-                    missing.append(name)
-        return missing
+                if name in known_fields or name in _HOST_FORM_KEYS:
+                    continue
+                if any(name.endswith(sfx) and name[: -len(sfx)] in known_fields for sfx in _HOST_FORM_SUFFIXES):
+                    continue
+                found[name] = found.get(name, True) and guarded
+        return list(found.items())
+
+    def _preset_text_corpus(self, preset_root: Path, mode_name: str) -> str:
+        cache = self.__dict__.setdefault("_corpus_cache", {})
+        key = (str(preset_root), mode_name)
+        if key in cache:
+            return cache[key]
+        chunks: List[str] = []
+        for path in sorted(preset_root.rglob("*")):
+            if not path.is_file() or path.suffix not in (".yml", ".yaml"):
+                continue
+            rel = path.relative_to(preset_root).parts
+            if len(rel) > 1 and rel[0] == "modes" and rel[1] != mode_name:
+                continue
+            try:
+                chunks.append(path.read_text(encoding="utf-8", errors="ignore"))
+            except OSError:
+                continue
+        cache[key] = "\n".join(chunks)
+        return cache[key]
+
+    def _lint_unread_fields(self, preset_file: Path, mode_dir: Path, mode_name: str) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        preset_str = str(preset_file)
+        preset_root = preset_file.parent
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
+        if not pipeline_file.exists():
+            return issues
+        try:
+            pipeline_text = pipeline_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return issues
+
+        regions = "\n".join(m.group(0) for m in _TEMPLATE_REGION_RE.finditer(pipeline_text))
+        if _FORM_BARE_RE.search(regions):
+            return issues
+        read_names = set(_FORM_REF_RE.findall(regions))
+        prefixes: set = set()
+        for m in _FORM_BRACKET_RE.finditer(regions):
+            (prefixes if m.group(3) else read_names).add(m.group(2))
+        for m in _FORM_GET_RE.finditer(regions):
+            read_names.add(m.group(2))
+        if not read_names and not prefixes:
+            return issues
+        read_names |= _HOST_CONSUMED_FIELD_NAMES
+
+        corpus = self._preset_text_corpus(preset_root, mode_name)
+        registry = self._field_type_registry()
+        reported: set = set()
+        for variant_name, form_dir in discover_form_variants(mode_dir):
+            vloc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
+            fields = self._expanded_form_fields(form_dir / "form.yml", preset_root)
+            expanded = json.dumps(fields, default=str)
+            for node in self._iter_field_tree(fields):
+                name = node.get("name")
+                field_type = node.get("type")
+                if not isinstance(name, str) or not name or "{{" in name or name in reported:
+                    continue
+                if field_type in _NON_VALUE_FIELD_TYPES or field_type == "@loop" or node.get("children"):
+                    continue
+                if registry.get(field_type).container or node.get("display_only") is True or node.get("capability"):
+                    continue
+                if name in read_names or any(name.startswith(prefix) for prefix in prefixes):
+                    continue
+                token = re.compile(r"(?<![\w])" + re.escape(name) + r"(?![\w])")
+                declaration = re.compile(r"name:\s*[\"']?" + re.escape(name) + r"[\"']?\s*(?:(?:#.*)?$|[,}])", re.MULTILINE)
+                json_declaration = f'"name": "{name}"'
+                mentions = (
+                    len(token.findall(corpus)) - len(declaration.findall(corpus))
+                    + len(token.findall(expanded)) - expanded.count(json_declaration)
+                )
+                if mentions > 0:
+                    continue
+                reported.add(name)
+                issues.append(
+                    LintIssue(
+                        "warning",
+                        preset_str,
+                        f"{vloc}/form.yml: field '{name}' ({field_type}) is never read by the pipeline, a "
+                        f"reaction or a condition, so changing it does nothing. Wire it into the pipeline, "
+                        f"remove it, or mark it `display_only: true`.",
+                    )
+                )
+        return issues
+
+    @staticmethod
+    def _family_capabilities() -> Dict[str, Any]:
+        try:
+            from src.platform.runtime.native.families import FAMILY_CAPABILITIES
+        except ImportError:
+            return {}
+        return FAMILY_CAPABILITIES
+
+    @staticmethod
+    def _mode_loader(mode_dir: Path) -> Optional[str]:
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
+        if not pipeline_file.exists():
+            return None
+        try:
+            data = load_yaml_file(pipeline_file)
+        except Exception:
+            return None
+        for pipe in (data.get("pipeline") or []) if isinstance(data, dict) else []:
+            name = pipe.get("name") if isinstance(pipe, dict) else None
+            if isinstance(name, str) and name.split("/", 1)[0] in ("model_loader", "checkpoint_loader") and "/" in name:
+                return name.split("/", 1)[1]
+        return None
+
+    @staticmethod
+    def _loader_variants(loader: str) -> List[str]:
+        try:
+            from src.platform.runtime.native.detect.registry import arch_registry
+        except ImportError:
+            return []
+        specs = arch_registry.all()
+        families = {spec.family for spec in specs}
+        if loader in families:
+            matched = {loader}
+        else:
+            matched = {f for f in families if f.startswith(loader) or loader.startswith(f)}
+        return sorted({spec.variant for spec in specs if spec.family in matched})
+
+    def _mode_capabilities(self, mode_dir: Path) -> Tuple[Optional[str], List[Any]]:
+        table = self._family_capabilities()
+        loader = self._mode_loader(mode_dir)
+        if not table or not loader:
+            return loader, []
+        return loader, [table[v] for v in self._loader_variants(loader) if v in table]
+
+    def _lint_family_capabilities(self, preset_file: Path, mode_dir: Path, mode_name: str, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        family, variants = self._mode_capabilities(mode_dir)
+        if not variants:
+            return issues
+
+        def agrees(attribute: str, value: Any) -> bool:
+            return all(getattr(v, attribute) == value for v in variants)
+        preset_str = str(preset_file)
+        preset_root = preset_file.parent
+        loc = f"modes/{mode_name}"
+        prompt_requirement = read_mode_prompting(mode_dir).get("prompt")
+        preset_negative = manifest.negative_prompt.model_dump()["applies_when"] if manifest.negative_prompt else None
+
+        declared_negative = manifest.negative_prompt is not None
+        guidance_fields: set = set()
+        loose_negative: List[Tuple[str, Any]] = []
+        for variant_name, form_dir in discover_form_variants(mode_dir):
+            try:
+                form_data = load_yaml_file(form_dir / "form.yml") or {}
+            except Exception:
+                continue
+            if not isinstance(form_data, dict):
+                continue
+            declared = form_data.get("negative_prompt")
+            if isinstance(declared, dict) and declared.get("applies_when") is not None:
+                declared_negative = True
+                loose_negative.append((variant_name, declared["applies_when"]))
+            names: set = set()
+            self._collect_field_names(form_data.get("fields", []), preset_root, names)
+            guidance_fields |= names & _GUIDANCE_FIELD_NAMES
+        if preset_negative is not None:
+            loose_negative.append(("preset.yml", preset_negative))
+
+        if agrees("negative_prompt", False):
+            if prompt_requirement != "none" and not declared_negative:
+                issues.append(
+                    LintIssue(
+                        "warning",
+                        preset_str,
+                        f"{loc}: model family '{family}' takes no negative prompt but the mode does not "
+                        f"declare it; add `negative_prompt: {{applies_when: false}}` so the box is hidden.",
+                    )
+                )
+            for source, applies_when in loose_negative:
+                if applies_when is not False:
+                    issues.append(
+                        LintIssue(
+                            "warning",
+                            preset_str,
+                            f"{loc}: model family '{family}' takes no negative prompt but {source} declares "
+                            f"negative_prompt.applies_when as {applies_when!r}; use `false`.",
+                        )
+                    )
+
+        if agrees("prompt_weighting", False):
+            syntax = getattr(manifest, "prompt_syntax", None) or {}
+            entries = syntax.get(mode_name, syntax.get(PROMPT_SYNTAX_DEFAULT_KEY)) or []
+            if any(getattr(entry, "kind", None) == "weight" for entry in entries):
+                issues.append(
+                    LintIssue(
+                        "warning",
+                        preset_str,
+                        f"{loc}: model family '{family}' ignores prompt weights but prompt_syntax declares a "
+                        f"weight token; remove it or the weights will be silently stripped.",
+                    )
+                )
+
+        if agrees("guidance", "none") and guidance_fields:
+            issues.append(
+                LintIssue(
+                    "warning",
+                    preset_str,
+                    f"{loc}: model family '{family}' has no guidance but the form offers "
+                    f"{sorted(guidance_fields)}; remove the field(s) or the slider does nothing.",
+                )
+            )
+        return issues
 
     def _lint_simple_modes(self, preset_file: Path, manifest) -> List[LintIssue]:
         capabilities = (manifest.vars or {}).get("video_director")

@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 from PIL import Image
+import numpy as np
 
 from src.pipelines.outputs import CompareImagesGenerationOutput, ProgressGenerationOutput
 from src.pipelines.contracts import BasePipe, logger
@@ -177,7 +178,8 @@ class FilmGrain(BasePipe):
             "blur_amount": 0.3
         }
 
-    def _apply_grain(self, image: Image.Image) -> Image.Image:
+    def _apply_grain(self, image: Image.Image, seed: int = None) -> Image.Image:
+        rng = np.random.default_rng(seed) if seed is not None else np.random
         return apply_film_grain(
             image,
             intensity=self.config["intensity"],
@@ -186,6 +188,7 @@ class FilmGrain(BasePipe):
             highlights_protect=self.config["highlights_protect"],
             monochromatic=self.config["monochromatic"],
             blur_amount=self.config["blur_amount"],
+            rng=rng,
         )
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
@@ -216,21 +219,21 @@ class FilmGrain(BasePipe):
             elif preset == "trix400":
                 self.config.update(self.preset_trix400())
 
-        # Handle single image or list of images
         if isinstance(pipe_input.input["image"], list):
             images = pipe_input.input["image"]
         else:
             images = [pipe_input.input["image"]]
 
+        seeds = pipe_input.input.get("seed") or []
+
         processed_images = []
         for index, image in enumerate(images):
             logger.debug(f"[FILM_GRAIN] Processing image {index + 1}/{len(images)}")
 
-            # Process image
-            processed_image = self._apply_grain(image)
+            seed = seeds[index] if index < len(seeds) else None
+            processed_image = self._apply_grain(image, seed=seed)
             processed_images.append(processed_image)
 
-            # Generate output artifact for comparison
             generation_outputs(
                 CompareImagesGenerationOutput(
                     index=index,
@@ -246,6 +249,7 @@ class FilmGrain(BasePipe):
         """FilmGrain requires image input"""
         return [
             PipeInputSpec("image", IOType.IMAGE, True, "Input images to apply film grain effect", is_array=True),
+            PipeInputSpec("seed", IOType.SEED, False, "Per-image seeds for deterministic grain", is_array=True),
         ]
 
     @classmethod

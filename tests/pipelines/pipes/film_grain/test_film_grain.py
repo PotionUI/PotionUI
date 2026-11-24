@@ -96,3 +96,29 @@ def test_the_grain_layer_has_the_requested_spread_and_size():
     assert layer.shape == (30, 40)
     assert layer.std() == pytest.approx(0.2)
     assert layer.mean() == pytest.approx(0.0, abs=1e-9)
+
+
+def test_the_pipe_produces_identical_grain_with_the_same_seed():
+    emitted = []
+    output1 = FilmGrain(dict(CONFIGS["color"])).process(
+        PipeInput(input={"image": source(), "seed": [42]}), emitted.append,
+    )
+    emitted.clear()
+    output2 = FilmGrain(dict(CONFIGS["color"])).process(
+        PipeInput(input={"image": source(), "seed": [42]}), emitted.append,
+    )
+
+    assert np.array_equal(np.asarray(output1.output["image"][0]), np.asarray(output2.output["image"][0]))
+
+
+def test_the_pipe_produces_different_grain_with_different_seeds():
+    emitted = []
+    output1 = FilmGrain(dict(CONFIGS["color"])).process(
+        PipeInput(input={"image": source(), "seed": [42]}), emitted.append,
+    )
+    emitted.clear()
+    output2 = FilmGrain(dict(CONFIGS["color"])).process(
+        PipeInput(input={"image": source(), "seed": [43]}), emitted.append,
+    )
+
+    assert not np.array_equal(np.asarray(output1.output["image"][0]), np.asarray(output2.output["image"][0]))

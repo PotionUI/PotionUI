@@ -246,6 +246,18 @@
           "type": "str",
           "value": "2.02"
         },
+        "step_cache.max_consecutive_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache.rel_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache.warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
         "steps": {
           "type": "int",
           "value": 30

@@ -30,6 +30,7 @@ EXPECTED = {
     ("Flux1", "txt2img"), ("Flux1", "img2img"), ("Flux2", "txt2img"), ("Flux2", "img2img"),
     ("Flux3", "txt2img"), ("Flux3", "edit"),
     ("MOSS-Image", "txt2img"),
+    ("MiniMax-H3-Image", "txt2img"), ("MiniMax-H3-Image", "edit"),
 }
 
 

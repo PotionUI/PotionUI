@@ -1,8 +1,8 @@
 ########
 ## LTX-2 / LTX-2.3 text-to-video (native engine)
 ##
-## One preset covers the LTX audio-video family, video-only for now (the
-## audio track is engine-ready but not yet wired into the pipeline). Works
+## One preset covers the LTX audio-video family; the video mode generates
+## and muxes the audio track alongside the picture. Works
 ## with the all-in-one checkpoints (ltx-2-19b-dev, ltx-2.3-22b-dev fp8/nvfp4):
 ## the DiT, text-embedding projection and connectors all live in that single
 ## file. Pair the matching video VAE (LTX2_video_vae for 19b,

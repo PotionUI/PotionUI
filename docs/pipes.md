@@ -887,6 +887,7 @@ Native Flux-family generator (flow matching, embedded guidance)
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (per image) |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `image` | `IMAGE` | no | yes | Input images for img2img mode |
+| `mask` | `IMAGE` | no | yes | Repaint mask for inpaint mode (white = repaint) |
 
 **Outputs**
 
@@ -898,7 +899,7 @@ Native Flux-family generator (flow matching, embedded guidance)
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img` | — | — | Generation mode |
+| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img`, `inpaint` | — | — | Generation mode |
 | `denoise` | `float` | `0.55` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
 | `mask_feather` | `float` | `0.0` | no | — | 0.0 | 1.0 | Inpaint only: soft edge added outside the mask, as a fraction of the mask's longer side; edge latents are freed late in sampling so the model can continue the background across the edge |
@@ -1232,7 +1233,7 @@ Native MOSS-Image text-to-image generator (true CFG with a layer-skipped negativ
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `mode` | `str` | `"txt2img"` | no | `txt2img`, `inpaint` | — | — | Generation mode |
+| `mode` | `str` | `"txt2img"` | no | `txt2img`, `img2img`, `inpaint` | — | — | Generation mode |
 | `denoise` | `float` | `1.0` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
 | `mask_feather` | `float` | `0.0` | no | — | 0.0 | 1.0 | Inpaint only: soft edge added outside the mask, as a fraction of the mask's longer side; edge latents are freed late in sampling so the model can continue the background across the edge |
@@ -1318,6 +1319,7 @@ Native Qwen-Image generator (flow matching, true CFG)
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (per image) |
 | `seed` | `SEED` | no | yes | Random seeds |
 | `image` | `IMAGE` | no | yes | Input images for img2img mode |
+| `mask` | `IMAGE` | no | yes | Repaint mask for inpaint mode (white = repaint) |
 
 **Outputs**
 
@@ -1329,7 +1331,7 @@ Native Qwen-Image generator (flow matching, true CFG)
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img`, `edit` | — | — | Generation mode |
+| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img`, `inpaint`, `edit` | — | — | Generation mode |
 | `denoise` | `float` | `0.55` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
 | `mask_feather` | `float` | `0.0` | no | — | 0.0 | 1.0 | Inpaint only: soft edge added outside the mask, as a fraction of the mask's longer side; edge latents are freed late in sampling so the model can continue the background across the edge |
@@ -1380,7 +1382,7 @@ Native Qwen-Image-2.1 generator (flow matching, true CFG)
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `edit`, `inpaint`, `control` | — | — | Generation mode |
+| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img`, `edit`, `inpaint`, `control` | — | — | Generation mode |
 | `denoise` | `float` | `1.0` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
 | `mask_feather` | `float` | `0.0` | no | — | 0.0 | 1.0 | Inpaint only: soft edge added outside the mask, as a fraction of the mask's longer side; edge latents are freed late in sampling so the model can continue the background across the edge |

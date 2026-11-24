@@ -35,6 +35,11 @@
       "type": "model"
     },
     {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
       "label": "Steps",
       "name": "steps",
       "type": "slider"

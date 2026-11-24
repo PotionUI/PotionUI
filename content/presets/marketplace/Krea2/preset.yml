@@ -102,3 +102,9 @@ modes:
   - enhance
   - upscale
   - edit
+  - inpaint
+  - refine_faces
+
+modes_unvalidated:
+  - inpaint
+  - refine_faces

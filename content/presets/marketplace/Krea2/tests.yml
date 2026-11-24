@@ -60,7 +60,7 @@ cases:
     tags: ["fast", "needs-model"]
     form:
       prompt: "a red fox sitting in a sunlit forest clearing"
-      upscale_factor: "2"
+      upscale_factor: 2
       refine_amount: "balanced"
     models:
       diffusion_model:

@@ -41,6 +41,8 @@ _Generated from the preset definitions by `scripts/model_modes_reference.py`; ed
 - `enhance`: Enhance
 - `upscale`: Upscale
 - `edit`: Edit
+- `inpaint`: Inpaint
+- `refine_faces`: Fix faces and hands
 
 <!-- modes:end -->
 

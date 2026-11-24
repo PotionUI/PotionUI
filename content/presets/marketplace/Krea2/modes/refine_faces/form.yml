@@ -1,0 +1,41 @@
+name: "custom"
+mode_label: "Fix faces and hands"
+short_description: "Repaint the faces and hands in a picture with Krea-2."
+prompt: "optional"
+prompt_label: "Describe the face"
+prompt_placeholder: "smiling, detailed eyes, soft light"
+negative_prompt:
+  applies_when: { field: "cfg", greater_than: 1 }
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Fix"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/refine_faces/tabs/generation.yml"
+      - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children:
+          file: "{{ paths._shared }}/native/lora_windowed.yml"
+          vars:
+            hint: 'LoRAs add specialized styles, concepts, or characters to Krea-2. Multiple LoRAs can be combined. 0.5-0.8 is recommended for most LoRAs, 1.0 = full effect. Note: Krea-2 is a new model — LoRA key mapping uses the kohya/comfy convention over the native key names; verify a specific LoRA takes effect (0 params patched = format mismatch).'
+            placeholder: Select a Krea-2 LoRA...
+            max_items: 10
+            strength_min: -10.0
+            strength_max: 10.0
+            strength_step: 0.1
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/refine_faces/tabs/advanced.yml"

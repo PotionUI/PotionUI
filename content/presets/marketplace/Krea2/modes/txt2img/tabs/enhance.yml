@@ -41,7 +41,7 @@ fields:
   - name: "face_detailer_enabled"
     type: "gate"
     formula: "detailer"
-    label: "Face Detailer"
+    label: "Fix faces and hands"
     default: false
     configuration:
       experimental: true
@@ -266,6 +266,7 @@ fields:
             - name: "MediaPipe Face Landmarker"
               link: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
               size: "3.58 MB"
+              sha256: "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
               description: "Locates facial landmarks so faces can be found precisely for refinement."
         reactions:
           - when: { field: "face_detailer_backend", equals: "mediapipe" }
@@ -285,6 +286,31 @@ fields:
           - when: { field: "face_detailer_backend", equals: "yolo" }
             then: { set_visibility: true }
           - when: { field: "face_detailer_backend", not_equals: "yolo" }
+            then: { set_visibility: false }
+
+      - name: "face_detailer_hands"
+        type: "checkbox"
+        label: "Also fix hands"
+        default: false
+        ai_hint: "Also finds each hand and repaints it with the same pass. Needs the hand model below; without it only faces are fixed."
+      - name: "face_detailer_hand_model"
+        type: "model"
+        formula: "models"
+        label: "Hand Detection Model"
+        visible: false
+        configuration:
+          model_type: "mediapipe"
+          filter_tags: "@config:mediapipe_tags"
+          recommendations:
+            - name: "MediaPipe Hand Landmarker"
+              link: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+              size: "7.46 MB"
+              sha256: "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1"
+              description: "Locates hands so they can be found precisely for refinement."
+        reactions:
+          - when: { field: "face_detailer_hands", equals: true }
+            then: { set_visibility: true }
+          - when: { field: "face_detailer_hands", not_equals: true }
             then: { set_visibility: false }
 
   - type: "gate"

@@ -1,0 +1,108 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "source_image"
+        type: "image"
+        label: "Image"
+        required: true
+        ai_hint: "The picture to fix. Faces, and hands when asked, are found automatically and repainted by Krea-2; everything else stays as it is."
+
+  - type: "section"
+    label: "Fix"
+    children:
+      - name: "fix_strength"
+        type: "slider"
+        label: "Strength"
+        default: 0.35
+        ai_hint: "How much each face is repainted. 0.3 to 0.4 cleans it up and keeps the look; above 0.6 changes it noticeably."
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "fix_max_faces"
+        type: "slider"
+        label: "Max faces"
+        default: 4
+        ai_hint: "The most faces repainted in one picture, largest first."
+        configuration: { min: 1, max: 10, step: 1 }
+
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models.yml"
+
+  - type: "section"
+    label: "Detection"
+    formula: "models"
+    children:
+      - name: "fix_backend"
+        type: "select"
+        label: "Detection backend"
+        audience: "advanced"
+        default: "mediapipe"
+        ai_hint: "MediaPipe (Apache-2.0) is the default. YOLO is opt-in (AGPL-3.0-licensed detector model)."
+        configuration:
+          options:
+            - { label: "MediaPipe", value: "mediapipe", sub_label: "Default, Apache-2.0" }
+            - { label: "YOLO", value: "yolo", sub_label: "Opt-in, AGPL-3.0" }
+
+      - name: "fix_mediapipe_model"
+        type: "model"
+        label: "Face Detection Model"
+        visible: true
+        configuration:
+          model_type: "mediapipe"
+          filter_tags: "@config:mediapipe_tags"
+          recommendations:
+            - name: "MediaPipe Face Landmarker"
+              link: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+              size: "3.58 MB"
+              sha256: "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"
+              description: "Locates facial landmarks so faces can be found precisely for refinement."
+        reactions:
+          - when: { field: "fix_backend", equals: "mediapipe" }
+            then: { set_visibility: true }
+          - when: { field: "fix_backend", not_equals: "mediapipe" }
+            then: { set_visibility: false }
+
+      - name: "fix_yolo_model"
+        type: "model"
+        label: "Face Detection Model (YOLO, AGPL-3.0)"
+        visible: false
+        configuration:
+          model_type: "detection_bbox"
+          filter_tags: "@config:detection_bbox_tags"
+        reactions:
+          - when: { field: "fix_backend", equals: "yolo" }
+            then: { set_visibility: true }
+          - when: { field: "fix_backend", not_equals: "yolo" }
+            then: { set_visibility: false }
+
+      - name: "face_detailer_hands"
+        type: "checkbox"
+        label: "Also fix hands"
+        default: false
+        ai_hint: "Also finds each hand and repaints it with the same pass. Needs the hand model below; without it only faces are fixed."
+      - name: "face_detailer_hand_model"
+        type: "model"
+        formula: "models"
+        label: "Hand Detection Model"
+        visible: false
+        configuration:
+          model_type: "mediapipe"
+          filter_tags: "@config:mediapipe_tags"
+          recommendations:
+            - name: "MediaPipe Hand Landmarker"
+              link: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+              size: "7.46 MB"
+              sha256: "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1"
+              description: "Locates hands so they can be found precisely for refinement."
+        reactions:
+          - when: { field: "face_detailer_hands", equals: true }
+            then: { set_visibility: true }
+          - when: { field: "face_detailer_hands", not_equals: true }
+            then: { set_visibility: false }

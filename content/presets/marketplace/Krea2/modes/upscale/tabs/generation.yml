@@ -7,15 +7,12 @@ fields:
     formula: "enhance"
     children:
       - name: "upscale_factor"
-        type: "select"
+        type: "slider"
         formula: "enhance"
         label: "Upscale by"
-        default: "2"
-        configuration:
-          options:
-            - { label: "2x", value: "2", sub_label: "Default" }
-            - { label: "3x", value: "3" }
-            - { label: "4x", value: "4", sub_label: "Heaviest, most tiles" }
+        default: 2
+        ai_hint: "How many times larger the picture gets. 2 is the default; 4 is the heaviest and runs the most tiles."
+        configuration: { min: 2, max: 4, step: 1 }
 
       - name: "refine_amount"
         type: "select"

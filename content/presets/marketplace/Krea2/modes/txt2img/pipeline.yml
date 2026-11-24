@@ -316,6 +316,8 @@ pipeline:
       detection_backend: "{{ form.face_detailer_backend }}"
       face_model: "{{ form.face_detailer_mediapipe_model }}"
       yolo_model: "{{ form.face_detailer_yolo_model }}"
+      detect_hands: "{{ form.face_detailer_hands }}"
+      hand_model: "{{ form.face_detailer_hand_model }}"
 
   - name: "artifact"
     id: "compare_faces"

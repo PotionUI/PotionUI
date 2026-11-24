@@ -1,0 +1,79 @@
+{
+  "editor_mode": "fix_faces",
+  "from": "refine_faces",
+  "preset_id": "4TK1KBQZ2XMB8ME0PTMXS1YJQP",
+  "preset_name": "Krea-2",
+  "shown": [
+    {
+      "label": "Max faces",
+      "name": "fix_max_faces",
+      "type": "slider"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3-VL-4B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE (Qwen-Image)",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "Detection backend",
+      "name": "fix_backend",
+      "type": "select"
+    },
+    {
+      "label": "Face Detection Model",
+      "name": "fix_mediapipe_model",
+      "type": "model"
+    },
+    {
+      "label": "Face Detection Model (YOLO, AGPL-3.0)",
+      "name": "fix_yolo_model",
+      "type": "model"
+    },
+    {
+      "label": "Also fix hands",
+      "name": "face_detailer_hands",
+      "type": "checkbox"
+    },
+    {
+      "label": "Hand Detection Model",
+      "name": "face_detailer_hand_model",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Steps",
+      "name": "fix_steps",
+      "type": "slider"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Face detection confidence",
+      "name": "fix_confidence",
+      "type": "slider"
+    }
+  ],
+  "task": "fix_faces"
+}

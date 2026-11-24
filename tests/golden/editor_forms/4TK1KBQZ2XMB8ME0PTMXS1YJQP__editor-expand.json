@@ -1,0 +1,94 @@
+{
+  "editor_mode": "expand",
+  "from": "inpaint",
+  "preset_id": "4TK1KBQZ2XMB8ME0PTMXS1YJQP",
+  "preset_name": "Krea-2",
+  "shown": [
+    {
+      "label": "Speed profile",
+      "name": "speed_profile",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "Grow",
+      "name": "mask_grow",
+      "type": "slider"
+    },
+    {
+      "label": "Feather",
+      "name": "mask_feather",
+      "type": "slider"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3-VL-4B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE (Qwen-Image)",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "sampler"
+    },
+    {
+      "label": "Schedule",
+      "name": "schedule",
+      "type": "schedule"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Cache threshold",
+      "name": "step_cache_threshold",
+      "type": "slider"
+    },
+    {
+      "label": "Warmup steps",
+      "name": "step_cache_warmup_steps",
+      "type": "slider"
+    },
+    {
+      "label": "Max consecutive skips",
+      "name": "step_cache_max_skips",
+      "type": "slider"
+    },
+    {
+      "label": "Text Scale",
+      "name": "text_scale",
+      "type": "slider"
+    }
+  ],
+  "task": "expand"
+}

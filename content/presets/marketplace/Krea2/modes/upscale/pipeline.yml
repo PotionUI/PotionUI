@@ -83,7 +83,7 @@ pipeline:
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
         - ["cfg", "{{ form.cfg | default(1.0) }}"]
         - ["steps", "{{ form.steps | default(8) }}"]
-        - ["upscale_by", "{{ form.upscale_factor | default('2') }}"]
+        - ["upscale_by", "{{ form.upscale_factor }}"]
 
   - name: "tiled_refiner"
     input:
@@ -93,7 +93,7 @@ pipeline:
       - ["seed", "seed_generator", "seed"]
     enabled: true
     configuration:
-      scale: "{{ (form.upscale_factor | default('2')) | float }}"
+      scale: "{{ form.upscale_factor | float }}"
       upscale_model: "{{ form.upscale_model | default('') }}"
       denoise: "{{ {'subtle': 0.2, 'balanced': 0.3, 'strong': 0.45}[form.refine_amount | default('balanced')] }}"
       content_aware: "{{ form.content_aware | default(true) }}"

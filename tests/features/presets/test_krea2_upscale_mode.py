@@ -104,3 +104,13 @@ def test_the_upscaler_recommendation_is_pinned_and_optional(krea2):
     assert not field.required
     assert field.configuration["model_type"] == "upscaler"
     assert [r["sha256"] for r in field.configuration["recommendations"]] == [ESRGAN_X4_SHA256]
+
+
+def test_a_stored_string_upscale_factor_binds_to_a_number_and_renders_that_scale(krea2):
+    from src.features.forms.binding import bind_form
+
+    stored = build_fixture_form_data(krea2, "upscale")
+    stored["upscale_factor"] = "3"
+    bound = bind_form(krea2, "upscale", None, stored)
+    assert bound.values["upscale_factor"] == 3
+    assert _refiner(_pipes(krea2, bound.values))["config"]["scale"] == 3.0

@@ -24,7 +24,7 @@ _CUDA_OOM_MARKERS = (
 _DRIVER_OOM_MARKERS = tuple(message.lower() for message in DRIVER_OOM_MESSAGES)
 
 _MODEL_FILE_EXTENSIONS = (
-    ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx",
+    ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx", ".task",
 )
 
 _MISSING_FILE_MARKERS = ("no such file or directory", "file not found", "does not exist")

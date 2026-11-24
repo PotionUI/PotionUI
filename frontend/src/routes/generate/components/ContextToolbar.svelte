@@ -208,9 +208,13 @@
 		return !!contextEl && contextEl.scrollWidth > contextEl.clientWidth + 1;
 	}
 
+	function pinnedCount(): number {
+		return pinnedEl?.querySelectorAll('[data-testid="formulas-button"]').length ?? 0;
+	}
+
 	let fitSize = '';
 	function barSize(): string {
-		return `${barEl?.clientWidth ?? 0}|${pinnedEl?.clientWidth ?? 0}`;
+		return `${barEl?.clientWidth ?? 0}|${pinnedEl?.clientWidth ?? 0}|${pinnedCount()}`;
 	}
 
 	async function refit() {
@@ -218,7 +222,7 @@
 		const el = barEl;
 		if (!el) return;
 		fitSize = barSize();
-		const pinned = pinnedEl?.querySelectorAll('[data-testid="formulas-button"]').length ?? 0;
+		const pinned = pinnedCount();
 		const narrow = el.clientWidth > 0 && el.clientWidth < TOOLS_BREAKPOINT;
 		let next: Fit = { visible: narrow ? 0 : Math.max(0, Math.min(tools.length, TOOL_CAP - pinned)), squeeze: 0, compact: false };
 		fit = next;

@@ -34,6 +34,7 @@ from src.features.presets.templates import (
     find_mode,
     inherited_mode_key,
     is_editor_key,
+    is_mode_unvalidated,
     sorted_forms,
 )
 from src.pipelines.graph import build_graph, PipelineGraph
@@ -222,7 +223,7 @@ def get_available_modes(collaborators: PresetCollaborators, preset_id: str) -> D
             'label': mode_display_name(mode_name, mode_data.mode_label),
             'icon': mode_display_icon(mode_name, mode_data.mode_icon),
             'short_description': _mode_short_description(mode_data),
-            'unvalidated': mode_name in (found_preset.modes_unvalidated or []),
+            'unvalidated': is_mode_unvalidated(found_preset, mode_name),
             'variants': _build_variants(mode_data),
             'source_plugin': mode_data.source_plugin,
         }

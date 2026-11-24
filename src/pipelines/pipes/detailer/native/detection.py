@@ -29,6 +29,9 @@ class FaceFrameDetector(ABC):
     def detect(self, image: Image.Image) -> List[FaceDetection]:
         raise NotImplementedError
 
+    def close(self) -> None:
+        return None
+
 
 def _landmarks_bbox(points: Sequence[Point]) -> Box:
     xs = [p[0] for p in points]
@@ -69,11 +72,11 @@ class MediaPipeHandDetector(FaceFrameDetector):
         self.model_path = model_path
         self.confidence = float(confidence)
         self.max_hands = int(max_hands)
+        self._landmarker = None
 
-    def detect(self, image: Image.Image) -> List[FaceDetection]:
+    def _build(self):
         from mediapipe.tasks import python
         from mediapipe.tasks.python import vision
-        import mediapipe as mp
 
         options = vision.HandLandmarkerOptions(
             base_options=python.BaseOptions(model_asset_path=self.model_path),
@@ -81,15 +84,26 @@ class MediaPipeHandDetector(FaceFrameDetector):
             num_hands=self.max_hands,
             min_hand_detection_confidence=self.confidence,
         )
-        with vision.HandLandmarker.create_from_options(options) as landmarker:
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.array(image))
-            result = landmarker.detect(mp_image)
-            hands = getattr(result, "hand_landmarks", None) or []
-            detections = []
-            for landmarks in hands:
-                points = [(lm.x * image.width, lm.y * image.height) for lm in landmarks]
-                detections.append(FaceDetection(box=_landmarks_bbox(points), kind="hand"))
-            return detections
+        return vision.HandLandmarker.create_from_options(options)
+
+    def detect(self, image: Image.Image) -> List[FaceDetection]:
+        import mediapipe as mp
+
+        if self._landmarker is None:
+            self._landmarker = self._build()
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.array(image))
+        result = self._landmarker.detect(mp_image)
+        hands = getattr(result, "hand_landmarks", None) or []
+        detections = []
+        for landmarks in hands:
+            points = [(lm.x * image.width, lm.y * image.height) for lm in landmarks]
+            detections.append(FaceDetection(box=_landmarks_bbox(points), kind="hand"))
+        return detections
+
+    def close(self) -> None:
+        if self._landmarker is not None:
+            self._landmarker.close()
+            self._landmarker = None
 
 class YoloFaceDetector(FaceFrameDetector):
     def __init__(self, model_path: str, confidence: float = 0.5, device: str = "cuda", kind: str = "face"):
@@ -154,3 +168,7 @@ class CombinedDetector(FaceFrameDetector):
         for detector in self.detectors:
             found.extend(detector.detect(image))
         return found
+
+    def close(self) -> None:
+        for detector in self.detectors:
+            detector.close()

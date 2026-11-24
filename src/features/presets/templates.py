@@ -245,5 +245,9 @@ def inherited_mode_key(template: Optional[PresetTemplate], key: Optional[str]) -
     return key
 
 
+def is_mode_unvalidated(template: PresetTemplate, mode_name: Optional[str]) -> bool:
+    return mode_name is not None and mode_name in template.modes_unvalidated
+
+
 def files_preset_id(template: PresetTemplate) -> str:
     return template.source_preset_id or template.id

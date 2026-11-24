@@ -16,6 +16,7 @@ from src.features.presets.templates import (
     PresetTemplate,
     find_mode,
     is_editor_key,
+    is_mode_unvalidated,
 )
 from src.platform.database.rows import dt_iso, now_iso
 from src.platform.http.errors import DomainError, NotFoundError
@@ -135,7 +136,7 @@ class EditorTaskManager:
             "mode_icon": mode_display_icon(entry.name, entry.mode.mode_icon),
             "label": spec.label or mode_label,
             "short_description": short_description_of(entry),
-            "unvalidated": spec.from_mode is not None and spec.from_mode in (getattr(template, "modes_unvalidated", None) or []),
+            "unvalidated": is_mode_unvalidated(template, spec.from_mode),
             "order": spec.order,
             "region_strategy": spec.region,
             "max_range_s": spec.max_range_s,

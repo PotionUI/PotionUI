@@ -95,6 +95,14 @@ def test_the_shipped_upscalers_offer_the_factors_their_forms_accept(shipped):
 
     assert scales == {
         "SDXL": {"field": "upscale_factor", "min": 1.5, "max": 4.0},
+        "Anima": {"field": "upscale_factor", "min": 2.0, "max": 4.0},
+        "Flux1": {"field": "upscale_factor", "min": 1.5, "max": 4.0},
+        "Flux2": {"field": "upscale_factor", "min": 1.5, "max": 4.0},
+        "Krea-2": {"field": "upscale_factor", "min": 2.0, "max": 4.0},
+        "MOSS-Image": {"field": "upscale_factor", "min": 1.5, "max": 4.0},
+        "Qwen-Image": {"field": "upscale_factor", "min": 1.5, "max": 4.0},
+        "Qwen-Image-2.1": {"field": "upscale_factor", "min": 1.5, "max": 4.0},
+        "Z-Image": {"field": "upscale_factor", "min": 1.5, "max": 4.0},
         "SeedVR2": {"field": "scale", "min": 1.0, "max": 4.0},
     }
     assert entry["plan"] == "tiles" and entry["region"] == "none" and entry["prompt"] == "none"

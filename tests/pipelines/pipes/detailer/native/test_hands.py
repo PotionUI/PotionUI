@@ -1,15 +1,22 @@
-from unittest.mock import patch
+import logging
+import types
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 from PIL import Image
 
 from src.pipelines.outputs import CompareImagesGenerationOutput
-from src.pipelines.pipes.detailer.native.detection import CombinedDetector, FaceDetection
+from src.pipelines.pipes.detailer.native.detection import (
+    CombinedDetector,
+    FaceDetection,
+    FaceFrameDetector,
+    MediaPipeHandDetector,
+)
 from src.pipelines.pipes.detailer.native.main import DetailerNativePipe
 from tests.pipelines.pipes.detailer.native.test_pipe import _FakeDetector, _base_config, _run
 
 
-class _FakeHandDetector:
+class _FakeHandDetector(FaceFrameDetector):
     def __init__(self, boxes):
         self.boxes = list(boxes)
 
@@ -17,13 +24,27 @@ class _FakeHandDetector:
         return [FaceDetection(box=tuple(float(v) for v in box), kind="hand") for box in self.boxes]
 
 
-def _run_with_hands(config, image, face_boxes, hand_boxes):
+def _run_with_hands(config, image, face_boxes, hand_boxes, denoise_fn=None, extra_input=None):
     face_detector = _FakeDetector(face_boxes)
     hand_detector = _FakeHandDetector(hand_boxes)
     with patch("src.pipelines.pipes.detailer.native.main.build_hand_detector",
                return_value=hand_detector) as hand_build:
-        result, outputs, denoise, _ = _run(config, image, face_detector)
+        result, outputs, denoise, _ = _run(
+            config, image, face_detector, denoise_fn=denoise_fn, extra_input=extra_input,
+        )
     return result, outputs, denoise, hand_build
+
+
+def _cond(tag):
+    return [types.SimpleNamespace(embeds={"tag": tag}, n_embeds=None)]
+
+
+def _recording_denoise(seen):
+    def _denoise(gen, crop, conditioning, **kwargs):
+        seen.append(conditioning.cond.get("tag", "face"))
+        return np.full_like(np.asarray(crop), 200)[None]
+
+    return _denoise
 
 
 def _warnings(outputs):
@@ -113,3 +134,50 @@ def test_combined_detector_concatenates_both_kinds():
     combined = CombinedDetector([_FakeDetector([(1, 1, 5, 5)]), _FakeHandDetector([(10, 10, 20, 20)])])
 
     assert [d.kind for d in combined.detect(img)] == ["face", "hand"]
+
+
+def test_hand_regions_are_denoised_with_the_hand_conditioning(tmp_path):
+    img = Image.new("RGB", (512, 512), (50, 60, 70))
+    config = _base_config(detect_hands=True, hand_model=_hand_model(tmp_path))
+    seen = []
+    _run_with_hands(
+        config, img, [(100, 100, 180, 180)], [(300, 300, 360, 360)],
+        denoise_fn=_recording_denoise(seen), extra_input={"hand_conditioning": _cond("hand")},
+    )
+
+    assert sorted(seen) == ["face", "hand"]
+
+
+def test_without_hand_conditioning_hands_reuse_the_face_conditioning(tmp_path):
+    img = Image.new("RGB", (512, 512), (50, 60, 70))
+    config = _base_config(detect_hands=True, hand_model=_hand_model(tmp_path))
+    seen = []
+    _run_with_hands(
+        config, img, [(100, 100, 180, 180)], [(300, 300, 360, 360)],
+        denoise_fn=_recording_denoise(seen),
+    )
+
+    assert seen == ["face", "face"]
+
+
+def test_missing_hand_model_is_logged_as_a_warning(tmp_path, caplog):
+    img = Image.new("RGB", (512, 512), (50, 60, 70))
+    config = _base_config(detect_hands=True, hand_model=(tmp_path / "absent.task").as_posix())
+    with caplog.at_level(logging.WARNING, logger="src.pipelines.pipes.detailer.native.main"):
+        _run_with_hands(config, img, [(100, 100, 180, 180)], [(300, 300, 360, 360)])
+
+    assert any("Hand refinement skipped" in record.getMessage() for record in caplog.records)
+
+
+def test_hand_landmarker_is_built_once_per_detector():
+    detector = MediaPipeHandDetector("hand.task")
+    landmarker = MagicMock()
+    landmarker.detect.return_value = types.SimpleNamespace(hand_landmarks=[])
+    with patch.object(detector, "_build", return_value=landmarker) as build:
+        for _ in range(3):
+            detector.detect(Image.new("RGB", (32, 32)))
+        detector.close()
+
+    build.assert_called_once()
+    assert landmarker.detect.call_count == 3
+    landmarker.close.assert_called_once()

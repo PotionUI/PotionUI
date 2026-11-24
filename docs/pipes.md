@@ -370,6 +370,7 @@ Family-agnostic native face detailer: detect -> mask-guided latent inpaint -> co
 | `image` | `IMAGE` | yes | yes | Images to detail |
 | `model` | `MODEL` | yes | no | Native model bundle (reused from generation) |
 | `conditioning` | `CONDITIONING` | yes | yes | Prompt conditioning reused per image |
+| `hand_conditioning` | `CONDITIONING` | no | yes | Prompt conditioning used for hand regions instead of the face conditioning |
 | `seed` | `SEED` | no | yes | Per-image seeds |
 
 **Outputs**

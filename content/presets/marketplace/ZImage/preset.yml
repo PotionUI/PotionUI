@@ -64,6 +64,10 @@ configuration:
     type: "model_tags"
     label: "Mediapipe tags"
     description: "Only models with any of these tags appear in the Mediapipe picker."
+  mediapipe_hand_tags:
+    type: "model_tags"
+    label: "Mediapipe hand tags"
+    description: "Only models with any of these tags appear in the Hand Detection Model picker."
 
 # Turbo is not just a fast-sampling toggle -- it's the distilled CHECKPOINT
 # regime (single forward per step, cfg 1.0). Base is sourced from this

@@ -93,7 +93,16 @@
         "type": "bool",
         "value": true
       },
-      "id": null,
+      "id": "face_prompt_encoder",
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "hand_prompt_encoder",
       "name": "prompt_encoder"
     },
     {

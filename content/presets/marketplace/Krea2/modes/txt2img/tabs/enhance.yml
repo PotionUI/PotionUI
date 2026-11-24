@@ -300,7 +300,7 @@ fields:
         visible: false
         configuration:
           model_type: "mediapipe"
-          filter_tags: "@config:mediapipe_tags"
+          filter_tags: "@config:mediapipe_hand_tags"
           recommendations:
             - name: "MediaPipe Hand Landmarker"
               link: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"

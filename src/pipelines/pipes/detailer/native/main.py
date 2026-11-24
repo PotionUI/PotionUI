@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import random
 from contextlib import ExitStack
@@ -57,6 +58,8 @@ from src.pipelines.pipes.detailer.native.mask import (
 from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 _SKIP_TAG = "skip"
+logger = logging.getLogger(__name__)
+
 _TOO_SMALL = "too small"
 _TOO_LARGE = "too large"
 
@@ -87,6 +90,7 @@ class _FaceRun:
     selected_loras: List[Dict[str, Any]]
     run_loras: List[Dict[str, Any]]
     dit: Any
+    hand_conditioning: Any = None
 
 
 @dataclass
@@ -186,6 +190,9 @@ class DetailerNativePipe(BasePipe):
                           is_array=False),
             PipeInputSpec("conditioning", IOType.CONDITIONING, True,
                           "Prompt conditioning reused per image", is_array=True),
+            PipeInputSpec("hand_conditioning", IOType.CONDITIONING, False,
+                          "Prompt conditioning used for hand regions instead of the face conditioning",
+                          is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Per-image seeds", is_array=True),
         ]
 
@@ -213,6 +220,7 @@ class DetailerNativePipe(BasePipe):
 
         bundle = pipe_input.input["model"]
         conditioning = pipe_input.input.get("conditioning") or []
+        hand_conditioning = pipe_input.input.get("hand_conditioning") or []
         seeds = pipe_input.input.get("seed") or []
 
         backend = self.config.get("detection_backend", "mediapipe")
@@ -254,6 +262,9 @@ class DetailerNativePipe(BasePipe):
                     device=device,
                 )])
             else:
+                logger.warning(
+                    "Hand refinement skipped: hand detection model %r is not available", hand_path,
+                )
                 progress.state(
                     "Hand refinement was skipped because the hand detection model isn't available yet",
                     icon=Icon(name="warning"),
@@ -275,11 +286,12 @@ class DetailerNativePipe(BasePipe):
                     sampler=sampler, denoise=denoise, latent_mask=latent_mask,
                     colour_match=colour_match, overlay=overlay, seed_offset=seed_offset,
                     loras_mode=loras_mode, selected_loras=selected_loras, run_loras=run_loras,
-                    dit=getattr(bundle, "dit", None),
+                    dit=getattr(bundle, "dit", None), hand_conditioning=hand_conditioning,
                 ),
             )
         finally:
             lora_scope.close()
+            detector.close()
 
         return PipeOutput(output={"image": results})
 
@@ -328,6 +340,7 @@ class DetailerNativePipe(BasePipe):
             ))
 
             cond_obj = self._conditioning_for(conditioning, index)
+            hand_cond_obj = self._conditioning_for(run.hand_conditioning, index) if run.hand_conditioning else cond_obj
             seed = self._seed_for(seeds, index)
             current = image.copy()
 
@@ -396,7 +409,7 @@ class DetailerNativePipe(BasePipe):
                     )
 
                 refined = img2img_denoise(
-                    generator, np.asarray(resized), cond_obj,
+                    generator, np.asarray(resized), hand_cond_obj if face.kind == "hand" else cond_obj,
                     steps=steps, seed=face_seed, cfg_scale=guidance, sampler=sampler,
                     denoise=denoise, is_cancelled=is_cancelled,
                     hooks=native_step_hooks(generator, progress, on_step, preview=False, extra=extra_hooks),
@@ -467,7 +480,7 @@ class DetailerNativePipe(BasePipe):
     @classmethod
     def _plan_faces(cls, detections, image: Image.Image, min_ratio: float, max_ratio: float,
                     max_faces: int, crop_padding: float, ring, dilate_fraction: float,
-                    feather: int, max_hands: int = 0, min_hand_ratio: float = 0.0) -> List["_FacePlan"]:
+                    feather: int, max_hands: int, min_hand_ratio: float) -> List["_FacePlan"]:
         width, height = image.size
         area = max(1, width * height)
         short_side = max(1, min(width, height))

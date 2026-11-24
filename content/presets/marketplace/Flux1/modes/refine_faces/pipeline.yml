@@ -30,6 +30,7 @@ pipeline:
           path: "{{ form.source_image }}"
 
   - name: "prompt_encoder"
+    id: "face_prompt_encoder"
     input:
       - ["text_encoder", "model_loader/flux", "text_encoder"]
     enabled: true
@@ -37,6 +38,22 @@ pipeline:
       p_prompt:
         input: "{{ generation.prompts.first.positive }}"
         output: "{% set p = generation.prompts.first.positive | text_or('') %}{% if p %}{{ p }}, {% endif %}detailed face, detailed eyes, best quality"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      quantity: 1
+      guidance_scale: 1.0
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "prompt_encoder"
+    id: "hand_prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/flux", "text_encoder"]
+    enabled: "{{ form.face_detailer_hands }}"
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{% set p = generation.prompts.first.positive | text_or('') %}{% if p %}{{ p }}, {% endif %}detailed hands, correct fingers, best quality"
       n_prompt:
         input: "{{ generation.prompts.first.negative }}"
         output: "{{ generation.prompts.first.negative }}"
@@ -92,7 +109,8 @@ pipeline:
     enabled: true
     input:
       - ["model", "model_loader/flux", "model"]
-      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["conditioning", "face_prompt_encoder", "conditioning"]
+      - ["hand_conditioning", "hand_prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
       - ["image", "media_loader", "image"]
     configuration:

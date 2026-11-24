@@ -29,6 +29,7 @@ pipeline:
           path: "{{ form.source_image }}"
 
   - name: "prompt_encoder"
+    id: "face_prompt_encoder"
     input:
       - ["text_encoder", "model_loader/krea2", "text_encoder"]
     enabled: true
@@ -36,6 +37,22 @@ pipeline:
       p_prompt:
         input: &face_prompt "{{ generation.prompts.first.positive | text_or('a natural, detailed face with clear eyes') }}"
         output: *face_prompt
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      quantity: 1
+      guidance_scale: "{{ form.cfg }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "prompt_encoder"
+    id: "hand_prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/krea2", "text_encoder"]
+    enabled: "{{ form.face_detailer_hands }}"
+    configuration:
+      p_prompt:
+        input: &hand_prompt "{{ generation.prompts.first.positive | text_or('natural, detailed hands with five clear fingers') }}"
+        output: *hand_prompt
       n_prompt:
         input: "{{ generation.prompts.first.negative }}"
         output: "{{ generation.prompts.first.negative }}"
@@ -89,7 +106,8 @@ pipeline:
     enabled: true
     input:
       - ["model", "model_loader/krea2", "model"]
-      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["conditioning", "face_prompt_encoder", "conditioning"]
+      - ["hand_conditioning", "hand_prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
       - ["image", "media_loader", "image"]
     configuration:

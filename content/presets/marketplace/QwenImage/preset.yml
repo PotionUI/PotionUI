@@ -55,6 +55,10 @@ configuration:
     type: "model_tags"
     label: "Mediapipe tags"
     description: "Only models with any of these tags appear in the Mediapipe picker."
+  mediapipe_hand_tags:
+    type: "model_tags"
+    label: "Mediapipe hand tags"
+    description: "Only models with any of these tags appear in the Hand Detection Model picker."
 
 # balanced sourced from this preset's own header prose above (2512 checkpoint,
 # not distilled -> ~20 steps at cfg ~4.0). turbo is a PROPOSED fast profile

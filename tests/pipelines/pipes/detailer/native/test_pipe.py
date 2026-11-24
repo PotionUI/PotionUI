@@ -8,7 +8,7 @@ from PIL import Image
 
 from src.pipelines.contracts import PipeInput
 from src.pipelines.outputs import CompareImagesGenerationOutput, ImageGenerationOutput
-from src.pipelines.pipes.detailer.native.detection import FaceDetection
+from src.pipelines.pipes.detailer.native.detection import FaceDetection, FaceFrameDetector
 from src.pipelines.pipes.detailer.native.latent_blend import LatentInpaintFilter
 from src.pipelines.pipes.detailer.native.main import DetailerNativePipe
 
@@ -27,7 +27,7 @@ class _FakeGen:
         return torch.zeros(1, 16, 32, 32)
 
 
-class _FakeDetector:
+class _FakeDetector(FaceFrameDetector):
     def __init__(self, boxes, landmarks=None, confidence=None):
         self.boxes = list(boxes)
         self.landmarks = landmarks
@@ -50,7 +50,7 @@ def _solid_denoise(color):
     return _denoise
 
 
-def _run(config, image, detector, denoise_fn=None, seeds=None, generator=None):
+def _run(config, image, detector, denoise_fn=None, seeds=None, generator=None, extra_input=None):
     pipe = DetailerNativePipe(config)
     generator = generator or _FakeGen()
     outputs = []
@@ -64,6 +64,7 @@ def _run(config, image, detector, denoise_fn=None, seeds=None, generator=None):
         ),
         "conditioning": cond,
         "seed": seeds if seeds is not None else [1000],
+        **(extra_input or {}),
     })
     denoise_fn = denoise_fn or _solid_denoise((200, 200, 200))
     with patch("src.pipelines.pipes.detailer.native.main.build_native_generator", return_value=generator), \

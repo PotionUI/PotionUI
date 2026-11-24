@@ -448,7 +448,7 @@ def test_children_include_inside_the_plugin_is_built(tmp_path):
 @pytest.mark.parametrize("ref", [
     "{{ paths.preset }}/../../outside.yml",
     "ABSOLUTE",
-    "{{ paths._shared }}/../marketplace/Krea2/modes/txt2img/tabs/lora.yml",
+    "{{ paths._shared }}/../marketplace/Krea2/modes/txt2img/tabs/advanced.yml",
 ])
 def test_children_include_outside_the_plugin_is_rejected(tmp_path, ref):
     outside = tmp_path / "plugins" / "outside.yml"

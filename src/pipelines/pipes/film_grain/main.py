@@ -179,6 +179,8 @@ class FilmGrain(BasePipe):
         }
 
     def _apply_grain(self, image: Image.Image, seed: int = None) -> Image.Image:
+        if seed is not None:
+            seed = int(seed)
         rng = np.random.default_rng(seed) if seed is not None else np.random
         return apply_film_grain(
             image,

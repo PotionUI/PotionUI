@@ -389,6 +389,7 @@ pipeline:
     enabled: "{{ (form.film_grain) != '' }}"
     input:
       - [ "image", "detailer/sdxl", "image" ]
+      - [ "seed", "seed_generator", "seed" ]
     configuration:
       preset: "{{ form.film_grain }}"
 

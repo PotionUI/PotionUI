@@ -572,6 +572,7 @@ Adds realistic film grain effect to make images look more natural
 | Name | IO Type | Required | Array | Description |
 |---|---|---|---|---|
 | `image` | `IMAGE` | yes | yes | Input images to apply film grain effect |
+| `seed` | `SEED` | no | yes | Per-image seeds for deterministic grain |
 
 **Outputs**
 

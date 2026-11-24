@@ -122,3 +122,16 @@ def test_the_pipe_produces_different_grain_with_different_seeds():
     )
 
     assert not np.array_equal(np.asarray(output1.output["image"][0]), np.asarray(output2.output["image"][0]))
+
+
+def test_the_pipe_accepts_string_seeds():
+    emitted = []
+    output_int = FilmGrain(dict(CONFIGS["color"])).process(
+        PipeInput(input={"image": source(), "seed": [42]}), emitted.append,
+    )
+    emitted.clear()
+    output_str = FilmGrain(dict(CONFIGS["color"])).process(
+        PipeInput(input={"image": source(), "seed": ["42"]}), emitted.append,
+    )
+
+    assert np.array_equal(np.asarray(output_int.output["image"][0]), np.asarray(output_str.output["image"][0]))

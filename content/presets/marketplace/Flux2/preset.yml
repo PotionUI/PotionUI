@@ -26,7 +26,6 @@ requires:
 # Preset-wide constants. Reference them in pipeline.yml as {{ preset.vars.<name> }}.
 vars:
   default_steps: 30
-  default_guidance: 3.5
   default_sampler: "euler"
 
 # Admin-set values (Admin -> Presets -> Configuration). Model pickers reference

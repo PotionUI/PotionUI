@@ -25,7 +25,6 @@ cases:
       # maps to the generation request's top-level prompt, per convention.
       prompt: "a small red boat on a calm lake at sunset, photograph"
       steps: 10
-      guidance: 3.5
       sampler: "euler"
       resolution: "1024x1024"
     models:
@@ -40,7 +39,7 @@ cases:
       resolution: "1024x1024"
       not_black: true
 
-  # Klein turbo settings from a maintainer KLEIN session (8 steps, guidance 1.0,
+  # Klein turbo settings from a maintainer KLEIN session (8 steps,
   # shift 3.0). Flux2-Klein DiT + Qwen3-8B TE + Flux2 VAE pinned by real
   # sha256 (present on disk).
   - name: "flux-klein-turbo-session-fast"
@@ -50,7 +49,6 @@ cases:
     form:
       prompt: "a red fox sitting in a sunlit forest clearing"
       steps: 8
-      guidance: 1.0
       sampler: "euler"
       shift: 3.0
       resolution: "1024x1024"
@@ -80,7 +78,6 @@ cases:
     form:
       prompt: "a small red boat on a calm lake at sunset, photograph"
       steps: 8
-      guidance: 3.5
       sampler: "euler"
       resolution: "1024x1024"
       step_cache_threshold: 0.08

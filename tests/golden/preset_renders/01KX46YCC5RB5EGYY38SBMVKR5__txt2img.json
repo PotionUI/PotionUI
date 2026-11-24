@@ -172,10 +172,6 @@
               ]
             ],
             [
-              "cfg",
-              3.5
-            ],
-            [
               "steps",
               30
             ],
@@ -207,10 +203,6 @@
     },
     {
       "config": {
-        "guidance": {
-          "type": "float",
-          "value": 3.5
-        },
         "iterate_mode": {
           "type": "bool",
           "value": false

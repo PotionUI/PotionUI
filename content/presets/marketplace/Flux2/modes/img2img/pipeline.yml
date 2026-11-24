@@ -118,8 +118,6 @@ pipeline:
         # Per-image arrays, so history records the prompt each image actually ran with.
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
-        # Flux uses embedded (distilled) guidance, not CFG.
-        - ["cfg", "{{ form.guidance | default(preset.vars.default_guidance) }}"]
         - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
         - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
         - ["denoise", "{{ form.denoise }}"]
@@ -140,7 +138,6 @@ pipeline:
       mode: "img2img"
       denoise: "{{ form.denoise }}"
       steps: "{{ form.steps | default(preset.vars.default_steps) }}"
-      guidance: "{{ form.guidance | default(preset.vars.default_guidance) }}"
       # Optional shift override (constant-shift variants only); blank -> spec default.
       shift: "{% set s = form.shift %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"

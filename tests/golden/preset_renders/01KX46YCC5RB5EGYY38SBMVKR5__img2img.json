@@ -191,10 +191,6 @@
               ]
             ],
             [
-              "cfg",
-              3.5
-            ],
-            [
               "steps",
               30
             ],
@@ -225,10 +221,6 @@
         "denoise": {
           "type": "float",
           "value": 0.55
-        },
-        "guidance": {
-          "type": "float",
-          "value": 3.5
         },
         "mode": {
           "type": "str",

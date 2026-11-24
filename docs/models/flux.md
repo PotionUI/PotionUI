@@ -54,7 +54,7 @@ Flux1 and Flux2 each ship the modes above. `img2img` uses the shared img2img mix
 
 ## Sampling
 
-Default generation parameters: 20 steps, guidance 3.5 (embedded/distilled — this is the CFG-equivalent knob for Flux, not a true-CFG scale), sampler `euler`, sigma shift unset (uses the per-variant default: 1.15 for Flux1, 2.02 for Flux2, unless a preset overrides it).
+Default generation parameters: 20 steps, guidance 3.5 on Flux1 (embedded/distilled — this is the CFG-equivalent knob for Flux1, not a true-CFG scale; Flux2/Klein has no guidance input, so its preset shows no Guidance slider), sampler `euler`, sigma shift unset (uses the per-variant default: 1.15 for Flux1, 2.02 for Flux2, unless a preset overrides it).
 
 The preset's **Sampler** and **Schedule** pickers (`type: "sampler"` / `type: "schedule"`, family `flux`) are registry-driven: they list whatever this instance has registered, core entries plus any a plugin contributes, rather than a list written into the preset. See [Samplers and sigma schedules](../techniques/samplers-and-schedules.md).
 

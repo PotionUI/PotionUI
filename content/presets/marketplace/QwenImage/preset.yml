@@ -96,6 +96,8 @@ llm:
     new viewpoint. Make it real mode turns an illustration, render or 3D shot into a
     photograph and keeps the composition; the prompt is optional and only describes
     what is in the picture (e.g. "a woman in a red coat on a rainy street").
+    Structure mode keeps the edges, depth, normals or pose of a picture and generates
+    a new image on them; describe the new image in full, the picture is not described to the model.
 
 prompt_syntax:
   "*":
@@ -110,6 +112,7 @@ formulas:
     speed:  { label: "Speed and sampling" }
     size:   { label: "Size" }
     loras:  { label: "LoRAs" }
+    control: { label: "Structure" }
     enhance: { label: "Upscale and refine" }
     models: { label: "Models", preselect: false }
 
@@ -122,11 +125,13 @@ modes:
   - edit
   - camera
   - real
+  - control
   - inpaint
   - upscale
   - refine_faces
 
 modes_unvalidated:
+  - control
   - inpaint
   - upscale
   - refine_faces

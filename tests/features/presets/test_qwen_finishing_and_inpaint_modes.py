@@ -55,8 +55,8 @@ def _providers(pipes, consumer):
 
 
 def test_the_new_modes_are_declared_and_flagged_unvalidated(template):
-    assert list(template.modes.keys()) == ["txt2img", "img2img", "edit", "camera", "real", "inpaint", "upscale", "refine_faces"]
-    assert set(template.modes_unvalidated) == {"inpaint", "upscale", "refine_faces"}
+    assert list(template.modes.keys()) == ["txt2img", "img2img", "edit", "camera", "real", "control", "inpaint", "upscale", "refine_faces"]
+    assert set(template.modes_unvalidated) == {"control", "inpaint", "upscale", "refine_faces"}
 
 
 def test_the_new_modes_carry_the_matching_editor_modes(template):

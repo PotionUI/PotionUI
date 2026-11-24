@@ -1,0 +1,57 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "source_image"
+        type: "image"
+        label: "Image"
+        required: true
+        ai_hint: "The image the guide is taken from. It is cropped to the chosen resolution's aspect, so the result follows it point for point. With the guide extraction off, this image is the guide itself, for a ready-made edge, depth, normal or pose map."
+
+  - type: "section"
+    label: "Guide"
+    children:
+      - name: "guide"
+        type: "select"
+        formula: "control"
+        label: "Guide"
+        default: "canny"
+        ai_hint: "What the output follows. Canny, Lineart and Soft edges follow outlines, Depth follows the 3D layout, Normal map follows surface direction and Pose follows a person's body. Pose is a loose guide: the model keeps the posture, not every joint."
+        configuration:
+          options:
+            - { label: "Canny", value: "canny" }
+            - { label: "Depth", value: "depth" }
+            - { label: "Pose", value: "openpose" }
+            - { label: "Lineart", value: "lineart" }
+            - { label: "Soft edges", value: "hed" }
+            - { label: "Normal map", value: "normal" }
+
+      - name: "guide_extract"
+        type: "checkbox"
+        formula: "control"
+        label: "Extract the guide from a photo"
+        default: true
+        description: "Turn off when your image already is an edge, depth, normal or pose map."
+        ai_hint: "On: the chosen guide is worked out from the image (edges, depth, a person's pose). Off: the image is used as the guide unchanged, for a ready-made map."
+
+      - name: "guide_save"
+        type: "checkbox"
+        formula: "control"
+        label: "Also save the extracted guide"
+        default: false
+        description: "Keep the map next to the generated image."
+        ai_hint: "Saves the extracted map to History as an extra output beside the result, labelled with the guide type."
+        reactions:
+          - when: { field: "guide_extract", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "guide_extract", equals: true }
+            then: { set_visibility: true }
+
+      - name: "control_strength"
+        type: "slider"
+        formula: "control"
+        label: "Guide strength"
+        audience: "advanced"
+        default: 1.0
+        ai_hint: "Strength of the Structure LoRA. 1.0 is what it was trained at. Lower it to let the prompt loosen the guide; above 1.0 can burn in the guide's lines."
+        configuration: {min: 0.0, max: 2.0, step: 0.05}

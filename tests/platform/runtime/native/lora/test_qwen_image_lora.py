@@ -120,3 +120,29 @@ def test_fp8_mixed_edit_forward_matches_the_merged_lora(alpha):
     expected = _edit_forward(reference)
     assert torch.allclose(_edit_forward(module), expected, atol=1e-5, rtol=1e-4)
     assert not torch.allclose(_edit_forward(_reference(dequantized)), expected, atol=1e-3)
+
+
+CONTEXT_CONTROL_TARGETS = tuple(target for target in TARGETS if not target.endswith("net.0.proj"))
+
+
+def _context_control_lora(module: nn.Module) -> dict[str, torch.Tensor]:
+    linears = dict(module.named_modules())
+    generator = torch.Generator().manual_seed(5)
+    lora = {}
+    for block in range(TINY["num_layers"]):
+        for target in CONTEXT_CONTROL_TARGETS:
+            linear = linears[f"transformer_blocks.{block}.{target}"]
+            stem = f"transformer_blocks.{block}.{target}"
+            lora[f"{stem}.lora_A.default.weight"] = (torch.randn(RANK, linear.in_features, generator=generator) * 0.05).bfloat16()
+            lora[f"{stem}.lora_B.default.weight"] = (torch.randn(linear.out_features, RANK, generator=generator) * 0.05).bfloat16()
+    return lora
+
+
+def test_every_in_context_control_key_lands_on_its_own_linear():
+    module = _reference(_dense_state())
+    lora = _context_control_lora(module)
+    patched, unmatched, reports = apply_loras_with_report(module, [(lora, 1.0)], names=["context-control"])
+    assert unmatched == []
+    assert patched == len(CONTEXT_CONTROL_TARGETS) * TINY["num_layers"]
+    assert reports[0].inplace_params + reports[0].runtime_params == patched
+

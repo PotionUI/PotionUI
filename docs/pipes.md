@@ -900,7 +900,7 @@ Native Flux-family generator (flow matching, embedded guidance)
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img`, `inpaint` | — | — | Generation mode |
+| `mode` | `str` | `"txt2img"` | yes | `txt2img`, `img2img`, `inpaint`, `edit` | — | — | Generation mode |
 | `denoise` | `float` | `0.55` | no | — | 0.0 | 1.0 | img2img denoise strength (fraction of the schedule to walk) |
 | `img2img_scale` | `float` | `0.0` | no | — | 0.0 | 8.0 | Literal multiplier of the SOURCE image's own (width, height) for the img2img target size, snapped to the model's granularity same as every other path here. 0 (default) is off and leaves the existing resolution-area-match / area-cap behaviour byte-identical -- set this instead of (not alongside) the mode's ``resolution`` config for a true "upscale by Nx of whatever was uploaded" mode. |
 | `mask_feather` | `float` | `0.0` | no | — | 0.0 | 1.0 | Inpaint only: soft edge added outside the mask, as a fraction of the mask's longer side; edge latents are freed late in sampling so the model can continue the background across the edge |
@@ -910,6 +910,7 @@ Native Flux-family generator (flow matching, embedded guidance)
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override (constant-shift variants only) |
 | `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog) |
 | `resolution` | `str` | `"1024x1024"` | no | — | — | — | Resolution (WxH) |
+| `output_size` | `str` | `""` | no | — | — | — | Edit output size (WxH); blank matches the first reference (FLUX.2 Klein only) |
 | `quantity` | `int` | `1` | no | — | 1 | 10 | Number of images |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |

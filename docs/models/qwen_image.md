@@ -39,13 +39,14 @@ _Generated from the preset definitions by `scripts/model_modes_reference.py`; ed
 - `edit`: Edit
 - `camera`: Camera angle
 - `real`: Make it real
+- `control`: Structure
 - `inpaint`: Inpaint
 - `upscale`: Upscale
 - `refine_faces`: Fix faces and hands
 
 <!-- modes:end -->
 
-The shipped Qwen-Image preset ships `txt2img`, `img2img`, `edit`, `camera` and `real`.
+The shipped Qwen-Image preset ships `txt2img`, `img2img`, `edit`, `camera`, `real` and `control` (Structure, experimental).
 
 ### Picture layout in edit modes
 
@@ -74,6 +75,14 @@ The LoRA is a required `camera_lora` model field with a pinned recommendation (`
 `real` turns an illustration, anime, painting, render or 3D shot into a photograph and keeps the composition. It is an `edit` run on the 2511 checkpoint with the lrzjason Anything2Real 2601 LoRA (required `real_lora` field, pinned recommendation `anything2real_2601.safetensors`, 585.1 MB, Apache-2.0). The instruction follows the LoRA card: `change the picture 1 to realistic photograph`, with the optional prompt appended as a description (`..., a woman in a red coat on a rainy street`). The LoRA loads first at **Realism strength** (Advanced, default 1.0; the card suggests 0.75 to 1), then any LoRAs from the LoRA tab. If the result is not photographic enough the card advises changing the strength or the checkpoint before raising it further.
 
 Qwen-Image 2.1 gets the same task as the **Photo** task of its Restyle mode, prompt-only (no LoRA), see [Qwen-Image 2.1](qwen_image_21.md).
+
+### Structure (In-Context Control)
+
+`control` keeps the edges, depth, normals or pose of a picture and generates a new image on them. It uses the DiffSynth-Studio In-Context-Control-Union LoRA (Apache-2.0, rank 64 on all 60 blocks, trained on the original Qwen-Image; required `control_lora` field, pinned recommendation `qwen_image_in_context_control_union.safetensors`, 943.9 MB). The mode is experimental and listed under `modes_unvalidated`: nothing has run with real weights. The Hugging Face copy the recommendation points at is a community re-upload of the ModelScope file; its sha256 comes from the Hugging Face API, not from ModelScope.
+
+How it works (DiffSynth `QwenImagePipeline`, `context_image`): the guide is resized to the output size, VAE-encoded and its latent tokens are concatenated after the image tokens as an extra frame in the DiT sequence, with its own RoPE position. That is the same reference-latent path as `edit`, and the mode runs through `generator/qwen` with `mode: edit`, so one guide is a single reference. Two differences from `edit`: the prompt encoder gets text only, with no vision tower and no `vision: true` on the loader (DiffSynth passes no picture to Qwen2.5-VL here), so prompt weights still apply and the mode is not in `prompt_weights_ignored_with_images`; and the checkpoint should be a text-to-image one, which keeps the plain `index` reference method rather than the 2511 timestep-zero one. The LoRA's keys are bare diffusers names with a PEFT `.default.` adapter infix and no alpha, and all of them land on the native Linears without any mapping change.
+
+Every prompt is prefixed with the card's trigger `Context_Control. `. The Control tab offers canny, depth, pose, lineart, soft edges (HED) and normal map, extracted from the picture by the shared `controlnet_preprocessor`, or the picture used as the guide when extraction is off. The card trains on DiffSynth's annotators; ours are the same families (MiDaS depth, HED, lineart, canny, DWPose), but the normal map comes from a different estimator. **Guide strength** is the LoRA weight (default 1.0). The guide is always cropped to the chosen resolution. Pose is a loose guide, as the card notes. Control does not combine with extra reference pictures. The original Qwen-Image checkpoint is the one the LoRA was trained on; 2512 is offered as a second choice and is untested.
 
 ### Picture layout in edit mode
 

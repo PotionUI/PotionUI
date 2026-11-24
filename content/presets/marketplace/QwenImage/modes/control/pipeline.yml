@@ -1,0 +1,153 @@
+pipeline:
+  - name: "model_loader/qwen"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ [{'model': form.control_lora, 'strength': form.control_strength | default(1.0)}] + (form.loras or []) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "media_loader"
+    id: "source_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "controlnet_preprocessor"
+    id: "controlnet_preprocessor"
+    enabled: "{{ form.guide_extract | default(true) }}"
+    input:
+      - ["image", "source_loader", "image"]
+    configuration:
+      strict: true
+      blank_hint: "turn off Extract the guide from a photo"
+      preprocessors:
+        - type: "{{ form.guide | default('canny') }}"
+          enabled: true
+          parameters: {}
+
+  - name: "image_fit"
+    id: "image_fit"
+    input:
+      - ["image", "{% if form.guide_extract | default(true) %}controlnet_preprocessor{% else %}source_loader{% endif %}", "image"]
+    enabled: true
+    configuration:
+      fit: "crop"
+      resolution: "{{ form.resolution }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/qwen", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: &control_prompt "Context_Control. {{ ((item.positive if item is defined else generation.prompts.first.positive) | default('', true)) | trim }}"
+        output: *control_prompt
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *control_prompt
+            negative: "{{ item.negative }}"
+      quantity: "{{ form.quantity }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - ["model", "{{ form.control_lora }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - "@loop":
+            items: "{{ generation.prompts.pairs }}"
+            template: ["positive_prompt", *control_prompt]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
+        - ["resolution", "{{ form.resolution }}"]
+        - ["guide", "{{ form.guide | default('canny') }}"]
+        - ["guide_extract", "{{ form.guide_extract | default(true) }}"]
+        - ["control_strength", "{{ form.control_strength | default(1.0) }}"]
+
+  - name: "generator/qwen"
+    input:
+      - ["model", "model_loader/qwen", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "image_fit", "image"]
+    enabled: true
+    configuration:
+      preview_decoder: "{{ form.preview_decoder | default('') }}"
+      mode: "edit"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      guidance: "{{ form.cfg | default(generation.profile.guidance) }}"
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      resolution: "{{ form.resolution }}"
+      fit: "crop"
+      quantity: "{{ form.quantity }}"
+
+  - name: "gallery"
+    id: "gallery"
+    input:
+      - ["image", "generator/qwen", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+
+  - name: "gallery"
+    id: "guide_gallery"
+    input:
+      - ["image", "controlnet_preprocessor", "image"]
+    enabled: "{{ (form.guide_extract | default(true)) and (form.guide_save | default(false)) }}"
+    configuration:
+      label: "Guide: {{ {'canny': 'Canny', 'depth': 'Depth', 'openpose': 'Pose', 'lineart': 'Lineart', 'hed': 'Soft edges', 'normal': 'Normal map'}.get(form.guide | default('canny'), 'Guide') }}"

@@ -1,0 +1,39 @@
+name: "custom"
+mode_label: "Structure"
+short_description: "Keep the edges, depth, normals or pose of a picture and generate a new image on them."
+requirements:
+  - type: "model"
+    field: "control_lora"
+    hint: "Download the Structure LoRA in this mode."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/control/tabs/generation.yml"
+      - type: "tab"
+        anchor: "control"
+        label: "Control"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/control/tabs/control.yml"
+      - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths._shared }}/tabs/lora.yml"
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/control/tabs/advanced.yml"

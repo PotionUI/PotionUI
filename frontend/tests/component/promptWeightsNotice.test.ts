@@ -11,7 +11,7 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-function render(props: { prompts: { prompt?: string }[]; supported?: boolean }) {
+function render(props: { prompts: { prompt?: string }[]; supported?: boolean; pictures?: boolean }) {
 	instance = mount(PromptWeightsNotice, { target: document.body, props });
 	flushSync();
 	return document.body.textContent ?? '';
@@ -34,5 +34,18 @@ describe('PromptWeightsNotice', () => {
 	it('looks at every prompt in a batch', () => {
 		const text = render({ prompts: [{ prompt: 'plain' }, { prompt: 'x (y:0.8)' }], supported: false });
 		expect(text).toContain('ignored');
+	});
+
+	it('tells the user weights are ignored with pictures on a model that otherwise honours them', () => {
+		const text = render({ prompts: [{ prompt: 'a (red:1.3) fox' }], supported: true, pictures: true });
+		expect(text).toContain('ignored when pictures are attached in this mode');
+	});
+
+	it('stays hidden with pictures but no weight syntax', () => {
+		expect(render({ prompts: [{ prompt: 'a red fox' }], supported: true, pictures: true })).toBe('');
+	});
+
+	it('stays hidden when no picture is attached', () => {
+		expect(render({ prompts: [{ prompt: 'a (red:1.3) fox' }], supported: true, pictures: false })).toBe('');
 	});
 });

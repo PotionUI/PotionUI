@@ -64,6 +64,11 @@ vars:
     - "camera"
   optional_prompt_modes:
     - "real"
+  prompt_weights_ignored_with_images:
+    - mode: "edit"
+      fields: ["source_image"]
+    - mode: "real"
+      fields: ["source_image"]
 
 llm:
   guide: |

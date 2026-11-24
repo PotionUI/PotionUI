@@ -52,6 +52,7 @@
 	export let negativePromptSupported: boolean;
 	export let negativeInert: boolean;
 	export let promptWeightsSupported = true;
+	export let promptWeightsPictures = false;
 	export let promptlessActive: boolean;
 	export let dynamicFormRefs: Record<string, DynamicForm>;
 	export let onFormDataChange: (data: Record<string, unknown>) => void;
@@ -156,6 +157,7 @@
 		{negativePromptSupported}
 		{negativeInert}
 		{promptWeightsSupported}
+		{promptWeightsPictures}
 		onClose={closeSheet}
 	/>
 {:else if openSheet === 'settings'}

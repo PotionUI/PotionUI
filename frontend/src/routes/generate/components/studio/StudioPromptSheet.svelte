@@ -26,6 +26,7 @@
 	export let negativePromptSupported: boolean;
 	export let negativeInert: boolean;
 	export let promptWeightsSupported = true;
+	export let promptWeightsPictures = false;
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
 	export let promptCopy: PromptCopy = NO_PROMPT_COPY;
 	export let presetStyles: PresetStyle[] = [];
@@ -61,6 +62,7 @@
 			{negativePromptSupported}
 			{negativeInert}
 			{promptWeightsSupported}
+			{promptWeightsPictures}
 			spacingClass="mt-0"
 		/>
 	</div>

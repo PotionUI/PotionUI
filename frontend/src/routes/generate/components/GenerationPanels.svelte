@@ -52,6 +52,7 @@
 	export let negativePromptSupported = true;
 	export let negativeInert = false;
 	export let promptWeightsSupported = true;
+	export let promptWeightsPictures = false;
 	/** Resolved on the page from the preset's `vars.prompt`; passed straight
 	 *  through to every PromptSection instance below. */
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
@@ -334,6 +335,7 @@
 					{negativePromptSupported}
 					{negativeInert}
 					{promptWeightsSupported}
+					{promptWeightsPictures}
 					{presetSegmentTemplates}
 					{promptCopy}
 					{presetStyles}
@@ -446,6 +448,7 @@
 							{negativePromptSupported}
 							{negativeInert}
 							{promptWeightsSupported}
+							{promptWeightsPictures}
 							{presetSegmentTemplates}
 							{promptCopy}
 							{presetStyles}
@@ -507,6 +510,7 @@
 							{negativePromptSupported}
 							{negativeInert}
 							{promptWeightsSupported}
+							{promptWeightsPictures}
 							{presetSegmentTemplates}
 							{promptCopy}
 							{presetStyles}

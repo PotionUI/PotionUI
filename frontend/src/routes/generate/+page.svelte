@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { findGenerationTab, generationTabs } from '$lib/types/tabs';
-	import { promptWeightsSupported } from '$lib/generation/promptWeights';
+	import { promptWeightsIgnoredWithPictures, promptWeightsSupported } from '$lib/generation/promptWeights';
 	import { modeDescription } from '$lib/utils/modeDescription';
 	import { modeUnavailableReason } from '$lib/utils/modeRequirements';
 	import { createModeRequirementsRecheck } from '$lib/utils/modeRequirementsRecheck';
@@ -743,6 +743,11 @@
 		currentPresetVars.negative_prompt_supported !== false;
 
 	$: promptWeightsOk = promptWeightsSupported(currentPresetVars);
+	$: promptWeightsPictures = promptWeightsIgnoredWithPictures(
+		currentPresetVars,
+		gateTab.selectedMode,
+		gateTab.formData
+	);
 
 	$: negativeInert =
 		negativePromptSupported &&
@@ -2029,6 +2034,7 @@
 						{negativePromptSupported}
 						{negativeInert}
 						promptWeightsSupported={promptWeightsOk}
+						{promptWeightsPictures}
 						{promptlessActive}
 						{dynamicFormRefs}
 						onFormDataChange={(data) => handleFormDataChange(tab.id, data)}
@@ -2070,6 +2076,7 @@
 								{negativePromptSupported}
 								{negativeInert}
 								promptWeightsSupported={promptWeightsOk}
+								{promptWeightsPictures}
 								{presetSegmentTemplates}
 								{promptCopy}
 								{presetStyles}

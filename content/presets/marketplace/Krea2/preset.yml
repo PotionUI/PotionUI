@@ -38,6 +38,11 @@ speed_profiles:
   # with the fixed_mu schedule every non-`base` profile keeps.
   custom:   { steps: 8,  guidance: 1.0, sampler: "euler" }
 
+vars:
+  prompt_weights_ignored_with_images:
+    - mode: "edit"
+      fields: ["source_image", "source_image_b"]
+
 # Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
 # these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
 configuration:

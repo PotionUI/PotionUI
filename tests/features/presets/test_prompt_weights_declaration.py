@@ -35,3 +35,23 @@ def test_declaration_is_served_with_the_preset(templates):
     served = repository.preset_to_info(templates["Flux1"])
     assert served.vars["supports_prompt_weights"] is False
     assert "supports_prompt_weights" not in repository.preset_to_info(templates["SDXL"]).vars
+
+
+PICTURE_FIELDS = {
+    "QwenImage": {"edit": ["source_image"], "real": ["source_image"]},
+    "Krea2": {"edit": ["source_image", "source_image_b"]},
+}
+
+
+@pytest.mark.parametrize("name", sorted(PICTURE_FIELDS))
+def test_picture_conditioned_modes_declare_ignored_weights(templates, name):
+    declared = (templates[name].vars or {})["prompt_weights_ignored_with_images"]
+    assert {entry["mode"]: entry["fields"] for entry in declared} == PICTURE_FIELDS[name]
+
+
+def test_picture_declaration_is_served_with_the_preset(templates):
+    from src.features.presets.file_repository import FilePresetRepository
+
+    repository = FilePresetRepository.__new__(FilePresetRepository)
+    served = repository.preset_to_info(templates["Krea2"])
+    assert served.vars["prompt_weights_ignored_with_images"][0]["mode"] == "edit"

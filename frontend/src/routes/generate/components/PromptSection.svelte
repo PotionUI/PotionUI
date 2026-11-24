@@ -99,6 +99,7 @@
 		negativePromptSupported = true,
 		negativeInert = false,
 		promptWeightsSupported = true,
+		promptWeightsPictures = false,
 		presetSegmentTemplates = [],
 		presetStyles = [],
 		promptCopy = NO_PROMPT_COPY,
@@ -119,6 +120,7 @@
 		negativePromptSupported?: boolean;
 		negativeInert?: boolean;
 		promptWeightsSupported?: boolean;
+		promptWeightsPictures?: boolean;
 		presetSegmentTemplates?: PresetSegmentTemplate[];
 		presetStyles?: PresetStyle[];
 		promptCopy?: PromptCopy;
@@ -451,7 +453,7 @@
 					</PromptTabs>
 				{/snippet}
 			</SegmentedPromptEditor>
-			<PromptWeightsNotice {prompts} supported={promptWeightsSupported} class="mt-3" />
+			<PromptWeightsNotice {prompts} supported={promptWeightsSupported} pictures={promptWeightsPictures} class="mt-3" />
 			<div class="mt-3 space-y-2 empty:hidden">
 				<KitSkippedLine texts={kitCiteTexts} specs={promptResourceSpecs} formData={resourceFieldValues} {tabId} presetId={selectedPreset || null} mode={selectedMode || null} />
 			</div>

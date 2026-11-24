@@ -200,7 +200,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
         sampling_settings={
             "prediction": "const",
             "shift": 2.02,
-            "guidance": "embedded",
+            "guidance": "none",
         },
         latent_format={
             "latent_channels": 32,

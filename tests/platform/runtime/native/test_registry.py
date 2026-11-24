@@ -25,7 +25,7 @@ def test_match_flux2_spec_from_detected_config():
     assert spec.variant == "flux2"
     assert spec.vae_target == "flux2_ae"
     assert spec.clip_targets == ["qwen3"]
-    assert spec.sampling_settings["guidance"] == "embedded"
+    assert spec.sampling_settings["guidance"] == "none"
     assert spec.latent_format["latent_channels"] == 32
 
 

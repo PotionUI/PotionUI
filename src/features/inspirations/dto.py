@@ -56,6 +56,16 @@ def inspiration_media_url(inspiration_id: str, filename: str) -> str:
     return f"/api/media/inspirations/{inspiration_id}/{filename}"
 
 
+def _media_to_dto(inspiration_id: str, entry: Dict[str, Any]) -> Dict[str, Any]:
+    thumbnail = entry.get("thumbnail")
+    return {
+        "url": inspiration_media_url(inspiration_id, entry["filename"]),
+        "type": entry.get("type"),
+        "width": entry.get("width"),
+        "height": entry.get("height"),
+        "thumbnail_url": inspiration_media_url(inspiration_id, thumbnail) if thumbnail else None,
+    }
+
 def inspiration_to_dto(insp: Inspiration) -> Dict[str, Any]:
     return {
         "id": insp.id,
@@ -66,15 +76,7 @@ def inspiration_to_dto(insp: Inspiration) -> Dict[str, Any]:
             "username": insp.author_username,
             "avatar_url": _avatar_url(insp.author_avatar_filename),
         },
-        "media": [
-            {
-                "url": inspiration_media_url(insp.id, entry["filename"]),
-                "type": entry.get("type"),
-                "width": entry.get("width"),
-                "height": entry.get("height"),
-            }
-            for entry in insp.media
-        ],
+        "media": [_media_to_dto(insp.id, entry) for entry in insp.media],
         "params_preview": insp.params_snapshot.get("preview", []),
         "technique": insp.technique,
         "created_at": dt_iso(insp.created_at),

@@ -9,6 +9,7 @@ configuration.
 """
 
 import json
+import os
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from src.features.generation.parameter_repository import GenerationParameterRepo
 from src.features.generation.records import File
 from src.features.generation.repository import GenerationRepository
 from src.features.inspirations import operations
+from src.features.inspirations.dto import inspiration_to_dto
 from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.repository import InspirationRepository
 from src.features.media.file_resolver import FilePathResolver
@@ -215,6 +217,12 @@ class InspirationTestBase(PersistenceTestBase):
 
         return generation_id, file_record, on_disk
 
+    def _with_medium_thumbnail(self, file_record, source, content=b"thumb-pixels"):
+        thumb = source.parent / "0_medium.webp"
+        thumb.write_bytes(content)
+        self.file_repo.set_thumbnail_paths([file_record.id], None, thumb.name, None)
+        return thumb
+
 
 class TestPublish(InspirationTestBase):
 
@@ -386,6 +394,102 @@ class TestParamsSnapshotSurvivesGenerationDeletion(InspirationTestBase):
 
         copied = self.storage_driver.local_path(f"inspirations/{insp.id}/{source.name}")
         self.assertTrue(copied.exists())
+
+
+class TestPublishThumbnail(InspirationTestBase):
+
+    def test_publish_copies_the_medium_thumbnail_into_the_inspiration(self):
+        generation_id, file_record, source = self._generated_file()
+        self._with_medium_thumbnail(file_record, source)
+
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Thumbed")
+
+        thumb_name = insp.media[0]["thumbnail"]
+        copied = self.storage_driver.local_path(f"inspirations/{insp.id}/{thumb_name}")
+        self.assertEqual(copied.read_bytes(), b"thumb-pixels")
+        dto = inspiration_to_dto(insp)
+        self.assertEqual(dto["media"][0]["thumbnail_url"], f"/api/media/inspirations/{insp.id}/{thumb_name}")
+
+    def test_publish_without_a_source_thumbnail_leaves_it_null(self):
+        generation_id, file_record, source = self._generated_file()
+
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Plain")
+
+        self.assertIsNone(insp.media[0]["thumbnail"])
+        self.assertIsNone(inspiration_to_dto(insp)["media"][0]["thumbnail_url"])
+
+    def test_publish_picks_the_first_available_size_in_medium_small_large_order(self):
+        cases = [
+            ("small only", (b"s", None, None), b"s"),
+            ("small and large", (b"s", None, b"l"), b"s"),
+            ("medium and small", (b"s", b"m", None), b"m"),
+            ("large only", (None, None, b"l"), b"l"),
+        ]
+        for label, (small, medium, large), expected in cases:
+            with self.subTest(label):
+                generation_id, file_record, source = self._generated_file()
+                names = []
+                for suffix, data in (("small", small), ("medium", medium), ("large", large)):
+                    if data is None:
+                        names.append(None)
+                        continue
+                    thumb = source.parent / f"0_{suffix}.webp"
+                    thumb.write_bytes(data)
+                    names.append(thumb.name)
+                self.file_repo.set_thumbnail_paths([file_record.id], *names)
+
+                insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], label)
+
+                copied = self.storage_driver.local_path(f"inspirations/{insp.id}/{insp.media[0]['thumbnail']}")
+                self.assertEqual(copied.read_bytes(), expected)
+
+    def test_publish_with_a_thumbnail_missing_on_disk_still_succeeds_without_one(self):
+        generation_id, file_record, source = self._generated_file()
+        self.file_repo.set_thumbnail_paths([file_record.id], None, "gone.webp", None)
+
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Missing")
+
+        self.assertIsNone(insp.media[0]["thumbnail"])
+        self.assertEqual(insp.media[0]["filename"], source.name)
+
+    def test_publish_succeeds_without_a_thumbnail_when_copying_it_fails(self):
+        generation_id, file_record, source = self._generated_file()
+        thumb = self._with_medium_thumbnail(file_record, source)
+        real_put_file = self.storage_driver.put_file
+
+        def put_file(key, path):
+            if Path(path) == thumb:
+                raise OSError("disk full")
+            return real_put_file(key, path)
+
+        self.storage_driver.put_file = put_file
+
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Flaky")
+
+        self.assertIsNone(insp.media[0]["thumbnail"])
+        self.assertTrue(self.storage_driver.local_path(f"inspirations/{insp.id}/{source.name}").exists())
+
+    def test_publish_skips_a_thumbnail_that_escapes_the_storage_root(self):
+        generation_id, file_record, source = self._generated_file()
+        outside = Path(self.temp_dir) / "outside.webp"
+        outside.write_bytes(b"secret")
+        escaping = os.path.relpath(outside, source.parent)
+        self.file_repo.set_thumbnail_paths([file_record.id], None, escaping, None)
+
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Escape")
+
+        self.assertIsNone(insp.media[0]["thumbnail"])
+
+    def test_delete_removes_the_copied_thumbnail(self):
+        generation_id, file_record, source = self._generated_file()
+        self._with_medium_thumbnail(file_record, source)
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Doomed")
+        copied = self.storage_driver.local_path(f"inspirations/{insp.id}/{insp.media[0]['thumbnail']}")
+        self.assertTrue(copied.exists())
+
+        operations.delete(self.collaborators, insp.id, self.user_id)
+
+        self.assertFalse(copied.exists())
 
 
 class TestDelete(InspirationTestBase):

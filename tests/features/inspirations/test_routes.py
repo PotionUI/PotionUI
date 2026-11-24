@@ -112,6 +112,19 @@ class TestPublishGetDeleteFlow(InspirationRoutesTestBase):
         self.assertEqual(ok.content, b"generated-pixels")
         self.assertEqual(wrong_name.status_code, 404)
 
+    def test_thumbnail_is_served_for_its_own_inspiration_only(self):
+        generation_id, file_record, source = self._generated_file(content=b"generated-pixels")
+        self._with_medium_thumbnail(file_record, source)
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Thumbed")
+        thumb_name = insp.media[0]["thumbnail"]
+
+        served = self.client.get(f"/api/media/inspirations/{insp.id}/{thumb_name}")
+        other = self.client.get(f"/api/media/inspirations/{insp.id}/thumb_other.webp")
+
+        self.assertEqual(served.status_code, 200)
+        self.assertEqual(served.content, b"thumb-pixels")
+        self.assertEqual(other.status_code, 404)
+
     def test_delete_by_owner(self):
         insp, source = self._publish()
 

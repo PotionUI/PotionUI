@@ -82,6 +82,7 @@ class TestFeedOrderingAndCounts(InspirationRepositoryTestBase):
         self.assertEqual(dto["author"]["username"], "testuser")
         self.assertEqual(dto["comment_count"], 1)
         self.assertEqual(dto["media"][0]["url"], f"/api/media/inspirations/{insp.id}/a.png")
+        self.assertIsNone(dto["media"][0]["thumbnail_url"])
 
 
 class TestFeedFiltering(InspirationRepositoryTestBase):

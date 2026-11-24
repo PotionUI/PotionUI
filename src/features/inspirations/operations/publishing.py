@@ -107,6 +107,7 @@ def publish(
             raise NotFoundError("not_found", "File not found")
 
         written = collaborators.storage_driver.put_file(inspiration_media_key(inspiration_id, filename), source)
+        thumbnail = _copy_card_thumbnail(collaborators, inspiration_id, file_record, source, storage_root)
         media_entries.append({
             "filename": filename,
             "type": media_type,
@@ -116,6 +117,7 @@ def publish(
             "fps": file_record.fps,
             "mime_type": file_record.mime_type,
             "file_size": file_record.file_size or written,
+            "thumbnail": thumbnail,
         })
 
     preset_name = (
@@ -202,6 +204,32 @@ def _filter_shareable_form_data(
     return filtered, omitted, has_image_input, has_video_input
 
 
+def _copy_card_thumbnail(
+    collaborators: InspirationCollaborators,
+    inspiration_id: str,
+    file_record: Any,
+    source: Path,
+    storage_root: Path,
+) -> Optional[str]:
+    for size in ("medium", "small", "large"):
+        name = getattr(file_record, f"thumbnail_{size}", None)
+        if not name:
+            continue
+        thumb_source = source.parent / name
+        if not collaborators.file_resolver.validate_path_security(thumb_source, storage_root):
+            continue
+        if not thumb_source.exists():
+            continue
+        thumb_name = f"thumb_{source.stem}{thumb_source.suffix}"
+        try:
+            collaborators.storage_driver.put_file(inspiration_media_key(inspiration_id, thumb_name), thumb_source)
+        except Exception as e:
+            logger.warning(f"Failed to copy {size} thumbnail for inspiration media {source.name}: {e}")
+            return None
+        return thumb_name
+    return None
+
+
 def _build_params_preview(
     collaborators: InspirationCollaborators, generation_id: str, preset_name: Optional[str]
 ) -> List[Dict[str, Any]]:
@@ -237,10 +265,13 @@ def delete(collaborators: InspirationCollaborators, inspiration_id: str, user_id
         raise NotFoundError("not_found", "Inspiration not found")
 
     for entry in insp.media:
-        try:
-            collaborators.storage_driver.delete(inspiration_media_key(inspiration_id, entry["filename"]))
-        except StorageKeyError:
-            logger.warning(f"Skipped deleting invalid inspiration media key: {entry.get('filename')!r}")
+        for name in (entry["filename"], entry.get("thumbnail")):
+            if not name:
+                continue
+            try:
+                collaborators.storage_driver.delete(inspiration_media_key(inspiration_id, name))
+            except StorageKeyError:
+                logger.warning(f"Skipped deleting invalid inspiration media key: {name!r}")
 
     collaborators.repository.delete(inspiration_id)
     logger.info(f"Deleted inspiration {inspiration_id}")

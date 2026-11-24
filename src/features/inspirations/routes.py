@@ -232,7 +232,7 @@ class InspirationController(BaseController):
     async def serve_media(self, inspiration_id: str, filename: str, viewer):
         try:
             insp = self.collaborators.repository.get_by_id(inspiration_id)
-            if not insp or not any(entry.get("filename") == filename for entry in insp.media):
+            if not insp or not any(filename in (entry.get("filename"), entry.get("thumbnail")) for entry in insp.media):
                 raise ValueError("File not found")
             if not self._viewable(viewer.id, [insp]):
                 raise ValueError("File not found")

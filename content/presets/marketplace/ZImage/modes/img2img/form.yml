@@ -1,0 +1,31 @@
+name: "custom"
+mode_label: "Image to image"
+short_description: "Restyle or rework a picture, keeping as much of it as you choose."
+prompt: "required"
+prompt_label: "What the picture should become"
+prompt_placeholder: "the same street at night, neon signs, wet asphalt"
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        anchor: "generation"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/img2img/tabs/generation.yml"
+      - type: "tab"
+        anchor: "lora"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths._shared }}/tabs/lora.yml"
+      - type: "tab"
+        anchor: "advanced"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"

@@ -2,7 +2,7 @@ fields:
   - name: "face_detailer_enabled"
     type: "gate"
     formula: "detailer"
-    label: "Face Detailer"
+    label: "Face and Hand Detailer"
     default: false
     configuration:
       experimental: true
@@ -27,6 +27,12 @@ fields:
         ai_hint: "Saves the image as it was before any face was refined as a second gallery entry, alongside the detailed one."
         configuration:
           tooltip: "Keeps the image as it was before the faces were refined as an extra gallery entry, so the original faces stay available to compare against."
+
+      - name: "face_detailer_hands"
+        type: "checkbox"
+        label: "Fix hands too"
+        default: false
+        ai_hint: "Also finds and repaints hands in the same pass. Needs the hand detection model; without it only faces are repainted."
 
       - name: "face_detailer_max_faces"
         type: "slider"
@@ -248,3 +254,24 @@ fields:
           - when: { field: "face_detailer_backend", not_equals: "yolo" }
             then: { set_visibility: false }
 
+      - name: "face_detailer_hand_model"
+        type: "model"
+        formula: "models"
+        label: "Hand Detection Model"
+        visible: false
+        ai_hint: "The detector that finds the hands to repaint."
+        configuration:
+          model_type: "mediapipe"
+          allow_info_modal: true
+          placeholder: "Select hand finder..."
+          filter_tags: "@config:mediapipe_tags"
+          recommendations:
+            - name: "MediaPipe Hand Landmarker"
+              link: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+              size: "7.5 MB"
+              description: "Locates hands so they can be found precisely for refinement."
+        reactions:
+          - when: { field: "face_detailer_hands", equals: true }
+            then: { set_visibility: true }
+          - when: { field: "face_detailer_hands", equals: false }
+            then: { set_visibility: false }

@@ -33,8 +33,10 @@ _MODELS = {
 
 def _form(mode, over=None):
     form = dict(_MODELS)
-    if mode == "enhance":
+    if mode in ("enhance", "img2img", "upscale", "refine_faces"):
         form["source_image"] = "/uploads/source.png"
+    if mode == "refine_faces":
+        form["face_model"] = "/models/face_landmarker.task"
     if mode == "control":
         form["guide_image"] = "/uploads/guide.png"
         form["control_model"] = "/models/fun_control.safetensors"
@@ -70,7 +72,16 @@ def _generator(pipes):
 
 
 def test_the_modes_are_declared(template):
-    assert list(template.modes.keys()) == ["txt2img", "enhance", "inpaint", "control"]
+    assert list(template.modes.keys()) == ["txt2img", "enhance", "inpaint", "control", "img2img", "upscale", "refine_faces"]
+
+
+def test_the_new_modes_are_flagged_unvalidated(template):
+    assert set(template.modes_unvalidated) == {"img2img", "upscale", "refine_faces"}
+
+
+def test_the_new_modes_carry_the_matching_editor_modes(template):
+    assert template.editor_modes["upscale"].editor.from_mode == "upscale"
+    assert template.editor_modes["fix_faces"].editor.from_mode == "refine_faces"
 
 
 def test_txt2img_is_untouched(template):
@@ -252,3 +263,53 @@ def test_the_recommended_controlnets_are_union_2_1_files_with_hashes(template):
         assert "Union-2.1" in item["name"]
         assert "Controlnet-Union-2.1/resolve/main/" in item["link"]
         assert len(item["sha256"]) == 64
+
+
+def test_img2img_runs_the_generator_from_the_picture_at_the_chosen_strength(template):
+    pipes = _process(template, "img2img", {"denoise": 0.4})
+    cfg = _generator(pipes)
+    assert cfg["mode"] == "img2img"
+    assert float(cfg["denoise"]) == 0.4
+    assert _providers(pipes, "generator")["image"] == "media_loader"
+    assert _pipe(pipes, "media_loader")["config"]["media"][0]["path"] == "/uploads/source.png"
+    assert _providers(pipes, "gallery")["image"] == "generator"
+
+
+def test_upscale_tiles_the_refine_at_the_chosen_scale_and_detail(template):
+    pipes = _process(template, "upscale", {"upscale_factor": 3.0, "refine_amount": "strong", "tile_size": 768})
+    cfg = _pipe(pipes, "tiled_refiner")["config"]
+    assert float(cfg["scale"]) == 3.0
+    assert float(cfg["denoise"]) == 0.45
+    assert int(cfg["tile_size"]) == 768
+    providers = _providers(pipes, "tiled_refiner")
+    assert providers["model"] == "model_loader/z_image"
+    assert providers["image"] == "media_loader"
+    assert _providers(pipes, "gallery")["image"] == "tiled_refiner"
+
+
+def test_refine_faces_repaints_faces_with_the_chosen_strength(template):
+    pipes = _process(template, "refine_faces", {"fix_strength": 0.5})
+    cfg = _pipe(pipes, "face_detailer")["config"]
+    assert float(cfg["denoise"]) == 0.5
+    assert cfg["face_model"] == "/models/face_landmarker.task"
+    assert not cfg["detect_hands"]
+    assert _providers(pipes, "face_detailer")["image"] == "media_loader"
+    assert _providers(pipes, "gallery")["image"] == "face_detailer"
+
+
+def test_refine_faces_can_take_hands_along(template):
+    over = {"face_detailer_hands": True, "face_detailer_hand_model": "/models/hand_landmarker.task"}
+    cfg = _pipe(_process(template, "refine_faces", over), "face_detailer")["config"]
+    assert cfg["detect_hands"] is True
+    assert cfg["hand_model"] == "/models/hand_landmarker.task"
+
+
+def test_the_enhance_face_pass_can_take_hands_along(template):
+    over = {
+        "face_detailer_enabled": True,
+        "face_detailer_hands": True,
+        "face_detailer_hand_model": "/models/hand_landmarker.task",
+    }
+    cfg = _pipe(_process(template, "enhance", over), "face_detailer")["config"]
+    assert cfg["detect_hands"] is True
+    assert cfg["hand_model"] == "/models/hand_landmarker.task"

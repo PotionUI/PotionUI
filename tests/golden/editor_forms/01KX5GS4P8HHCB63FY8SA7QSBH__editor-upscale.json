@@ -1,0 +1,74 @@
+{
+  "editor_mode": "upscale",
+  "from": "upscale",
+  "preset_id": "01KX5GS4P8HHCB63FY8SA7QSBH",
+  "preset_name": "Z-Image",
+  "shown": [
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "Added detail",
+      "name": "refine_amount",
+      "type": "select"
+    },
+    {
+      "label": "Upscaler Model",
+      "name": "upscale_model",
+      "type": "model"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3-4B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Tile size",
+      "name": "tile_size",
+      "type": "slider"
+    },
+    {
+      "label": "Tile overlap",
+      "name": "tile_overlap",
+      "type": "slider"
+    },
+    {
+      "label": "Calm flat areas",
+      "name": "content_aware",
+      "type": "checkbox"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "CFG scale",
+      "name": "cfg",
+      "type": "slider"
+    }
+  ],
+  "task": "upscale"
+}

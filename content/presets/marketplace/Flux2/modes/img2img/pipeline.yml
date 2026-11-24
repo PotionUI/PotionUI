@@ -140,6 +140,7 @@ pipeline:
       steps: "{{ form.steps | default(preset.vars.default_steps) }}"
       # Optional shift override (constant-shift variants only); blank -> spec default.
       shift: "{% set s = form.shift %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      schedule: "{{ form.schedule }}"
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
       quantity: "{{ form.quantity }}"
       step_cache:

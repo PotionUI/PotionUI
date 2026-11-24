@@ -234,6 +234,10 @@
           "type": "str",
           "value": "euler"
         },
+        "schedule": {
+          "type": "str",
+          "value": "shift"
+        },
         "shift": {
           "type": "str",
           "value": "2.02"

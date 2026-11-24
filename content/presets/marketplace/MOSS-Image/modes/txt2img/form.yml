@@ -16,7 +16,15 @@ fields:
         configuration:
           icon: "lora"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
+        children:
+          file: "{{ paths._shared }}/native/lora.yml"
+          vars:
+            hint: LoRAs add specialized styles, concepts, or characters to MOSS-Image. Multiple LoRAs can be combined. 0.5-0.8 is recommended for most LoRAs, 1.0 = full effect. LoRAs trained for MOSS-Image in the OpenMOSS, diffusers/PEFT, ai-toolkit or ComfyUI layouts all work on both the SFT and Base checkpoints; the run log reports any LoRA keys that did not match.
+            placeholder: Select a MOSS-Image LoRA...
+            max_items: 10
+            strength_min: -10.0
+            strength_max: 10.0
+            strength_step: 0.1
       - type: "tab"
         anchor: "advanced"
         label: "Advanced"

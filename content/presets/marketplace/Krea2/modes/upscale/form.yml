@@ -31,7 +31,15 @@ fields:
         configuration:
           icon: "lora"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
+        children:
+          file: "{{ paths._shared }}/native/lora_windowed.yml"
+          vars:
+            hint: 'LoRAs add specialized styles, concepts, or characters to Krea-2. Multiple LoRAs can be combined. 0.5-0.8 is recommended for most LoRAs, 1.0 = full effect. Note: Krea-2 is a new model — LoRA key mapping uses the kohya/comfy convention over the native key names; verify a specific LoRA takes effect (0 params patched = format mismatch).'
+            placeholder: Select a Krea-2 LoRA...
+            max_items: 10
+            strength_min: -10.0
+            strength_max: 10.0
+            strength_step: 0.1
       - type: "tab"
         anchor: "advanced"
         label: "Advanced"

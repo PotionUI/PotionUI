@@ -59,7 +59,7 @@ The shipped **MiniMax-H3-Image** preset has `txt2img` and `edit`. The pipes are 
 
 ## LoRA
 
-Both modes have a LoRA tab (up to six LoRAs, strength -2 to 2). The loader (`model_loader/minimax_h3_image`) applies them to the DiT when it loads, through the same key mapping MiniMax-H3 uses (`build_minimax_h3_lora_key_map` in `src/platform/runtime/native/lora/key_mapping.py`), because the image DiT is the MiniMax-H3 block stack:
+Both modes have a LoRA tab (up to ten LoRAs, strength -2 to 2: the model is distilled to six steps and has not been run on real weights at higher strengths). The loader (`model_loader/minimax_h3_image`) applies them to the DiT when it loads, through the same key mapping MiniMax-H3 uses (`build_minimax_h3_lora_key_map` in `src/platform/runtime/native/lora/key_mapping.py`), because the image DiT is the MiniMax-H3 block stack:
 
 - **Formats.** ComfyUI and kohya keys (`diffusion_model.blocks.N.attn.qkv_proj`, `lora_unet_blocks_N_attn_qkv_proj`), the `base_model.model.` PEFT wrapper, and diffusers/PEFT keys (`transformer_blocks.N.attn.to_q/to_k/to_v/to_out.0`, `ff.net.0.proj`, `ff.net.2`, `token_refiner.refiner_blocks.N.*`, with or without PEFT's adapter name in the key). Split `to_q`, `to_k` and `to_v` land on the matching row slices of the fused `qkv_proj`, and the SwiGLU halves of `ff.net.0.proj` are swapped into the model's `[gate | value]` layout.
 - **Quantised DiT.** On the int8 ConvRot DiT the LoRA is not merged into the weights; its low-rank factors are kept next to each layer and added in every forward. On the bf16 DiT it is merged in place.

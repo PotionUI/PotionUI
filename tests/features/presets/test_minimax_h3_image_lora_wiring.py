@@ -106,11 +106,12 @@ def test_both_modes_show_a_lora_tab_before_advanced(mode):
     anchors = [tab["anchor"] for tab in tabs]
     assert anchors.index("lora") == anchors.index("advanced") - 1
     lora = tabs[anchors.index("lora")]
-    assert lora["children"] == "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
+    assert lora["children"]["file"] == "{{ paths._shared }}/native/lora.yml"
+    assert lora["children"]["vars"]["strength_min"] == -2.0 and lora["children"]["vars"]["strength_max"] == 2.0
 
 
 def test_the_lora_picker_is_plain_and_filtered_by_the_preset_tag_setting():
-    tab = yaml.safe_load((PRESET_DIR / "modes/txt2img/tabs/lora.yml").read_text(encoding="utf-8"))
+    tab = yaml.safe_load(Path("content/presets/_shared/native/lora.yml").read_text(encoding="utf-8"))
     picker = tab["fields"][0]
     assert picker["type"] == "lora_picker" and picker["name"] == "loras"
     assert picker["configuration"]["filter_tags"] == "@config:lora_tags"

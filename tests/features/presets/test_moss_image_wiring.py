@@ -154,7 +154,7 @@ def test_form_loras_reach_the_loader_and_the_run_record(moss_template):
 
 def test_lora_tab_is_a_plain_picker_without_step_windows():
     tab = yaml.safe_load(
-        Path("content/presets/marketplace/MOSS-Image/modes/txt2img/tabs/lora.yml").read_text(encoding="utf-8")
+        Path("content/presets/_shared/native/lora.yml").read_text(encoding="utf-8")
     )
     picker = tab["fields"][0]
     assert picker["type"] == "lora_picker"

@@ -1,0 +1,17 @@
+fields:
+  - name: "loras"
+    type: "lora_picker"
+    formula: "loras"
+    default: []
+    label: "LoRAs"
+    ai_hint: "{{ vars.hint }}"
+    configuration:
+      model_type: "lora"
+      placeholder: "{{ vars.placeholder }}"
+      allow_info_modal: true
+      strength_min: "{{ vars.strength_min }}"
+      strength_max: "{{ vars.strength_max }}"
+      strength_step: "{{ vars.strength_step }}"
+      strength_default: 1.0
+      max_items: "{{ vars.max_items }}"
+      filter_tags: "@config:lora_tags"

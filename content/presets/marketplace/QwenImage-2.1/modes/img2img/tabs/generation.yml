@@ -1,0 +1,36 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "balanced"
+    configuration:
+      options:
+        - { label: "Balanced", value: "balanced", sub_label: "40 steps" }
+        - { label: "Turbo", value: "turbo", sub_label: "8 steps, for the Turbo model" }
+        - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "source_image"
+        type: "image"
+        label: "Picture"
+        required: true
+        ai_hint: "The picture to start from. The result keeps its layout and colours as far as Strength allows."
+
+      - type: "row"
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
+
+      - name: "denoise"
+        type: "slider"
+        formula: "speed"
+        label: "Strength"
+        default: 0.6
+        ai_hint: "How far the picture is redrawn. Low keeps it nearly as it was; high follows the prompt and keeps only the rough layout."
+        configuration: {min: 0.05, max: 1.0, step: 0.05}
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models.yml"

@@ -2,7 +2,7 @@
 type: model
 title: MOSS-Image
 family_key: moss_image
-modes: [txt2img, inpaint]
+modes: [txt2img, inpaint, img2img, upscale, refine_faces]
 spec:
   arch: MOSS-Image DiT (42 blocks, hidden size 3072, fused QKV, two text-embedder blocks)
   latent: 128-channel FLUX 2 autoencoder latent (16x downscale, 2D)
@@ -42,12 +42,17 @@ _Generated from the preset definitions by `scripts/model_modes_reference.py`; ed
 
 - `txt2img`: Text to Image
 - `inpaint`: Inpaint
+- `img2img`: Image to image
+- `upscale`: Upscale
+- `refine_faces`: Fix faces and hands
 
 <!-- modes:end -->
 
-The shipped **MOSS-Image** preset has `txt2img` and `inpaint`, with a Base speed profile (50 steps, CFG 3.0, the default) and a Custom one. The pipes are `model_loader/moss_image` and `generator/moss_image`.
+The shipped **MOSS-Image** preset has `txt2img`, `inpaint`, `img2img`, `upscale` and `refine_faces`, with a Base speed profile (50 steps, CFG 3.0, the default) and a Custom one. The pipes are `model_loader/moss_image` and `generator/moss_image`.
 
 **Inpaint** repaints a painted area of a picture. The generator runs `mode: "inpaint"`: the unpainted latents stay pinned to the source on every step, so only the painted area changes (see [Latent-Mask Inpainting](../techniques/latent-mask-inpainting.md)). *Grow* widens the painted area, the area is cropped with its surroundings, repainted and composited back with a *Feather* seam that fades out beyond the painted edge; the repainted area itself is never blended with the old content. The prompt is optional; blank asks for the surroundings continued. Strength 1.0 repaints from noise; lower keeps more of the old colours. Paint where a cast shadow should fall: a shadow can only be repainted inside the painted area. It keeps the negative-branch layer skip of `txt2img`.
+
+**Image to image**, **Upscale** and **Fix faces and hands** are not yet validated on real weights and carry the Not validated badge. Image to image runs the generator with `mode: "img2img"`: the picture is encoded and denoised from the strength you pick. Upscale runs `tiled_refiner` and Fix faces and hands runs `detailer/native` on the loaded MOSS-Image model; both pipes sample with their own guidance, so the Negative-branch layer skip and the CFG-Zero\* switch of `txt2img` do not apply to them. The Image editor offers Upscale and Fix faces and hands on top of the existing Inpaint and Expand.
 
 The LoRA tab takes MOSS-Image LoRAs in the ComfyUI, diffusers/PEFT, ai-toolkit and kohya layouts, on both the SFT and Base checkpoints. LoRAs trained with split `q`/`k`/`v` projections are mapped onto the DiT's fused qkv. The run log lists any LoRA keys that didn't match.
 
@@ -63,7 +68,7 @@ Resolutions are multiples of 16. The sigma shift is 5.0 unless the Advanced tab 
 
 ## Limitations
 
-- No Turbo checkpoint, and no img2img mode (inpaint is the only mode that starts from a picture). Few-step distillation LoRAs load but need a sampler the preset doesn't have yet.
+- No Turbo checkpoint. Few-step distillation LoRAs load but need a sampler the preset doesn't have yet.
 - The schedule follows the reference's snapped grid, so the same seed renders a different image than ComfyUI.
 - The int8 checkpoints carry an int8-attention hint that is ignored; attention runs on SDPA.
 

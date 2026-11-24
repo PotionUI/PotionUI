@@ -1,0 +1,51 @@
+fields:
+  - name: "diffusion_model"
+    type: "model"
+    label: "Diffusion Model"
+    required: true
+    configuration:
+      model_type: "diffusion_model"
+      families: ["qwen_image21"]
+      placeholder: "Select Qwen-Image-2.1 MMDiT (e.g. qwen_image_2.1_bf16)..."
+      filter_tags: "@config:checkpoint_tags"
+      recommendations:
+        - name: "qwen_image_2.1_bf16.safetensors"
+          link: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_bf16.safetensors"
+          size: "14.23 GB"
+          sha256: "89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc"
+          description: "Qwen-Image-2.1 MMDiT, bf16 - the validated local checkpoint."
+        - name: "qwen_image_2.1_turbo_bf16.safetensors"
+          link: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_turbo_bf16.safetensors"
+          size: "14.23 GB"
+          sha256: "8b74237a7f505773e2c66726fa696444b4c704585c93a347cff9044937f7914a"
+          description: "Qwen-Image-2.1 Turbo MMDiT, bf16 - pair with the Turbo speed profile (8 steps, CFG 1)."
+
+  - name: "text_encoder"
+    type: "model"
+    label: "Text Encoder (Qwen3-VL-8B)"
+    required: true
+    configuration:
+      model_type: "text_encoder"
+      placeholder: "Select Qwen3-VL-8B text encoder..."
+      filter_tags: "@config:text_encoder_tags"
+      recommendations:
+        - name: "qwen3vl_8b_bf16.safetensors"
+          link: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_bf16.safetensors"
+          size: "17.53 GB"
+          sha256: "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9"
+          description: "Qwen3-VL-8B encoder, bf16 - pairs with the bf16 MMDiT."
+
+  - name: "vae"
+    type: "model"
+    label: "VAE"
+    required: true
+    configuration:
+      model_type: "vae"
+      placeholder: "Select Qwen-Image-2.1 VAE..."
+      filter_tags: "@config:vae_tags"
+      recommendations:
+        - name: "qwen_image_2.1_vae_bf16.safetensors"
+          link: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors"
+          size: "0.68 GB"
+          sha256: "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+          description: "Qwen-Image-2.1 VAE (RGBA, 16x latent). Alpha is dropped on decode in this v1 preset."

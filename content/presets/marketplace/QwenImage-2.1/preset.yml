@@ -49,6 +49,14 @@ configuration:
     type: "model_tags"
     label: "Fun ControlNet tags"
     description: "Only model patches with any of these tags appear in the Fun ControlNet picker."
+  upscaler_tags:
+    type: "model_tags"
+    label: "Upscaler tags"
+    description: "Only models with any of these tags appear in the Upscaler picker."
+  mediapipe_tags:
+    type: "model_tags"
+    label: "Mediapipe tags"
+    description: "Only models with any of these tags appear in the Mediapipe picker."
 
 speed_profiles:
   balanced: { steps: 40, guidance: 4.0, sampler: "euler" }
@@ -122,6 +130,7 @@ formulas:
     loras:  { label: "LoRAs" }
     cache:  { label: "Step cache" }
     control: { label: "Control" }
+    enhance: { label: "Upscale and refine" }
     models: { label: "Models", preselect: false }
 
 negative_prompt:
@@ -135,6 +144,14 @@ modes:
   - restyle
   - inpaint
   - control
+  - img2img
+  - upscale
+  - refine_faces
+
+modes_unvalidated:
+  - img2img
+  - upscale
+  - refine_faces
 
 media:
   cover: "public/examples/0-yn3kd9j4.webp"

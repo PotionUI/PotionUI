@@ -1,0 +1,40 @@
+fields:
+  - type: "section"
+    label: "Tiles"
+    children:
+      - name: "tile_size"
+        type: "slider"
+        label: "Tile size"
+        default: 1024
+        configuration: {min: 512, max: 2048, step: 128}
+        ai_hint: "Working size of one tile in pixels. Memory use follows one tile, not the output size, so a smaller tile lowers memory on large upscales."
+
+      - name: "tile_overlap"
+        type: "slider"
+        label: "Tile overlap"
+        default: 128
+        configuration: {min: 32, max: 384, step: 16}
+        ai_hint: "Pixels shared between neighbouring tiles; the seam is feathered across them. More overlap hides seams and costs more tiles."
+
+      - name: "content_aware"
+        type: "checkbox"
+        label: "Calm flat areas"
+        default: true
+        ai_hint: "Refines flat, low-texture tiles (sky, skin, mist) less, so they cannot grow details the prompt does not describe."
+
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        default: 30
+        configuration: {min: 1, max: 60, step: 1}
+        ai_hint: "Denoising steps of the full schedule per tile; only the tail that Added detail selects is run."
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG scale"
+        default: 4.0
+        configuration: {min: 1.0, max: 10.0, step: 0.5}
+        ai_hint: "Qwen-Image-2.1 uses true CFG. Use 4 with the standard checkpoint and 1 with the Turbo checkpoint; above 1 the negative prompt is applied."

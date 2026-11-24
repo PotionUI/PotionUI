@@ -23,7 +23,7 @@ class GeneratorMossImagePipe(FlowMatchGeneratorPipe):
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=False,
-                           choices=["txt2img", "inpaint"]),
+                           choices=["txt2img", "img2img", "inpaint"]),
             *cls.img2img_config_specs(default_denoise=1.0),
             PipeConfigSpec("steps", int, 50, "Denoising steps", required=False, min_value=1, max_value=100),
             PipeConfigSpec("guidance", float, 3.0, "True CFG scale (3.0 for both SFT and Base)",

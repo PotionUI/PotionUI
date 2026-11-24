@@ -1,0 +1,69 @@
+{
+  "editor_mode": "fix_faces",
+  "from": "refine_faces",
+  "preset_id": "01M52YQH5XRAH60J82RY5NTM2V",
+  "preset_name": "MOSS-Image",
+  "shown": [
+    {
+      "label": "Fix hands too",
+      "name": "face_detailer_hands",
+      "type": "checkbox"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Face Detection Model",
+      "name": "face_model",
+      "type": "model"
+    },
+    {
+      "label": "Hand Detection Model",
+      "name": "face_detailer_hand_model",
+      "type": "model"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen3.5-9B)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE (FLUX 2)",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Detection confidence",
+      "name": "fix_confidence",
+      "type": "slider"
+    },
+    {
+      "label": "Max faces",
+      "name": "fix_max_faces",
+      "type": "slider"
+    },
+    {
+      "label": "Steps",
+      "name": "fix_steps",
+      "type": "slider"
+    },
+    {
+      "label": "CFG scale",
+      "name": "cfg",
+      "type": "slider"
+    }
+  ],
+  "task": "fix_faces"
+}

@@ -113,9 +113,9 @@ def test_default_steps_and_guidance():
     assert cfg["sampler"] == "euler"
 
 
-def test_mode_choices_are_txt2img_edit_inpaint_and_control():
+def test_mode_choices_are_txt2img_img2img_edit_inpaint_and_control():
     mode_spec = next(s for s in GeneratorQwenImage21Pipe.configuration() if s.name == "mode")
-    assert mode_spec.choices == ["txt2img", "edit", "inpaint", "control"]
+    assert mode_spec.choices == ["txt2img", "img2img", "edit", "inpaint", "control"]
 
 
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
@@ -458,3 +458,28 @@ def test_edit_mode_output_stays_rgba_when_transparent():
     result = pipe.process(_edit_pipe_input(image=src), lambda o: None)
     image = result.output["image"][0]
     assert image.mode == "RGBA"
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_img2img_mode_denoises_from_the_encoded_source_at_the_given_strength():
+    src = Image.new("RGB", (64, 64), color=(10, 20, 30))
+    pipe = _make_pipe(mode="img2img", denoise=0.6, steps=12, preview=False)
+    pipe.process(_edit_pipe_input(image=src), lambda o: None)
+    gen = _FakeGenerator.instances[-1]
+    assert len(gen.encode_image_calls) == 1
+    call = gen.sample_calls[0]
+    assert call["denoise_strength"] == 0.6
+    assert call["init_latent"] is not None
+    assert call["steps"] == 12
+    assert "ref_latents" not in call["conditioning"].cond
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_img2img_mode_without_a_source_falls_back_to_txt2img():
+    pipe = _make_pipe(mode="img2img", preview=False)
+    pipe.process(_pipe_input(), lambda o: None)
+    gen = _FakeGenerator.instances[-1]
+    assert getattr(gen, "encode_image_calls", []) == []
+    assert gen.sample_calls[0].get("init_latent") is None

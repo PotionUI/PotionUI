@@ -1,0 +1,284 @@
+{
+  "mode": "editor:fix_faces",
+  "pipes": [
+    {
+      "config": {
+        "diffusion_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "diffusion_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        },
+        "vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "model_loader/moss_image"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_image.png",
+              "type": "image"
+            }
+          ]
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "guidance_scale": {
+          "type": "float",
+          "value": 3.0
+        },
+        "n_prompt.input": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "negative_applied": {
+          "type": "bool",
+          "value": true
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "golden positive prompt, detailed face, detailed eyes, best quality"
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "str",
+          "value": "1"
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "str",
+          "value": "1"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/diffusion_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/vae.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
+            ],
+            [
+              "cfg",
+              3.0
+            ],
+            [
+              "steps",
+              20
+            ],
+            [
+              "fix_strength",
+              0.35
+            ],
+            [
+              "fix_hands",
+              false
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "str",
+          "value": "1"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "denoise": {
+          "type": "float",
+          "value": 0.35
+        },
+        "detect_hands": {
+          "type": "bool",
+          "value": false
+        },
+        "detection_backend": {
+          "type": "str",
+          "value": "mediapipe"
+        },
+        "detection_confidence": {
+          "type": "float",
+          "value": 0.5
+        },
+        "face_model": {
+          "type": "str",
+          "value": "/GOLDEN/models/face_model.safetensors"
+        },
+        "guidance": {
+          "type": "float",
+          "value": 3.0
+        },
+        "hand_model": {
+          "type": "str",
+          "value": "/GOLDEN/models/face_detailer_hand_model.safetensors"
+        },
+        "loras_mode": {
+          "type": "str",
+          "value": "keep"
+        },
+        "max_faces": {
+          "type": "int",
+          "value": 4
+        },
+        "run_loras": {
+          "type": "list",
+          "value": []
+        },
+        "sampler": {
+          "type": "str",
+          "value": "euler"
+        },
+        "steps": {
+          "type": "int",
+          "value": 20
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "face_detailer",
+      "name": "detailer/native"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01M52YQH5XRAH60J82RY5NTM2V",
+  "preset_name": "MOSS-Image"
+}

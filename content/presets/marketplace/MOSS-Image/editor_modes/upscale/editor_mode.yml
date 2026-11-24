@@ -1,0 +1,10 @@
+schema_version: 1
+task: upscale
+from: upscale
+region: whole
+inputs:
+  source: source_image
+  scale: upscale_factor
+size:
+  area: 589824
+  multiple: 16

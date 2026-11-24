@@ -8,6 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 import torch
+from PIL import Image
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.moss_image.main import GeneratorMossImagePipe
@@ -47,6 +48,10 @@ class _FakeGenerator:
         self.sample_calls.append({"conditioning": conditioning, "latents_shape": latents_shape, **kw})
         self._shape = latents_shape
         return torch.zeros(latents_shape)
+
+    def encode_image(self, pixels, **_):
+        self.encoded = getattr(self, "encoded", []) + [pixels]
+        return torch.zeros(1, 128, pixels.shape[0] // 16, pixels.shape[1] // 16)
 
     def decode(self, latent, **_):
         return np.zeros((1, self._shape[2] * 16, self._shape[3] * 16, 3), dtype=np.uint8)
@@ -153,3 +158,30 @@ def test_blank_shift_keeps_the_checkpoint_shift():
 def test_one_image_per_seed():
     _pipe(quantity=2).process(_input(quantity=2), lambda o: None)
     assert len(_FakeGenerator.instances[-1].sample_calls) == 2
+
+
+def _img2img_input(image=None):
+    inp = _input()
+    if image is not None:
+        inp.input["image"] = [image]
+    return inp
+
+def test_mode_choices_include_img2img():
+    spec = next(s for s in GeneratorMossImagePipe.configuration() if s.name == "mode")
+    assert spec.choices == ["txt2img", "img2img", "inpaint"]
+
+def test_img2img_mode_denoises_from_the_encoded_source_at_the_given_strength():
+    _pipe(mode="img2img", denoise=0.6, steps=12, preview=False).process(
+        _img2img_input(Image.new("RGB", (64, 64), (10, 20, 30))), lambda o: None)
+    gen = _FakeGenerator.instances[-1]
+    assert len(gen.encoded) == 1
+    call = _last_call()
+    assert call["denoise_strength"] == 0.6
+    assert call["init_latent"] is not None
+    assert call["steps"] == 12
+
+def test_img2img_mode_without_a_source_falls_back_to_txt2img():
+    _pipe(mode="img2img", preview=False).process(_img2img_input(), lambda o: None)
+    gen = _FakeGenerator.instances[-1]
+    assert getattr(gen, "encoded", []) == []
+    assert _last_call().get("init_latent") is None

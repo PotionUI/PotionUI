@@ -59,7 +59,7 @@ class GeneratorQwenImage21Pipe(QwenEditMixin, FlowMatchGeneratorPipe):
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True,
-                           choices=["txt2img", "edit", "inpaint", "control"]),
+                           choices=["txt2img", "img2img", "edit", "inpaint", "control"]),
             *cls.img2img_config_specs(default_denoise=1.0),
             PipeConfigSpec("control_strength", float, 1.0, "Fun ControlNet strength (control_context_scale)",
                            required=False, min_value=0.0, max_value=2.0),

@@ -2,7 +2,7 @@
 type: model
 title: Qwen-Image-2.1
 family_key: qwen_image21
-modes: [txt2img, edit, combine, text, restyle, inpaint, control]
+modes: [txt2img, edit, combine, text, restyle, inpaint, control, img2img, upscale, refine_faces]
 spec:
   arch: single-stream block-causal MMDiT
   latent: 64-channel, RGBA causal-3D VAE latent (16x downscale, image-only, single frame)
@@ -44,6 +44,9 @@ _Generated from the preset definitions by `scripts/model_modes_reference.py`; ed
 - `restyle`: Restyle
 - `inpaint`: Inpaint
 - `control`: Structure
+- `img2img`: Image to image
+- `upscale`: Upscale
+- `refine_faces`: Fix faces and hands
 
 <!-- modes:end -->
 
@@ -99,7 +102,7 @@ The Turbo checkpoint is a derivative of Qwen-Image-2.1 under the Qwen Research L
 
 ## Limitations
 
-- No img2img mode: `inpaint` is the only mode that starts from an encoded picture; the others are `txt2img`, `edit`, `combine`, `text`, `restyle` and `control`.
+- `img2img`, `upscale` and `refine_faces` are not yet validated on real weights and carry the Not validated badge. `img2img` encodes the picture as the starting latent (`mode: "img2img"`, no reference conditioning, unlike `edit`); `upscale` runs `tiled_refiner` and `refine_faces` runs `detailer/native` on the loaded model, and the Image editor offers Upscale and Fix faces and hands next to Inpaint and Expand. The Turbo checkpoint needs CFG 1 in those two modes.
 - `control` does not combine with edit references.
 - `combine` accepts up to 10 reference images; the first is the image being edited and sets the output's size and aspect unless Output size is Custom, the rest condition the generation without affecting output sizing.
 - Qwen3-VL has a different text-encoder architecture than CLIP-family encoders — there is no CLIP-skip concept for this family. A `clip_skip` setting carried over from an SDXL-style preset has no effect here.

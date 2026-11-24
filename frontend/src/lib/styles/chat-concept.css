@@ -987,6 +987,7 @@ textarea:focus-visible, input:not([type='checkbox'], [type='radio'], [type='rang
 .apply-button:disabled {
       transform: none;
       filter: none;
+      cursor: not-allowed;
     }
 
 .apply-button.applied:disabled {

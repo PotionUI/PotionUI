@@ -85,15 +85,18 @@ const echo = () => document.querySelectorAll('.ambient--fill img');
 const floating = () => target.querySelector('#workbench-container')!.classList.contains('overflow-visible');
 
 describe('Workbench ambient glow', () => {
-	it('glows behind an ordinary result and live preview', async () => {
+	it('glows behind an ordinary result', async () => {
 		mountResult();
 		await settle(10);
 		expect(glow()).toHaveLength(1);
 		expect(floating()).toBe(true);
-		component!.$destroy();
+	});
+
+	it('skips the glow and keeps the bordered card while a live preview shows', async () => {
 		mountPreview();
 		await settle(10);
-		expect(glow()).toHaveLength(1);
+		expect(glow()).toHaveLength(0);
+		expect(floating()).toBe(false);
 	});
 
 	it.each([

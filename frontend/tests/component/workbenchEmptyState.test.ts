@@ -153,20 +153,25 @@ describe('Workbench empty state', () => {
 	});
 
 	it.each([
-		['a live preview', { currentGeneration: { id: 'gen-1', status: 'running', current_image: '/api/media/previews/gen-1.png' }, isGenerating: true }],
+		[
+			'a live preview',
+			{ currentGeneration: { id: 'gen-1', status: 'running', current_image: '/api/media/previews/gen-1.png' }, isGenerating: true },
+			'overflow-hidden'
+		],
 		[
 			'a result',
 			{
 				currentGeneration: { id: 'gen-1', status: 'completed' },
 				workbenchTotal: 1,
 				batchImages: [{ url: IMAGE, originalUrl: IMAGE, file_type: 'image' }]
-			}
+			},
+			'overflow-visible'
 		]
-	])('is gone as soon as there is %s', async (_name, props) => {
+	])('is gone as soon as there is %s', async (_name, props, overflow) => {
 		await eachLayout(props, () => {
 			expect(empty()).toBeNull();
 			expect(target.textContent).not.toContain('Your creations appear here');
-			expect(classes(container())).toEqual(expect.arrayContaining(['relative', 'overflow-visible']));
+			expect(classes(container())).toEqual(expect.arrayContaining(['relative', overflow]));
 		});
 	});
 
@@ -192,7 +197,7 @@ describe('Workbench empty state', () => {
 		await settle(6);
 		expect(empty()).toBeNull();
 		expect(classes(container())).toContain('relative');
-		expect(classes(container())).toContain('overflow-visible');
+		expect(classes(container())).toContain('overflow-hidden');
 		component!.$set({ currentGeneration: null, isGenerating: false });
 		await settle(6);
 		expect(empty()).not.toBeNull();

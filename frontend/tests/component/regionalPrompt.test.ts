@@ -20,6 +20,7 @@ const { default: PromptSection } = await import('../../src/routes/generate/compo
 const { default: RegionalPromptEditor } = await import('../../src/lib/components/regional/RegionalPromptEditor.svelte');
 const { tabsStore } = await import('../../src/lib/stores/tabs');
 const { mountComponent } = await import('./helpers/mount');
+const { settle } = await import('./helpers/settle');
 
 const handlers = {
 	handlePromptChange: () => {},
@@ -104,6 +105,7 @@ describe('Regional switch visibility', () => {
 			caps: { sizeField: 'resolution' },
 			formData: { resolution: '768x1344', regional_prompt: { enabled: true, items } }
 		});
+		await settle(10);
 		expect(modeSwitch(target)!.textContent).toContain('2');
 		expect(target.querySelectorAll('[data-region]')).toHaveLength(2);
 		expect(target.querySelector('[data-testid="regional-size"]')!.textContent).toBe('768×1344');

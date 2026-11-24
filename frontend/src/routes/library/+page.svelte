@@ -321,7 +321,7 @@
 		</aside>
 	{/if}
 
-	<div class="flex flex-col flex-1 min-w-0 min-h-0 overflow-y-auto dot-grid bg-canvas" data-library-scroll>
+	<div class="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-y-auto dot-grid bg-canvas" data-library-scroll>
 		{#if kitsState.active}
 			{#if kitsState.kitId}
 				{#key kitsState.kitId}

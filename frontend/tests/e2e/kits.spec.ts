@@ -354,6 +354,7 @@ test.describe('Kits in the Library', () => {
 				}
 				const after = await frame();
 				expect(after.page).toBe(0);
+				expect(await page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.querySelector('main')!.scrollHeight) - window.innerHeight)).toBeLessThanOrEqual(0);
 				expect(after.areaBox.top).toBe(areaTop);
 				expect(after.headerTop).toBe(areaTop);
 				if (size.width > 700 && !view.url.includes('kit=')) expect(before.scrollable).toBeGreaterThan(0);

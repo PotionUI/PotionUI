@@ -1,6 +1,7 @@
 export const KITS_VIEW_PARAM = 'view';
 export const KITS_VIEW_VALUE = 'kits';
 export const KIT_PARAM = 'kit';
+export const KITS_LIST_PARAMS = ['page', 'sort', 'dir', 'q', 'label'] as const;
 
 const UNSAFE_ID = /[/\\?#]|\.\./;
 
@@ -24,6 +25,7 @@ export function hrefWithKitsView(url: URL, state: KitsViewState): string {
 	} else {
 		params.delete(KITS_VIEW_PARAM);
 		params.delete(KIT_PARAM);
+		for (const key of KITS_LIST_PARAMS) params.delete(key);
 	}
 	const query = params.toString();
 	return `${url.pathname}${query ? `?${query}` : ''}${url.hash}`;

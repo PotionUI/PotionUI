@@ -25,6 +25,13 @@ describe('hrefWithKitsView', () => {
 		expect(hrefWithKitsView(url('?view=kits&kit=kt_1&item=u1'), { active: false, kitId: null })).toBe('/library?item=u1');
 	});
 
+	it('keeps the list state while opening and closing a kit, and drops it when leaving kits', () => {
+		const listed = '?view=kits&page=2&sort=name&dir=desc&q=a&label=b';
+		expect(hrefWithKitsView(url(listed), { active: true, kitId: 'kt_1' })).toBe('/library?view=kits&page=2&sort=name&dir=desc&q=a&label=b&kit=kt_1');
+		expect(hrefWithKitsView(url(`${listed}&kit=kt_1`), { active: true, kitId: null })).toBe('/library?view=kits&page=2&sort=name&dir=desc&q=a&label=b');
+		expect(hrefWithKitsView(url(`${listed}&item=u1`), { active: false, kitId: null })).toBe('/library?item=u1');
+	});
+
 	it('sets and clears the open kit', () => {
 		expect(hrefWithKitsView(url('?view=kits'), { active: true, kitId: 'kt_7f3a0001' })).toBe('/library?view=kits&kit=kt_7f3a0001');
 		expect(hrefWithKitsView(url('?view=kits&kit=kt_7f3a0001'), { active: true, kitId: null })).toBe('/library?view=kits');

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, type Snippet } from 'svelte';
+	import { get } from 'svelte/store';
+	import { page as pageStore } from '$app/stores';
 	import { Button, EmptyState, Menu, Pagination, Spinner, LoadErrorState } from '$lib/components/ui';
 	import {
 		ListPageHeader,
@@ -16,6 +18,7 @@
 	import { LIBRARY_ITEMS_PER_PAGE_OPTIONS } from '$lib/stores/library';
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import { debounce } from '$lib/utils/time';
+	import { choiceParam, pageParam, replaceListParams } from '$lib/utils/listUrlState';
 	import type { Kit, KitListPage, KitSortDir, KitSortField } from '$lib/kits/types';
 	import KitCard from './KitCard.svelte';
 	
@@ -44,17 +47,23 @@
 		}
 	}
 
+	const SORT_FIELDS = ['manual', 'name', 'created', 'updated'] as const;
+	const SORT_DIRS = ['asc', 'desc'] as const;
+	const sortDefaultDir: Record<string, KitSortDir> = { manual: 'asc', name: 'asc', created: 'desc', updated: 'desc' };
+	const initialParams = get(pageStore).url.searchParams;
+	const initialSort = choiceParam<KitSortField>(initialParams, 'sort', SORT_FIELDS, 'manual');
+
 	let data = $state<KitListPage | null>(null);
 	let loading = $state(true);
 	let failed = $state(false);
-	let label = $state<string | null>(null);
-	let search = $state('');
-	let page = $state(1);
+	let label = $state<string | null>(initialParams.get('label') || null);
+	let search = $state(initialParams.get('q') ?? '');
+	let page = $state(pageParam(initialParams));
 	let pageSize = $state(DEFAULT_PAGE_SIZE);
 	let requestId = 0;
 	let stage = $state<HeaderStage>('full');
-	let sortBy = $state<KitSortField>('manual');
-	let sortDir = $state<KitSortDir>('asc');
+	let sortBy = $state<KitSortField>(initialSort);
+	let sortDir = $state<KitSortDir>(choiceParam<KitSortDir>(initialParams, 'dir', SORT_DIRS, sortDefaultDir[initialSort]));
 
 	let everything = $derived($kitTotal ?? data?.total ?? 0);
 	let pages = $derived(data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1);
@@ -63,14 +72,31 @@
 	let filtered = $derived(label !== null || search.trim() !== '');
 	let empty = $derived(!loading && !failed && data !== null && data.total === 0 && !filtered);
 
+	function syncUrl() {
+		void replaceListParams(get(pageStore).url, {
+			page: page > 1 ? page : null,
+			sort: sortBy !== 'manual' ? sortBy : null,
+			dir: sortDir !== sortDefaultDir[sortBy] ? sortDir : null,
+			q: search.trim() || null,
+			label
+		});
+	}
+
 	async function load() {
 		const mine = ++requestId;
+		syncUrl();
 		loading = true;
 		failed = false;
 		try {
 			const response = await api.listKits({ label, search, page, page_size: pageSize, sort_by: sortBy, sort_dir: sortDir });
 			if (mine !== requestId) return;
 			if (response.success && response.data) {
+				const last = Math.max(1, Math.ceil(response.data.total / pageSize));
+				if (page > last) {
+					page = last;
+					void load();
+					return;
+				}
 				data = response.data;
 				if (!filtered) kitTotal.set(response.data.total);
 			} else failed = true;
@@ -98,7 +124,6 @@
 		{ value: 'created', label: 'Created' },
 		{ value: 'updated', label: 'Updated' }
 	];
-	const sortDefaultDir: Record<string, KitSortDir> = { manual: 'asc', name: 'asc', created: 'desc', updated: 'desc' };
 
 	function pickSort(value: string) {
 		sortBy = value as KitSortField;

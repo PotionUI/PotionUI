@@ -18,6 +18,11 @@ from src.pipelines.contracts import (
     PipeConfigSpec,
 )
 from src.platform.runtime.guarded_import import guarded_from
+from src.pipelines.pipes.controlnet_loader.sdxl.union import (
+    is_union_controlnet,
+    load_union_controlnet,
+    union_control_index,
+)
 
 
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -44,6 +49,14 @@ def controlnet_layout_folder(keys) -> str:
         return "mid"
     return "small"
 
+
+def safetensors_keys(file_path: str) -> List[str]:
+    if Path(file_path).suffix.lower() != ".safetensors":
+        return []
+    from safetensors import safe_open
+
+    with safe_open(file_path, framework="pt") as handle:
+        return list(handle.keys())
 
 def controlnet_config_dir(file_path: str) -> str:
     if Path(file_path).suffix.lower() != ".safetensors":
@@ -88,6 +101,7 @@ class ControlNetLoaderSDXLPipe(BasePipe):
         """Load a single ControlNet model"""
         try:
             ControlNetModel = guarded_from("diffusers", "ControlNetModel")
+            union = is_union_controlnet(safetensors_keys(file_path))
 
             controlnet_name = controlnet_config.get('name', Path(file_path).stem)
             controlnet_type = controlnet_config.get('type', 'unknown')
@@ -107,13 +121,18 @@ class ControlNetLoaderSDXLPipe(BasePipe):
             dtype = dtype_map.get(dtype_str, torch.float16)
 
             # Load ControlNet from single file
-            controlnet = ControlNetModel.from_single_file(
-                file_path,
-                config=controlnet_config_dir(file_path),
-                torch_dtype=dtype,
-                use_safetensors=True,
-                local_files_only=True,
-            )
+            control_type_idx = None
+            if union:
+                controlnet = load_union_controlnet(file_path, dtype)
+                control_type_idx = union_control_index(controlnet_type, controlnet.config.num_control_type)
+            else:
+                controlnet = ControlNetModel.from_single_file(
+                    file_path,
+                    config=controlnet_config_dir(file_path),
+                    torch_dtype=dtype,
+                    use_safetensors=True,
+                    local_files_only=True,
+                )
 
             # Validate that this is an SDXL-compatible ControlNet
             # SDXL uses 2048-dimensional embeddings, SD1.5 uses 768-dimensional
@@ -144,6 +163,8 @@ class ControlNetLoaderSDXLPipe(BasePipe):
                 "name": controlnet_name,
                 "type": controlnet_type,
                 "file_path": file_path,
+                "union": union,
+                "control_type_idx": control_type_idx,
                 "conditioning_scale": float(controlnet_config.get('conditioning_scale', 1.0)),
                 "control_guidance_start": float(controlnet_config.get('control_guidance_start', 0.0)),
                 "control_guidance_end": float(controlnet_config.get('control_guidance_end', 1.0)),

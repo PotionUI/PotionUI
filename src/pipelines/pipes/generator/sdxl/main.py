@@ -1,3 +1,4 @@
+import contextlib
 from typing import List, Callable, Optional
 from PIL import Image
 
@@ -16,6 +17,7 @@ from src.pipelines.pipes._shared.generation.seed_plan import plan_seeds
 from src.pipelines.pipes._shared.generation.generator_base import emit_gallery
 
 from src.pipelines.pipes.generator.sdxl.input_validator import SDXLInputValidator
+from src.pipelines.pipes.generator.sdxl.ip_adapter import reference_session
 from src.pipelines.pipes.generator.sdxl.inpaint_head import (
     INPAINT_HEAD_FILENAME,
     INPAINT_HEAD_SUBDIR,
@@ -102,6 +104,40 @@ class GeneratorSDXLPipe(BasePipe):
         # on any other failure too -- previously it only ran on the success
         # path below, leaving the cached pipeline's ControlNet/GPU state dirty
         # for the next run whenever generation raised.
+        with contextlib.ExitStack() as references:
+            model.ip_adapter_embeds = self._open_reference(references, model, pipe_input.input.get("ip_image"))
+            try:
+                return self._generate(
+                    model, mode, image, conditioning, seeds, controlnets, control_images,
+                    generation_outputs, using_controlnet, is_cancelled, pipe_input,
+                )
+            finally:
+                model.ip_adapter_embeds = None
+
+    def _open_reference(self, stack: contextlib.ExitStack, model: Model, reference) -> Optional[list]:
+        settings = self.config.get("ip_adapter") or {}
+        adapter_path = settings.get("adapter")
+        if not adapter_path or reference is None or (isinstance(reference, list) and not reference):
+            return None
+        encoder_path = settings.get("image_encoder")
+        if not encoder_path:
+            raise ValueError("The reference picture needs an image encoder")
+        picture = reference[0] if isinstance(reference, list) else reference
+        if picture is None:
+            return None
+        hooks = getattr(model, "denoising_hooks", None)
+        if isinstance(hooks, dict) and "sag" in hooks:
+            raise ValueError("The reference picture cannot be combined with Self-Attention Guidance")
+        unet = model.pipe.unet
+        return stack.enter_context(reference_session(
+            unet, adapter_path, encoder_path, picture,
+            float(settings.get("scale", 0.6)), unet.device, unet.dtype,
+        ))
+
+    def _generate(
+            self, model, mode, image, conditioning, seeds, controlnets, control_images,
+            generation_outputs, using_controlnet, is_cancelled, pipe_input,
+    ) -> PipeOutput:
         try:
             if mode == "img2img":
                 mask = pipe_input.input.get("mask")
@@ -389,6 +425,7 @@ class GeneratorSDXLPipe(BasePipe):
             PipeInputSpec("mask", IOType.IMAGE, False, "Mask image for inpainting mode", is_array=False),
             PipeInputSpec("controlnet", IOType.CONTROLNET, False, "ControlNet models for guided generation", is_array=True),
             PipeInputSpec("control_image", IOType.IMAGE, False, "Control images for ControlNet", is_array=True),
+            PipeInputSpec("ip_image", IOType.IMAGE, False, "Reference picture for the IP-Adapter", is_array=True),
             PipeInputSpec("ASSETS", IOType.SERVICE, False, "Asset fetcher, to fetch the inpaint head before a masked generation", is_array=False),
         ]
 
@@ -535,6 +572,13 @@ class GeneratorSDXLPipe(BasePipe):
                 required=False,
                 min_value=0,
                 max_value=20
+            ),
+            PipeConfigSpec(
+                name="ip_adapter",
+                param_type=dict,
+                default={},
+                description="IP-Adapter reference picture: adapter file, image encoder file and scale",
+                required=False
             ),
             PipeConfigSpec(
                 name="max_pixels",

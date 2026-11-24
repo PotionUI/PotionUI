@@ -302,10 +302,31 @@
       "name": "sag/sdxl"
     },
     {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "reference_loader",
+      "name": "media_loader"
+    },
+    {
       "config": {
         "cfg": {
           "type": "int",
           "value": 4
+        },
+        "ip_adapter.adapter": {
+          "type": "str",
+          "value": ""
+        },
+        "ip_adapter.image_encoder": {
+          "type": "str",
+          "value": ""
+        },
+        "ip_adapter.scale": {
+          "type": "float",
+          "value": 0.6
         },
         "quantity": {
           "type": "int",

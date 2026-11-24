@@ -45,8 +45,8 @@
               "control_guidance_end": 1.0,
               "control_guidance_start": 0.0,
               "enabled": true,
-              "file_path": "/GOLDEN/models/cn_openpose_model.safetensors",
-              "name": "/GOLDEN/models/cn_openpose_model.safetensors",
+              "file_path": "/GOLDEN/models/cn_union_model.safetensors",
+              "name": "/GOLDEN/models/cn_union_model.safetensors",
               "type": "openpose"
             }
           ]
@@ -296,7 +296,7 @@
             ],
             [
               "model",
-              "/GOLDEN/models/cn_openpose_model.safetensors"
+              "/GOLDEN/models/cn_union_model.safetensors"
             ]
           ]
         },
@@ -344,10 +344,31 @@
       "name": "sag/sdxl"
     },
     {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "reference_loader",
+      "name": "media_loader"
+    },
+    {
       "config": {
         "cfg": {
           "type": "int",
           "value": 4
+        },
+        "ip_adapter.adapter": {
+          "type": "str",
+          "value": ""
+        },
+        "ip_adapter.image_encoder": {
+          "type": "str",
+          "value": ""
+        },
+        "ip_adapter.scale": {
+          "type": "float",
+          "value": 0.6
         },
         "quantity": {
           "type": "int",

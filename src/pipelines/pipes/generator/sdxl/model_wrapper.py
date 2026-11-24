@@ -36,6 +36,7 @@ class ControlNetConfig:
     controlnet_conditioning_scale: Union[float, List[float]] = 1.0
     control_guidance_start: Union[float, List[float]] = 0.0
     control_guidance_end: Union[float, List[float]] = 1.0
+    control_type_idx: Optional[int] = None
 
 
 @dataclass
@@ -133,6 +134,7 @@ class SDXLModelWrapper:
         self.controlnet_conditioning_scale = controlnet_config.controlnet_conditioning_scale
         self.control_guidance_start = controlnet_config.control_guidance_start
         self.control_guidance_end = controlnet_config.control_guidance_end
+        self.control_type_idx = controlnet_config.control_type_idx
 
         # IP-Adapter configuration
         ip_adapter_config = ip_adapter_config or IPAdapterConfig()
@@ -268,20 +270,45 @@ class SDXLModelWrapper:
             "time_ids": self.add_time_ids.to(compute_dtype)
         }
 
-        down_block_res_samples, mid_block_res_sample = self.controlnet(
-            latent_model_input.to(compute_dtype), timestep_cond.to(compute_dtype),
-            encoder_hidden_states=self.prompt_embeds.to(compute_dtype),
-            controlnet_cond=control_image_input,
-            conditioning_scale=self.controlnet_conditioning_scale,
-            added_cond_kwargs=controlnet_added_cond_kwargs,
-            return_dict=False,
-        )
+        if self.control_type_idx is not None:
+            down_block_res_samples, mid_block_res_sample = self._run_union_controlnet(
+                latent_model_input, timestep_cond, control_image_input, controlnet_added_cond_kwargs, compute_dtype
+            )
+        else:
+            down_block_res_samples, mid_block_res_sample = self.controlnet(
+                latent_model_input.to(compute_dtype), timestep_cond.to(compute_dtype),
+                encoder_hidden_states=self.prompt_embeds.to(compute_dtype),
+                controlnet_cond=control_image_input,
+                conditioning_scale=self.controlnet_conditioning_scale,
+                added_cond_kwargs=controlnet_added_cond_kwargs,
+                return_dict=False,
+            )
 
         del control_image_input
         clear_gpu_memory()
 
         down_block_res_samples = [sample.to(compute_dtype) for sample in down_block_res_samples]
         return down_block_res_samples, mid_block_res_sample.to(compute_dtype)
+
+    def _run_union_controlnet(self, latent_model_input, timestep_cond, control_image_input, added_cond_kwargs, compute_dtype):
+        num_control_type = self.controlnet.config.num_control_type
+        control_type = torch.zeros(
+            latent_model_input.shape[0], num_control_type, device=self.controlnet_device, dtype=compute_dtype
+        )
+        control_type[:, self.control_type_idx] = 1
+        scale = self.controlnet_conditioning_scale
+        if isinstance(scale, (list, tuple)):
+            scale = scale[0]
+        return self.controlnet(
+            latent_model_input.to(compute_dtype), timestep_cond.to(compute_dtype),
+            encoder_hidden_states=self.prompt_embeds.to(compute_dtype),
+            controlnet_cond=[control_image_input],
+            control_type=control_type,
+            control_type_idx=[self.control_type_idx],
+            conditioning_scale=[float(scale)],
+            added_cond_kwargs=added_cond_kwargs,
+            return_dict=False,
+        )
 
     def _unet_dtype(self):
         return next(self.unet.parameters()).dtype

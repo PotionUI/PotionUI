@@ -28,6 +28,14 @@ fields:
             strength_step: 0.1
 
       - type: "tab"
+        anchor: "reference"
+        label: "Reference"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/reference.yml"
+
+      - type: "tab"
         anchor: "embeddings"
         label: "Embeddings"
         configuration:

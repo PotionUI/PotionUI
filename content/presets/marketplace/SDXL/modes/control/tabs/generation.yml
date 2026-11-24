@@ -13,21 +13,25 @@ fields:
         formula: "control"
         label: "Follow"
         default: "openpose"
-        ai_hint: "What to take from the guide. Sketch / Lineart follows drawn lines, Pose follows the people's bodies, Depth follows the 3D layout, Edges follows sharp outlines."
+        ai_hint: "What to take from the guide. Sketch / Lineart follows drawn lines, Pose follows the people's bodies, Depth follows the 3D layout, Edges follows sharp outlines. Soft edges, Lineart, Normal map and Tile detail need the experimental Union ControlNet model."
         configuration:
           options:
             - { label: "Pose", value: "openpose" }
             - { label: "Sketch / Lineart", value: "scribble" }
             - { label: "Depth", value: "depth" }
             - { label: "Edges", value: "canny" }
+            - { label: "Soft edges (union model)", value: "hed" }
+            - { label: "Lineart (union model)", value: "lineart" }
+            - { label: "Normal map (union model)", value: "normal" }
+            - { label: "Tile detail (union model)", value: "tile" }
 
       - name: "guide_extract"
         type: "checkbox"
         formula: "control"
         label: "Extract it from a photo"
         default: true
-        description: "Turn off when your picture already is a pose, sketch, depth or edge map."
-        ai_hint: "On: the pose, lines, depth or edges are worked out from the picture. Off: the picture is used as the guide unchanged, for a ready-made map."
+        description: "Turn off when your picture already is a pose, sketch, depth or edge map. Tile detail always uses the picture as it is."
+        ai_hint: "On: the pose, lines, depth or edges are worked out from the picture. Off: the picture is used as the guide unchanged, for a ready-made map. Tile detail never extracts."
 
       - name: "guide_save"
         type: "checkbox"
@@ -126,6 +130,10 @@ fields:
             then: { set_visibility: true }
           - when: { field: "guide", not_equals: "scribble" }
             then: { set_visibility: false }
+          - when: { field: "cn_union_model", is_not_empty: true }
+            then: { set_required: false }
+          - when: { field: "cn_union_model", is_empty: true }
+            then: { set_required: true }
         configuration:
           model_type: "controlnet"
           allow_info_modal: true
@@ -135,8 +143,15 @@ fields:
             - name: "xinsir-controlnet-scribble-sdxl.safetensors"
               link: "https://huggingface.co/xinsir/controlnet-scribble-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors"
               size: "2.33 GB"
+              precision: "fp16"
               sha256: "b3e4ac47bc814019d50dc842f579301440deb6d8f09ee1b91a30f527ace1b852"
               description: "Follows hand-drawn sketches and line art."
+            - name: "xinsir-controlnet-union-sdxl-promax.safetensors"
+              link: "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors"
+              size: "2.51 GB"
+              precision: "fp16"
+              sha256: "9fae2e50cb431bfcbe05822b59ec2228df545ef27f711dea8949e9f4ed9f7cdc"
+              description: "Union ControlNet ProMax (Apache-2.0): one file for pose, depth, edges, sketch, lineart, normal and tile. Experimental."
 
       - name: "cn_openpose_model"
         type: "model"
@@ -148,6 +163,10 @@ fields:
             then: { set_visibility: true }
           - when: { field: "guide", not_equals: "openpose" }
             then: { set_visibility: false }
+          - when: { field: "cn_union_model", is_not_empty: true }
+            then: { set_required: false }
+          - when: { field: "cn_union_model", is_empty: true }
+            then: { set_required: true }
         configuration:
           model_type: "controlnet"
           allow_info_modal: true
@@ -157,8 +176,15 @@ fields:
             - name: "xinsir-controlnet-openpose-sdxl.safetensors"
               link: "https://huggingface.co/xinsir/controlnet-openpose-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors"
               size: "2.33 GB"
+              precision: "fp16"
               sha256: "b8524e557a7df60d081f5d4a0eb109967d107df217943bf88c2d99b9ebcc06c5"
               description: "Follows the pose of one or more people."
+            - name: "xinsir-controlnet-union-sdxl-promax.safetensors"
+              link: "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors"
+              size: "2.51 GB"
+              precision: "fp16"
+              sha256: "9fae2e50cb431bfcbe05822b59ec2228df545ef27f711dea8949e9f4ed9f7cdc"
+              description: "Union ControlNet ProMax (Apache-2.0): one file for pose, depth, edges, sketch, lineart, normal and tile. Experimental."
 
       - name: "cn_depth_model"
         type: "model"
@@ -171,6 +197,10 @@ fields:
             then: { set_visibility: true }
           - when: { field: "guide", not_equals: "depth" }
             then: { set_visibility: false }
+          - when: { field: "cn_union_model", is_not_empty: true }
+            then: { set_required: false }
+          - when: { field: "cn_union_model", is_empty: true }
+            then: { set_required: true }
         configuration:
           model_type: "controlnet"
           allow_info_modal: true
@@ -180,8 +210,15 @@ fields:
             - name: "xinsir-controlnet-depth-sdxl.safetensors"
               link: "https://huggingface.co/xinsir/controlnet-depth-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors"
               size: "2.33 GB"
+              precision: "fp16"
               sha256: "ea3770af4c33ea8ba8dccc0106ec5d5c5c6e504eb382119a3ccac3c9d973d344"
               description: "Follows the 3D layout of the scene."
+            - name: "xinsir-controlnet-union-sdxl-promax.safetensors"
+              link: "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors"
+              size: "2.51 GB"
+              precision: "fp16"
+              sha256: "9fae2e50cb431bfcbe05822b59ec2228df545ef27f711dea8949e9f4ed9f7cdc"
+              description: "Union ControlNet ProMax (Apache-2.0): one file for pose, depth, edges, sketch, lineart, normal and tile. Experimental."
 
       - name: "cn_canny_model"
         type: "model"
@@ -194,6 +231,10 @@ fields:
             then: { set_visibility: true }
           - when: { field: "guide", not_equals: "canny" }
             then: { set_visibility: false }
+          - when: { field: "cn_union_model", is_not_empty: true }
+            then: { set_required: false }
+          - when: { field: "cn_union_model", is_empty: true }
+            then: { set_required: true }
         configuration:
           model_type: "controlnet"
           allow_info_modal: true
@@ -203,5 +244,40 @@ fields:
             - name: "xinsir-controlnet-canny-sdxl.safetensors"
               link: "https://huggingface.co/xinsir/controlnet-canny-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors"
               size: "2.33 GB"
+              precision: "fp16"
               sha256: "bf47cd757ceaf2572c53321329ef819ea38c09a6e3783588387913cd94dff47c"
               description: "Follows the outlines of the guide."
+            - name: "xinsir-controlnet-union-sdxl-promax.safetensors"
+              link: "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors"
+              size: "2.51 GB"
+              precision: "fp16"
+              sha256: "9fae2e50cb431bfcbe05822b59ec2228df545ef27f711dea8949e9f4ed9f7cdc"
+              description: "Union ControlNet ProMax (Apache-2.0): one file for pose, depth, edges, sketch, lineart, normal and tile. Experimental."
+
+  - type: "section"
+    label: "Union ControlNet"
+    formula: "models"
+    configuration:
+      experimental: true
+    children:
+      - name: "cn_union_model"
+        type: "model"
+        label: "Union model"
+        ai_hint: "Optional. One ControlNet file that follows pose, depth, edges, sketch, lineart, normal maps and tile detail, used instead of the per-guide model above. Needed for Soft edges, Lineart, Normal map and Tile detail."
+        reactions:
+          - when: { field: "guide", in: ["hed", "lineart", "normal", "tile"] }
+            then: { set_required: true }
+          - when: { field: "guide", not_in: ["hed", "lineart", "normal", "tile"] }
+            then: { set_required: false }
+        configuration:
+          model_type: "controlnet"
+          allow_info_modal: true
+          placeholder: "Select union model..."
+          filter_tags: "@config:controlnet_tags"
+          recommendations:
+            - name: "xinsir-controlnet-union-sdxl-promax.safetensors"
+              link: "https://huggingface.co/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model_promax.safetensors"
+              size: "2.51 GB"
+              precision: "fp16"
+              sha256: "9fae2e50cb431bfcbe05822b59ec2228df545ef27f711dea8949e9f4ed9f7cdc"
+              description: "Union ControlNet ProMax (Apache-2.0): one file for pose, depth, edges, sketch, lineart, normal and tile. Experimental."

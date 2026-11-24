@@ -220,6 +220,14 @@ pipeline:
   #############
   ## Generator
   ############
+  - name: "media_loader"
+    id: "reference_loader"
+    enabled: "{{ form.ip_adapter_enabled }}"
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.ip_adapter_image }}"
+
   - name: "generator/sdxl"
     id: "generator"
     enabled: true
@@ -229,7 +237,12 @@ pipeline:
       - [ "seed", "seed_generator", "seed" ]
       - [ "controlnet", "controlnet_loader/sdxl", "controlnet" ]
       - [ "control_image", "{% if form.controlnet_auto_preprocess == true %}controlnet_preprocessor{% else %}media_loader{% endif %}", "image" ]
+      - [ "ip_image", "reference_loader", "image" ]
     configuration:
+      ip_adapter:
+        adapter: "{{ form.ip_adapter_model if form.ip_adapter_enabled else '' }}"
+        image_encoder: "{{ form.ip_adapter_encoder if form.ip_adapter_enabled else '' }}"
+        scale: "{{ form.ip_adapter_scale }}"
       cfg: "{{ form.cfg | default(preset.vars.default_cfg) }}"
       steps: "{{ form.steps | default(preset.vars.default_steps) }}"
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"

@@ -357,6 +357,26 @@ class StableDiffusionXLKDiffusionPipeline(
         )
 
     # Copied from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl.StableDiffusionXLPipeline.prepare_latents
+    def prepare_ip_adapter_image_embeds(
+        self,
+        ip_adapter_image,
+        ip_adapter_image_embeds,
+        device,
+        num_images_per_prompt,
+        do_classifier_free_guidance,
+    ):
+        if ip_adapter_image_embeds is None:
+            raise ValueError("The IP-Adapter needs precomputed image embeds from the reference picture")
+        prepared = []
+        for embeds in ip_adapter_image_embeds:
+            negative, positive = embeds.chunk(2)
+            positive = positive.repeat_interleave(num_images_per_prompt, dim=0)
+            if do_classifier_free_guidance:
+                negative = negative.repeat_interleave(num_images_per_prompt, dim=0)
+                positive = torch.cat([negative, positive], dim=0)
+            prepared.append(positive.to(device=device))
+        return prepared
+
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
         return SDXLConditioningBuilder.prepare_initial_latents(
             batch_size=batch_size,
@@ -431,6 +451,7 @@ class StableDiffusionXLKDiffusionPipeline(
         controlnet_conditioning_scale: Union[float, List[float]] = 1.0,
         control_guidance_start: Union[float, List[float]] = 0.0,
         control_guidance_end: Union[float, List[float]] = 1.0,
+        control_type_idx: Optional[int] = None,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
@@ -837,6 +858,7 @@ class StableDiffusionXLKDiffusionPipeline(
                 controlnet_conditioning_scale=controlnet_conditioning_scale,
                 control_guidance_start=control_guidance_start,
                 control_guidance_end=control_guidance_end,
+                control_type_idx=control_type_idx,
             ) if self.controlnet is not None else None,
             ip_adapter_config=IPAdapterConfig(
                 ip_adapter_image=ip_adapter_image,

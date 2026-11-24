@@ -1424,6 +1424,7 @@ SDXL-optimized generator pipe
 | `mask` | `IMAGE` | no | no | Mask image for inpainting mode |
 | `controlnet` | `CONTROLNET` | no | yes | ControlNet models for guided generation |
 | `control_image` | `IMAGE` | no | yes | Control images for ControlNet |
+| `ip_image` | `IMAGE` | no | yes | Reference picture for the IP-Adapter |
 | `ASSETS` | `SERVICE` | no | no | Asset fetcher, to fetch the inpaint head before a masked generation |
 
 **Outputs**
@@ -1452,6 +1453,7 @@ SDXL-optimized generator pipe
 | `guidance_rescale` | `float` | `0.0` | no | — | 0.0 | 1.0 | Guidance rescale factor (0.0 = disabled, 0.5-0.7 = good for realistic at high CFG) |
 | `inpaint_mode` | `bool` | `false` | no | — | — | — | Enable inpainting mode (requires mask input) |
 | `mask_blur` | `int` | `4` | no | — | 0 | 20 | Blur radius for mask edges (smoother blending) |
+| `ip_adapter` | `dict` | `{}` | no | — | — | — | IP-Adapter reference picture: adapter file, image encoder file and scale |
 | `max_pixels` | `int` | `0` | no | — | 0 | — | Shrink an img2img source larger than this many pixels to fit (0 keeps its size) |
 
 ### <a id="pipe-generator-seedvr2"></a>`generator/seedvr2`

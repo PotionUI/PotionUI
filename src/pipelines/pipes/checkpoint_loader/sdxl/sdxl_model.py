@@ -125,6 +125,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         self.model_type_info = None  # Will be set after model load
         self.denoising_hooks = {}  # name -> DenoisingHook
         self.applied_lora_stack = None  # ((adapter_name, weight), ...) once fully applied
+        self.ip_adapter_embeds = None
 
 
     def _generator_device(self) -> str:
@@ -523,9 +524,17 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
 
         logger.info(f"[MODEL][SDXL] Loading model with {len(controlnet_data)} ControlNet(s)")
 
-        # If pipeline exists and is already using ControlNet, just return
+        if any(cn_data.get('union') for cn_data in controlnet_data) and len(controlnet_data) > 1:
+            raise ValueError("[MODEL][SDXL] A union ControlNet cannot be combined with other ControlNets")
+
         if self.pipe is not None and self.using_controlnet and not force_reload:
-            return
+            loaded = self.pipe.controlnet
+            wanted = [cn_data['model'] for cn_data in controlnet_data]
+            current = list(getattr(loaded, "nets", [loaded]))
+            if len(current) == len(wanted) and all(a is b for a, b in zip(current, wanted)):
+                self.controlnets = controlnet_data
+                return
+            force_reload = True
 
         # If we already have a non-controlnet pipeline loaded, clean it up
         if self.pipe is not None and not self.using_controlnet:
@@ -647,6 +656,16 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
                 return callback_kwargs
         return step_callback
 
+    def _control_type_idx(self) -> Optional[int]:
+        if not self.controlnets:
+            return None
+        return self.controlnets[0].get('control_type_idx')
+
+    def _ip_adapter_kwargs(self) -> dict:
+        if self.ip_adapter_embeds is None:
+            return {}
+        return {"ip_adapter_image_embeds": self.ip_adapter_embeds}
+
     def _resolve_guidance_rescale(self, generation_input: GenerationInput) -> float:
         """Resolve guidance_rescale, auto-applying the model's recommended value
         (e.g. ZTSNR anime models) when the user left it at the default of 0.0.
@@ -720,6 +739,8 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
                 controlnet_conditioning_scale=conditioning_scales,
                 control_guidance_start=control_guidance_start,
                 control_guidance_end=control_guidance_end,
+                control_type_idx=self._control_type_idx(),
+                **self._ip_adapter_kwargs(),
                 num_inference_steps=generation_input[IOType.STEP],
                 guidance_scale=generation_input[IOType.CFG],
                 guidance_rescale=guidance_rescale,
@@ -814,6 +835,8 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
                 controlnet_conditioning_scale=conditioning_scales,
                 control_guidance_start=control_guidance_start,
                 control_guidance_end=control_guidance_end,
+                control_type_idx=self._control_type_idx(),
+                **self._ip_adapter_kwargs(),
                 image=input_image,
                 strength=generation_input[IOType.DENOISE],
                 num_inference_steps=generation_input[IOType.STEP],
@@ -892,6 +915,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         params["guidance_rescale"] = guidance_rescale
         params["hooks"] = self.get_ordered_hooks()
         params["is_cancelled"] = is_cancelled
+        params.update(self._ip_adapter_kwargs())
 
         with torch.no_grad():
             output = self.pipe(**params)
@@ -961,6 +985,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         params["hooks"] = self.get_ordered_hooks()
         params["output_type"] = output_type
         params["is_cancelled"] = is_cancelled
+        params.update(self._ip_adapter_kwargs())
 
         with torch.no_grad():
             output = self.pipe.img2img(**params)

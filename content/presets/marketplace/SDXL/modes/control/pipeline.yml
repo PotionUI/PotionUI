@@ -21,8 +21,8 @@ pipeline:
     enabled: true
     configuration:
       controlnets:
-        - file_path: "{{ form['cn_' ~ form.guide ~ '_model'] }}"
-          name: "{{ form['cn_' ~ form.guide ~ '_model'] }}"
+        - file_path: "{{ form.cn_union_model or (form['cn_' ~ form.guide ~ '_model'] | default('')) }}"
+          name: "{{ form.cn_union_model or (form['cn_' ~ form.guide ~ '_model'] | default('')) }}"
           type: "{{ form.guide }}"
           conditioning_scale: "{{ form.control_strength }}"
           control_guidance_start: "{{ form.control_start }}"
@@ -39,7 +39,7 @@ pipeline:
 
   - name: "controlnet_preprocessor"
     id: "controlnet_preprocessor"
-    enabled: "{{ form.guide_extract }}"
+    enabled: "{{ form.guide_extract and form.guide != 'tile' }}"
     input:
       - ["image", "guide_loader", "image"]
     configuration:
@@ -129,7 +129,7 @@ pipeline:
         - ["resolution", "{{ form.resolution }}"]
         - ["guide", "{{ form.guide }}"]
         - ["control_strength", "{{ form.control_strength }}"]
-        - ["model", "{{ form['cn_' ~ form.guide ~ '_model'] }}"]
+        - ["model", "{{ form.cn_union_model or (form['cn_' ~ form.guide ~ '_model'] | default('')) }}"]
 
   - name: "adm_guidance/sdxl"
     id: "adm_guidance"
@@ -151,6 +151,14 @@ pipeline:
       sigma: "{{ form.sag_sigma }}"
       sag_threshold: "{{ form.sag_threshold }}"
 
+  - name: "media_loader"
+    id: "reference_loader"
+    enabled: "{{ form.ip_adapter_enabled }}"
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.ip_adapter_image }}"
+
   - name: "generator/sdxl"
     id: "generator"
     enabled: true
@@ -159,8 +167,13 @@ pipeline:
       - [ "conditioning", "prompt_encoder", "conditioning" ]
       - [ "seed", "seed_generator", "seed" ]
       - [ "controlnet", "controlnet_loader/sdxl", "controlnet" ]
-      - [ "control_image", "{% if form.guide_extract %}controlnet_preprocessor{% else %}guide_loader{% endif %}", "image" ]
+      - [ "control_image", "{% if form.guide_extract and form.guide != 'tile' %}controlnet_preprocessor{% else %}guide_loader{% endif %}", "image" ]
+      - [ "ip_image", "reference_loader", "image" ]
     configuration:
+      ip_adapter:
+        adapter: "{{ form.ip_adapter_model if form.ip_adapter_enabled else '' }}"
+        image_encoder: "{{ form.ip_adapter_encoder if form.ip_adapter_enabled else '' }}"
+        scale: "{{ form.ip_adapter_scale }}"
       cfg: "{{ form.cfg | default(preset.vars.default_cfg) }}"
       steps: "{{ form.steps | default(preset.vars.default_steps) }}"
       sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
@@ -177,8 +190,8 @@ pipeline:
 
   - name: "gallery"
     id: "guide_gallery"
-    enabled: "{{ form.guide_extract and form.guide_save }}"
+    enabled: "{{ form.guide_extract and form.guide_save and form.guide != 'tile' }}"
     input:
       - ["image", "controlnet_preprocessor", "image"]
     configuration:
-      label: "Guide: {{ {'openpose': 'Pose', 'scribble': 'Sketch', 'depth': 'Depth', 'canny': 'Edges'}.get(form.guide, 'Guide') }}"
+      label: "Guide: {{ {'openpose': 'Pose', 'scribble': 'Sketch', 'depth': 'Depth', 'canny': 'Edges', 'hed': 'Soft edges', 'lineart': 'Lineart', 'normal': 'Normal map'}.get(form.guide, 'Guide') }}"

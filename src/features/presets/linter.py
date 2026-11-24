@@ -2685,10 +2685,7 @@ class PresetLinter:
 
     @staticmethod
     def _family_capabilities() -> Dict[str, Any]:
-        try:
-            from src.platform.runtime.native.families import FAMILY_CAPABILITIES
-        except ImportError:
-            return {}
+        from src.platform.runtime.native.families import FAMILY_CAPABILITIES
         return FAMILY_CAPABILITIES
 
     @staticmethod
@@ -2708,10 +2705,7 @@ class PresetLinter:
 
     @staticmethod
     def _loader_variants(loader: str) -> List[str]:
-        try:
-            from src.platform.runtime.native.detect.registry import arch_registry
-        except ImportError:
-            return []
+        from src.platform.runtime.native.detect.registry import arch_registry
         specs = arch_registry.all()
         families = {spec.family for spec in specs}
         if loader in families:

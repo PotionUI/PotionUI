@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import inspect
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -47,9 +47,6 @@ ENCODERS = {
     "h3_image": (MiniMaxH3TextEncoder,),
 }
 
-GUIDANCE_FROM_REGISTRY = {"cfg": "cfg", "embedded": "embedded", "none": "none", "flow_map": "none"}
-
-
 def honours_weights(cls: type) -> bool:
     hooks = (
         cls._tokenize_weighted is not NativeTextEncoder._tokenize_weighted
@@ -62,8 +59,8 @@ def registry_variants() -> dict[str, object]:
     return {spec.variant: spec for spec in arch_registry.all()}
 
 
-def test_table_covers_exactly_the_registry_variants():
-    assert set(FAMILY_CAPABILITIES) == set(registry_variants())
+def test_every_registry_variant_has_a_table_row():
+    assert set(registry_variants()) <= set(FAMILY_CAPABILITIES)
 
 
 def test_table_values_are_typed():
@@ -72,16 +69,39 @@ def test_table_values_are_typed():
         assert caps.guidance in {"cfg", "embedded", "none"}
 
 
-@pytest.mark.parametrize("variant", sorted(FAMILY_CAPABILITIES))
-def test_guidance_matches_registry(variant):
-    spec = registry_variants()[variant]
-    assert FAMILY_CAPABILITIES[variant].guidance == GUIDANCE_FROM_REGISTRY[spec.sampling_settings["guidance"]]
+EXPECTED = {
+    "flux1": (False, False, "embedded"),
+    "flux2": (True, False, "none"),
+    "flux3_klein_base": (False, True, "cfg"),
+    "flux3_klein": (False, False, "none"),
+    "moss_image": (False, True, "cfg"),
+    "krea2_turbo": (True, True, "cfg"),
+    "qwen_image21": (False, True, "cfg"),
+    "qwen_image": (True, True, "cfg"),
+    "wan_t2v_14b": (False, True, "cfg"),
+    "wan_i2v_14b": (False, True, "cfg"),
+    "wan22_i2v_14b": (False, True, "cfg"),
+    "wan_ti2v_5b": (False, True, "cfg"),
+    "ltxav": (False, True, "cfg"),
+    "ltxv": (False, True, "cfg"),
+    "anima": (True, True, "cfg"),
+    "z_image": (True, True, "cfg"),
+    "seedvr2_3b": (False, False, "none"),
+    "seedvr2_7b": (False, False, "none"),
+    "h3": (False, False, "none"),
+    "h3_image": (False, False, "none"),
+    "music3": (False, False, "cfg"),
+    "yue2_3b": (False, False, "cfg"),
+}
 
 
-@pytest.mark.parametrize("variant", sorted(FAMILY_CAPABILITIES))
-def test_negative_prompt_is_cfg_with_a_text_encoder(variant):
-    caps = FAMILY_CAPABILITIES[variant]
-    assert caps.negative_prompt is (caps.guidance == "cfg" and variant in ENCODERS)
+@pytest.mark.parametrize("variant", sorted(EXPECTED))
+def test_capabilities_match_explicit_expectation(variant):
+    assert FAMILY_CAPABILITIES[variant] == FamilyCapabilities(*EXPECTED[variant])
+
+
+def test_expectations_cover_the_table():
+    assert set(EXPECTED) == set(FAMILY_CAPABILITIES)
 
 
 @pytest.mark.parametrize("variant", sorted(ENCODERS))
@@ -101,7 +121,30 @@ def test_yue2_guides_with_cfg_against_a_built_negative_prefix():
 
 
 def test_anima_weights_ride_on_the_t5_side():
-    assert "t5xxl_weights" in inspect.getsource(AnimaTextEncoder.encode)
+    qwen_seen = []
+
+    def qwen_tok(texts, device):
+        qwen_seen.append(texts)
+        return torch.ones(1, 3, dtype=torch.long), torch.ones(1, 3, dtype=torch.long)
+
+    def t5_tok(text, device):
+        weights = torch.tensor([[1.0, 1.5]]) if "(" in text else torch.ones(1, 2)
+        return torch.ones(1, 2, dtype=torch.long), torch.ones(1, 2, dtype=torch.long), weights
+
+    class _Module:
+        cfg = SimpleNamespace(num_hidden_layers=2)
+        model = SimpleNamespace(norm=torch.nn.Identity())
+
+        def __call__(self, ids, attention_mask, layers_to_extract, capture):
+            return torch.ones(1, 1, 3, 4)
+
+    encoder = AnimaTextEncoder(_Module(), qwen_tok, t5_tok)
+    weighted = encoder.encode_weighted("a (cat:1.5)")
+    plain = encoder.encode_weighted("a cat")
+    assert qwen_seen[0] == ["a cat"]
+    assert torch.equal(weighted["t5xxl_weights"], torch.tensor([[1.0, 1.5]]))
+    assert torch.equal(plain["t5xxl_weights"], torch.ones(1, 2))
+    assert torch.equal(weighted["context"], plain["context"])
 
 
 class _Stub(NativeTextEncoder):

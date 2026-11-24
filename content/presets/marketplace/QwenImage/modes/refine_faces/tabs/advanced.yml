@@ -1,0 +1,31 @@
+fields:
+  - type: "section"
+    label: "Faces"
+    children:
+      - name: "fix_confidence"
+        type: "slider"
+        label: "Detection confidence"
+        default: 0.5
+        configuration: {min: 0.1, max: 1.0, step: 0.05}
+        ai_hint: "How sure the detector must be before it treats something as a face. Lower it if a face is missed."
+
+      - name: "fix_max_faces"
+        type: "slider"
+        label: "Max faces"
+        default: 4
+        configuration: {min: 1, max: 10, step: 1}
+        ai_hint: "The most faces repainted in one picture, largest first."
+
+      - name: "fix_steps"
+        type: "slider"
+        label: "Steps"
+        default: 20
+        configuration: {min: 1, max: 30, step: 1}
+        ai_hint: "Denoising steps per face. Below about 8 the face tends to come back soft."
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG scale"
+        default: 4.0
+        configuration: {min: 1.0, max: 10.0, step: 0.5}
+        ai_hint: "1 = off, the setting for a Lightning LoRA. 4 is the base checkpoint default; above 1 the negative prompt is applied."

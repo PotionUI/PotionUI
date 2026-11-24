@@ -1,0 +1,14 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Picture"
+    required: true
+    configuration:
+      allow_inpaint: true
+    reactions:
+      - when: { field: "speed_profile", is_not_empty: true }
+        then:
+          update_validation:
+            mask_required: true
+            message: "Paint the area to repaint on the picture."
+    ai_hint: "The picture to repaint. Paint over the area to replace; everything outside it stays exactly as it was."

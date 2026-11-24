@@ -1,0 +1,84 @@
+{
+  "editor_mode": "expand",
+  "from": "inpaint",
+  "preset_id": "01K0W24A3RADXXABH16YQ7KF00",
+  "preset_name": "Qwen-Image",
+  "shown": [
+    {
+      "label": "Speed profile",
+      "name": "speed_profile",
+      "type": "select"
+    },
+    {
+      "label": "Seed",
+      "name": "seed",
+      "type": "seed"
+    },
+    {
+      "label": "Quantity",
+      "name": "quantity",
+      "type": "stepper"
+    },
+    {
+      "label": "Grow",
+      "name": "mask_grow",
+      "type": "slider"
+    },
+    {
+      "label": "Feather",
+      "name": "mask_feather",
+      "type": "slider"
+    },
+    {
+      "label": "Diffusion Model",
+      "name": "diffusion_model",
+      "type": "model"
+    },
+    {
+      "label": "Text Encoder (Qwen2.5-VL)",
+      "name": "text_encoder",
+      "type": "model"
+    },
+    {
+      "label": "VAE",
+      "name": "vae",
+      "type": "model"
+    },
+    {
+      "label": "Preview decoder",
+      "name": "preview_decoder",
+      "type": "model"
+    },
+    {
+      "label": "LoRAs",
+      "name": "loras",
+      "type": "lora_picker"
+    },
+    {
+      "label": "Steps",
+      "name": "steps",
+      "type": "slider"
+    },
+    {
+      "label": "Sampler",
+      "name": "sampler",
+      "type": "sampler"
+    },
+    {
+      "label": "Schedule",
+      "name": "schedule",
+      "type": "schedule"
+    },
+    {
+      "label": "CFG Scale",
+      "name": "cfg",
+      "type": "slider"
+    },
+    {
+      "label": "Shift (override)",
+      "name": "shift",
+      "type": "number"
+    }
+  ],
+  "task": "expand"
+}

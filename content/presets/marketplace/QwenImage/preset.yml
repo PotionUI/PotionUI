@@ -47,6 +47,14 @@ configuration:
     type: "model_tags"
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  upscaler_tags:
+    type: "model_tags"
+    label: "Upscaler tags"
+    description: "Only models with any of these tags appear in the Upscaler picker."
+  mediapipe_tags:
+    type: "model_tags"
+    label: "Mediapipe tags"
+    description: "Only models with any of these tags appear in the Mediapipe picker."
 
 # balanced sourced from this preset's own header prose above (2512 checkpoint,
 # not distilled -> ~20 steps at cfg ~4.0). turbo is a PROPOSED fast profile
@@ -98,6 +106,7 @@ formulas:
     speed:  { label: "Speed and sampling" }
     size:   { label: "Size" }
     loras:  { label: "LoRAs" }
+    enhance: { label: "Upscale and refine" }
     models: { label: "Models", preselect: false }
 
 negative_prompt:
@@ -109,3 +118,11 @@ modes:
   - edit
   - camera
   - real
+  - inpaint
+  - upscale
+  - refine_faces
+
+modes_unvalidated:
+  - inpaint
+  - upscale
+  - refine_faces

@@ -39,6 +39,9 @@ _Generated from the preset definitions by `scripts/model_modes_reference.py`; ed
 - `edit`: Edit
 - `camera`: Camera angle
 - `real`: Make it real
+- `inpaint`: Inpaint
+- `upscale`: Upscale
+- `refine_faces`: Fix faces and hands
 
 <!-- modes:end -->
 

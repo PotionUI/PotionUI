@@ -65,7 +65,7 @@ class GeneratorQwenPipe(QwenEditMixin, FlowMatchGeneratorPipe):
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True,
-                           choices=["txt2img", "img2img", "edit"]),
+                           choices=["txt2img", "img2img", "inpaint", "edit"]),
             *cls.img2img_config_specs(default_denoise=0.55),
             PipeConfigSpec("steps", int, 20, "Denoising steps", required=False, min_value=1, max_value=100),
             PipeConfigSpec("guidance", float, 4.0, "True CFG scale (Qwen true_cfg_scale)", required=False,
@@ -95,6 +95,7 @@ class GeneratorQwenPipe(QwenEditMixin, FlowMatchGeneratorPipe):
             PipeInputSpec("conditioning", IOType.CONDITIONING, True, "Encoded prompt conditioning (per image)", is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
             cls.img2img_input_spec(),
+            cls.inpaint_input_spec(),
         ]
 
     @classmethod

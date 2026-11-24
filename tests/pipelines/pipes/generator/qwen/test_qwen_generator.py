@@ -53,6 +53,8 @@ class _FakeGenerator:
         return torch.zeros(latents_shape)
 
     def decode(self, latent, **_):
+        if latent.ndim == 5:
+            return np.zeros((1, latent.shape[-2] * 8, latent.shape[-1] * 8, 3), dtype=np.uint8)
         return np.zeros((1, 8, 8, 3), dtype=np.uint8)
 
     def encode_image(self, pixels, **_):
@@ -479,3 +481,53 @@ def test_release_idle_te_removed():
     memory/residency.py's run_text_encode + NativeGenerator._own_models)."""
     assert not hasattr(GeneratorQwenPipe, "_release_idle_te")
     assert "MODELS" not in {s.name for s in GeneratorQwenPipe.inputs()}
+
+
+def _inpaint_pipe_input(image=None, mask=None):
+    inp = _pipe_input()
+    if image is not None:
+        inp.input["image"] = [image]
+    if mask is not None:
+        inp.input["mask"] = [mask]
+    return inp
+
+
+def _half_mask(size):
+    mask = Image.new("L", size, 0)
+    mask.paste(255, (size[0] // 2, 0, size[0], size[1]))
+    return mask
+
+
+def test_inpaint_is_a_mode_choice_and_takes_a_mask_input():
+    mode_spec = next(s for s in GeneratorQwenPipe.configuration() if s.name == "mode")
+    assert "inpaint" in mode_spec.choices
+    assert any(s.name == "mask" for s in GeneratorQwenPipe.inputs())
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_inpaint_mode_samples_with_a_latent_mask_and_keeps_the_unmasked_pixels():
+    src = Image.new("RGB", (64, 64), color=(200, 10, 10))
+    pipe = _make_pipe(mode="inpaint", denoise=1.0, resolution="64x64")
+    result = pipe.process(_inpaint_pipe_input(image=src, mask=_half_mask((64, 64))), lambda o: None)
+
+    gen = _FakeGenerator.instances[-1]
+    call = gen.sample_calls[0]
+    latent_mask = call["latent_mask"]
+    assert latent_mask.shape == (1, 1, 1, 8, 8)
+    assert latent_mask[..., :4].sum() == 0
+    assert latent_mask[..., 4:].min() == 1
+    assert "ref_latents" not in call["conditioning"].cond
+
+    out = np.asarray(result.output["image"][0])
+    assert out.shape == (64, 64, 3)
+    assert tuple(out[0, 0]) == (200, 10, 10)
+    assert tuple(out[0, 63]) == (0, 0, 0)
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_inpaint_mode_without_a_mask_raises():
+    pipe = _make_pipe(mode="inpaint")
+    with pytest.raises(GenerationExecutionError):
+        pipe.process(_inpaint_pipe_input(image=Image.new("RGB", (64, 64))), lambda o: None)
